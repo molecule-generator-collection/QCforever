@@ -45,10 +45,13 @@ stable2o2:
 
 ipe:
 	ionization potential energy
+	
 eae:
 	electronic affinity 
+	
 npe:
 	neutralization energy from a positively charged molecule (geometry optimized)
+	
 nne:
 	neutralization energy from a negatively charged molecule (geometry optimized)
 
