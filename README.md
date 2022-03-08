@@ -8,11 +8,14 @@ GaussianRunPack is a wrapper of Gaussian (https://gaussian.com). It is possible 
 
 ## How to use
 GaussianRunPack accept a sdf file or a gaussian chk file.
+
 > python main.py input_file
+
 By specifying the molecular properties you want as an option variables,
 the program will automatically calculate them. 
 
-The following options are currently available:
+Following options are currently available:
+
 opt:
 	just perform geometry optimization of the molecule.
 
