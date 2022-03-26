@@ -1,5 +1,5 @@
 # GaussianRunPack
-GaussianRunPack is a wrapper of Gaussian (https://gaussian.com). It is possible to evaluate the molecule with its multiple properties.
+GaussianRunPack is a wrapper of Gaussian (https://gaussian.com). It is possible to evaluate a molecule with its multiple properties.
 
 ## Requirements
 1. [Gaussian](https://gaussian.com)==16
