@@ -1,5 +1,5 @@
 import os, sys, gc
-from pprint import pprint
+#from pprint import pprint
 import GaussianRunPack
 				
 usage ='Usage; %s infile' % sys.argv[0]
@@ -21,17 +21,26 @@ except:
 
 
 #for stargint from gaussian calculation
-option = "opt deen homolumo stable2o2 dipole uv "
-#option = "opt deen nmr ipe eae homolumo dipole uv "
-#option = "opt homolumo energy dipole deen stable2o2 nne uv fluor ipe eae pne nne" 
+#option = "symm uv"
+#option = "opt deen nmr stable2o2"
+#option = "opt deen vip vea homolumo dipole uv symm"
+#option = "uv=/home/sumita/GaussianRun_2.1beta/Samples/UV_peak.dat" 
+#option = "opt homolumo energy dipole deen stable2o2 uv=/home/sumita/GaussianRun_2.1beta/Samples/UV_peak.dat vip vea aip aea" 
+#option = "opt homolumo energy dipole deen stable2o2 uv vip vea aip aea" 
+option = "opt homolumo energy dipole deen stable2o2 fluor=3" 
 #option = "opt cden homolumo energy dipole deen stable2o2 tadf" 
-solvent = "0"
-test_sdf = GaussianRunPack.GaussianDFTRun('X3LYP', '6-31G*', 20, option, solvent, infilename, 0)
+#solvent = "water"
 
+test_sdf = GaussianRunPack.GaussianDFTRun('B3LYP', 'STO-3G', 8, option, infilename)
+
+test_sdf.mem = '5GB'
+test_sdf.timexe = 60*60
 outdic = test_sdf.run_gaussian()
 
 del test_sdf
 gc.collect()
+
+print(os.getcwd())
 
 print (outdic)
 #######################################
