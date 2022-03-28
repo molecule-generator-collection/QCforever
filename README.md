@@ -17,10 +17,10 @@ the program will automatically calculate them.
 Following options are currently available:
 
 symm:
-	just specify symmetry of molecule.
+	just specify symmetry of a molecule.
 
 opt:
-	just perform geometry optimization of the molecule.
+	just perform geometry optimization of a molecule.
 
 nmr:
 	NMR chemical shift (ppm to TMS) of each atom is computed.
