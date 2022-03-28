@@ -25,7 +25,7 @@ nmr:
 	NMR chemical shift (ppm to TMS) of each atom is computed.
   
 uv:
-	absorption wavelengths (nm)  (for spin allowed states) are computed. If you add absolute path of text file that specify peak positions and their peak, it is possible to the similarity and dissimilarity between the target and reference.
+	absorption wavelengths (nm)  (for spin allowed states) are computed. If you add an absolute path of text file that specify peak positions and their peak like (uv=/ab/path2uv.dat), it is possible to the similarity and dissimilarity between the target and reference.
 
 energy: 
 	SCF energy (in Eh) is printed.
