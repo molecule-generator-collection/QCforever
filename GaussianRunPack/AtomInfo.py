@@ -1,6 +1,9 @@
 #!/sw/bin/python3.4
 import sys, math
 import json
+import os.path
+
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
 def AtomicWeight(Element):
 
@@ -46,9 +49,7 @@ def AtomicNumElec(Element):
             print ("We don't have the information about %-s!" % (Element)) 
             exit()
 
-
-
-def ImportAtomEnergies(filepath, Functional, Basis):
+def ImportDFTdata(filepath, Functional, Basis):
     f = open(filepath, 'r')
     data = json.load(f)
     fnc = Functional.upper()
@@ -56,7 +57,8 @@ def ImportAtomEnergies(filepath, Functional, Basis):
     return data[fnc][bas]
     
 def One_Atom_Energy(Element, Functional, Basis):
-    Atom_Energies = ImportAtomEnergies("../GaussianRunPack/AtomInfo.json", Functional, Basis)
+    datadir = BASE_DIR+"/AtomInfo.json"
+    Atom_Energies = ImportDFTdata(datadir, Functional, Basis)
     
     if(Element in Atom_Energies):
         s = Atom_Energies[Element]
@@ -66,15 +68,9 @@ def One_Atom_Energy(Element, Functional, Basis):
     print ("We don't have the information about %-s!" % (Element)) 
     exit()
 
-def ImportTMS_nmr(filepath, Functional, Basis):
-    f = open(filepath, 'r')
-    data = json.load(f)
-    fnc = Functional.upper()
-    bas = Basis.upper()
-    return data[fnc][bas]
-
 def One_TMS_refer(Element, Functional, Basis):
-    Atom_ref = ImportTMS_nmr("../GaussianRunPack/NMRInfo.json", Functional, Basis)
+    datadir = BASE_DIR+"/NMRInfo.json"
+    Atom_ref = ImportDFTdata(datadir, Functional, Basis)
     
     if(Element in Atom_ref):
         s = Atom_ref[Element]
@@ -84,15 +80,9 @@ def One_TMS_refer(Element, Functional, Basis):
     print ("We don't have the information about %-s!" % (Element)) 
     exit()
 
-def Import_O2_MO(filepath, Functional, Basis):
-    f = open(filepath, 'r')
-    data = json.load(f)
-    fnc = Functional.upper()
-    bas = Basis.upper()
-    return data[fnc][bas]
-
 def O2_MO_refer(Functional, Basis):
-    O2_MO= Import_O2_MO("../GaussianRunPack/OxInfo.json", Functional, Basis)
+    datadir = BASE_DIR+"/OxInfo.json"
+    O2_MO = ImportDFTdata(datadir, Functional, Basis)
 
     return float(O2_MO['SOMO_a']), float(O2_MO['LUMO_b'])
 

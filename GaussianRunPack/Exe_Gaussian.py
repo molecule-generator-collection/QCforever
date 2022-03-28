@@ -38,7 +38,9 @@ def count_Finishjob(jobname):
 
 
 
-def exe_Gaussian(jobname, exe_time = 60*60*8):
+def exe_Gaussian(jobname, exe_time):
+
+    print ("Time for Gaussian: ", exe_time)
 
     Njob = count_Njob(jobname)
     print('Number of Job: ', Njob)
@@ -63,6 +65,10 @@ def exe_Gaussian(jobname, exe_time = 60*60*8):
         NFinishedJob = count_Finishjob(jobname)
         if NFinishedJob == Njob:
             break
+
+        if i == exe_time-1:
+            print ("End of waiting for Gaussian!")
+    
     GaussianPros.kill()
     
     print (GaussianPros)

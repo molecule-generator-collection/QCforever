@@ -7,7 +7,11 @@ def Get_chklist():
 
     for i in glob.glob('./*.chk'):
         print(i)
-        subprocess.run(['formchk', i])
+        try:
+            subprocess.run(['formchk', i])
+        except:
+            print ("Failed to convert chk to fchk!")            
+
         os.remove('./'+ i)
 
 if __name__ == '__main__':

@@ -93,8 +93,6 @@ def extract_CD(lines):
     
     return CD_length, CD_Osc
 
-
-
 def Extract_ExcitedState(lines):
 
     Egrd = 0.0
@@ -107,7 +105,10 @@ def Extract_ExcitedState(lines):
 
     Comp_SS, Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(lines)
 
+    print ("Get information about excited state")
+
     for line in lines:
+        #print (line)
         if line.find("SCF Done:  ") >=0:
             line_SCFEnergy = re.split("\s+", line)
             Egrd = float(line_SCFEnergy[5])

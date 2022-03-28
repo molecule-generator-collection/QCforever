@@ -15,7 +15,6 @@ import GaussianRunPack.Estimate_SpinContami
 import GaussianRunPack.Get_ChargeSpin
 import GaussianRunPack.Get_MOEnergy
 import GaussianRunPack.chk2fchk
-import GaussianRunPack.UV_similarity
 
 class GaussianDFTRun:
 
@@ -25,15 +24,12 @@ class GaussianDFTRun:
         self.functional = functional.lower()
         self.basis = basis.lower()
         self.nproc = nproc
-#        self.value = value.lower()
-        self.value = value
+        self.value = value.lower()
         self.solvent = solvent.lower()
         self.error = error
 
         self.mem = ''
         self.timexe = 60*60*80
-
-        self.ref_uv_path = ''
 
     def Extract_SCFEnergy(self, lines):
 
@@ -370,19 +366,6 @@ class GaussianDFTRun:
             output["uv"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
             output["state_index"] = [State_allowed, State_forbidden]
             Links[Index]=""
-
-            if self.ref_uv_path != '':
-                ref_uv = {}
-
-                print ("Read the reference spectrum...", self.ref_uv_path)
-
-                ref_uv["uv"] = GaussianRunPack.UV_similarity.read_data(self.ref_uv_path)
-    
-                S, D = GaussianRunPack.UV_similarity.smililarity_dissimilarity(ref_uv["uv"][0], ref_uv["uv"][1], \
-                output["uv"][0], output["uv"][1])
-
-                output["Similality/Disdimilarity"] =[S, D]
-
   
         if fluor == 1 or tadf == 1:
             Index = 1+symm+uv+nmr+vip+vea+aip+aea+fluor 
@@ -550,42 +533,39 @@ class GaussianDFTRun:
 
         for i in range(len(options)):
             option = options[i]
-            if option.lower() == 'opt':
+            if option == 'opt':
 #                opt = 1
                 option_array[0] = 1
-            elif option.lower() == 'nmr':
+            elif option == 'nmr':
 #                nmr = 1
                 option_array[1] = 1
                 #print ('nmr')
-            elif 'uv' in option.lower():
+            elif option == 'uv':
 #                uv = 1
                 option_array[2] = 1
-                if '=' in option:
-                    ref_spectrum = option.split("=")
-                    self.ref_uv_path = ref_spectrum[-1]
                 #print ('uv')
-            elif option.lower() == 'energy':
+            elif option == 'energy':
 #                energy = 1
                 option_array[3] = 1
                 #print ('energy')
-            elif option.lower() == 'homolumo':
+            elif option == 'homolumo':
 #                gap = 1
                 option_array[4] = 1
                 #print ('HOMO/LUMO')
-            elif option.lower() == 'dipole':
+            elif option == 'dipole':
 #                dipole = 1
                 option_array[5] = 1
                 #print ('dipole')
-            elif option.lower() == 'deen':
+            elif option == 'deen':
 #                deen = 1
                 option_array[6] = 1
                 #print ('Decomposition energy')
-            elif option.lower() == 'stable2o2':
+            elif option == 'stable2o2':
 #                stable2o2 = 1
                 option_array[7] = 1
                 #print ('Stability to O2')
 #            elif option == 'fluor':
-            elif 'fluor' in option.lower():
+            elif 'fluor' in option:
 #                fluor = 1
                 option_array[2] = 1
                 if SpinMulti == 1:
@@ -596,7 +576,7 @@ class GaussianDFTRun:
                     in_target = option.split("=")
                     targetstate = int(in_target[-1])
                 #print ('Fluorescence')
-            elif option.lower() == 'tadf':
+            elif option == 'tadf':
 #                tadf = 1
                 option_array[2] = 1
                 if SpinMulti == 1:
@@ -606,27 +586,27 @@ class GaussianDFTRun:
                     option_array_Ex[8] = 1
                     option_array_Ex[9] = 1
                 #print ('Thermally Activated Delayed Fluorescence')
-            elif option.lower() == 'vip':
+            elif option == 'vip':
 #                vip = 1
                 option_array[10] = 1
                 #print ('Ionization potential')
-            elif option.lower() == 'vea':
+            elif option == 'vea':
 #                vea = 1
                 option_array[11] = 1
                 #print ('Electronic affinity')
-            elif option.lower() == 'aip':
+            elif option == 'aip':
 #                aip = 1
                 option_array[12] = 1
                 #print ('Neutraization energy from cation')
-            elif option.lower() == 'aea':
+            elif option == 'aea':
 #                aea = 1
                 option_array[13] = 1
                 #print ('Neutraization energy from anion')
-            elif option.lower() == 'cden':
+            elif option == 'cden':
 #                nne = 1
                 option_array[14] = 1
                 #print ('Neutraization energy from anion')
-            elif option.lower() == 'symm':
+            elif option == 'symm':
                 option_array[15] = 1
                 #print ('Calculate symmetry')
             else:
@@ -884,18 +864,18 @@ class GaussianDFTRun:
 
         os.chdir(PreGauInput[0])
         
-        try:
-            GaussianRunPack.Exe_Gaussian.exe_Gaussian(PreGauInput[0], self.timexe)
-            logfile = PreGauInput[0]+'.log'
-            output_dic = self.Extract_values(logfile, option_array, Bondpair1, Bondpair2)
-        except:
-            pass
+        GaussianRunPack.Exe_Gaussian.exe_Gaussian(PreGauInput[0], self.timexe)
+
+        logfile = PreGauInput[0]+'.log'
+
+        output_dic = self.Extract_values(logfile, option_array,Bondpair1, Bondpair2)
 
         if option_array_Ex[8] == 1 or option_array_Ex[9] == 1: #fluor == 1 or tadf == 1 for open shel
     
             compute_state = output_dic["state_index"][0][int(targetstate)-1] 
             JobName_ExOpt = PreGauInput[0] + "_ExOpt"
             GauInputName_ExOpt = JobName_ExOpt + ".com"
+            logfile_ExOpt = JobName_ExOpt + ".log"
             ofile_ExOpt = open(GauInputName_ExOpt ,'w')
 
             ofile.write(line_system)
@@ -912,13 +892,10 @@ class GaussianDFTRun:
                 ofile_ExOpt.write(sTD) 
     
             ofile_ExOpt.close()
-
-            try:
-                GaussianRunPack.Exe_Gaussian.exe_Gaussian(JobName_ExOpt, self.timexe)
-                logfile_ExOpt = JobName_ExOpt + ".log"
-                output_dic_Ex = self.Extract_values(logfile_ExOpt, option_array_Ex, Bondpair1, Bondpair2)
-            except:
-                pass
+    
+            GaussianRunPack.Exe_Gaussian.exe_Gaussian(JobName_ExOpt, self.timexe)
+    
+            output_dic_Ex = self.Extract_values(logfile_ExOpt, option_array_Ex, Bondpair1, Bondpair2)
     
             output_dic.update(output_dic_Ex)
 
@@ -943,7 +920,6 @@ class GaussianDFTRun:
             Link = Link + line
 
         Links.append(Link)
-
         return Links
 
 
