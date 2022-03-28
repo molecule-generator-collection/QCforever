@@ -17,6 +17,7 @@ the program will automatically calculate them.
 Following options are currently available:
 
 symm:
+	just specify symmetry of molecule.
 
 opt:
 	just perform geometry optimization of the molecule.
