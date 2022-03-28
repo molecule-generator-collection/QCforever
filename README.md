@@ -16,6 +16,8 @@ the program will automatically calculate them.
 
 Following options are currently available:
 
+symm:
+
 opt:
 	just perform geometry optimization of the molecule.
 
@@ -23,7 +25,7 @@ nmr:
 	NMR chemical shift (ppm to TMS) of each atom is computed.
   
 uv:
-	absorption wavelengths (nm)  (for spin allowed states) are computed.
+	absorption wavelengths (nm)  (for spin allowed states) are computed. If you add absolute path of text file that specify peak positions and their peak, it is possible to the similarity and dissimilarity between the target and reference.
 
 energy: 
 	SCF energy (in Eh) is printed.
@@ -43,17 +45,17 @@ deen:
 stable2o2:
 	stability to oxygen molecule
 
-ipe:
-	ionization potential energy
+vip:
+	vertical ionization potential energy (in eV)
 	
-eae:
-	electronic affinity 
+vea:
+	vertiacl electronic affinity (in eV)
 	
-npe:
-	neutralization energy from a positively charged molecule (geometry optimized)
+aip:
+	adiabatic ionization energy (in eV) 
 	
-nne:
-	neutralization energy from a negatively charged molecule (geometry optimized)
+aea:
+	adiabtic electronic affinity (in eV)
 
 fluor:
 	wavelength (in nm) of fluorescence are computed. 
