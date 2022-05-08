@@ -10,7 +10,7 @@ def Get_chklist():
         try:
             subprocess.run(['formchk', i])
         except:
-            print ("Failed to convert chk to fchk!")            
+            print ("Failed converting chk to fchk!")            
 
         os.remove('./'+ i)
 

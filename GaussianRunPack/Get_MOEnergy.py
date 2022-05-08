@@ -34,7 +34,10 @@ def Extract_MO(lines):
                     line_StateInfo.remove('\n')
 
                 for i in range(len(line_StateInfo)):
-                    AlphaEigenVal.append(float(line_StateInfo[i]))
+                    if line_StateInfo[i] == "**********":
+                        AlphaEigenVal.append(0.0000)
+                    else:
+                        AlphaEigenVal.append(float(line_StateInfo[i]))
 
             if line.find("Alpha virt. eigenvalues --") >=0:
                 line_removed = line.replace(" Alpha virt. eigenvalues -- ", "")
@@ -46,7 +49,10 @@ def Extract_MO(lines):
                     line_StateInfo.remove('\n')
 
                 for i in range(len(line_StateInfo)):
-                    AlphaEigenVal.append(float(line_StateInfo[i]))
+                    if line_StateInfo[i] == "**********":
+                        AlphaEigenVal.append(0.0000)
+                    else:
+                        AlphaEigenVal.append(float(line_StateInfo[i]))
 
             if line.find("Beta  occ. eigenvalues --") >=0:
 
@@ -62,7 +68,10 @@ def Extract_MO(lines):
                     line_StateInfo.remove('\n')
 
                 for i in range(len(line_StateInfo)):
-                    BetaEigenVal.append(float(line_StateInfo[i]))
+                    if line_StateInfo[i] == "**********":
+                        BetaEigenVal.append(0.00000)
+                    else:
+                        BetaEigenVal.append(float(line_StateInfo[i]))
 
             if line.find("Beta virt. eigenvalues --") >=0:
                 line_removed = line.replace("  Beta virt. eigenvalues -- ", "")
@@ -76,7 +85,10 @@ def Extract_MO(lines):
                     line_StateInfo.remove('\n')
 
                 for i in range(len(line_StateInfo)):
-                    BetaEigenVal.append(float(line_StateInfo[i]))
+                    if line_StateInfo[i] == "**********":
+                        BetaEigenVal.append(0.00000)
+                    else:
+                        BetaEigenVal.append(float(line_StateInfo[i]))
 
         return NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal 
 

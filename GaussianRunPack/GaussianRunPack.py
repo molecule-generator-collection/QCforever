@@ -15,7 +15,9 @@ import GaussianRunPack.Estimate_SpinContami
 import GaussianRunPack.Get_ChargeSpin
 import GaussianRunPack.Get_MOEnergy
 import GaussianRunPack.chk2fchk
+import GaussianRunPack.fchk2chk
 import GaussianRunPack.UV_similarity
+import GaussianRunPack.Get_FreqPro
 
 class GaussianDFTRun:
 
@@ -53,31 +55,32 @@ class GaussianDFTRun:
     def Extract_values(self, infilename, option_array, Bondpair1, Bondpair2):
 
         opt       = int(option_array[0]) 
-        nmr       = int(option_array[1]) 
-        uv        = int(option_array[2])
-        energy    = int(option_array[3])
-        gap       = int(option_array[4])
-        dipole    = int(option_array[5])
-        deen      = int(option_array[6])
-        stable2o2 = int(option_array[7])
-        fluor     = int(option_array[8])
-        tadf      = int(option_array[9])
-        vip       = int(option_array[10])
-        vea       = int(option_array[11])
-        aip       = int(option_array[12])
-        aea       = int(option_array[13])
-        cden      = int(option_array[14])
-        symm      = int(option_array[15])
+        freq      = int(option_array[1]) 
+        nmr       = int(option_array[2]) 
+        uv        = int(option_array[3])
+        energy    = int(option_array[4])
+        homolumo  = int(option_array[5])
+        dipole    = int(option_array[6])
+        deen      = int(option_array[7])
+        stable2o2 = int(option_array[8])
+        fluor     = int(option_array[9])
+        tadf      = int(option_array[10])
+        vip       = int(option_array[11])
+        vea       = int(option_array[12])
+        aip       = int(option_array[13])
+        aea       = int(option_array[14])
+        cden      = int(option_array[15])
+        symm      = int(option_array[16])
 
         with open(infilename, 'r') as ifile:
             lines = ifile.readlines()
 
         output = {}
 
-        for line in lines:
-            if line.find("Error termination") >=0:
-                print("Gausssian is stopped due to some errors")
-                return output
+#        for line in lines:
+#            if line.find("Error termination") >=0:
+#                print("Gausssian is stopped due to some errors")
+#                return output
 
         print("Spliting links....")
         Links = self.SplitLinks(infilename)
@@ -90,16 +93,18 @@ class GaussianDFTRun:
 #####For extracting symmetry of molecule without SCF
         if symm ==1:
             Symm_lines = Links[symm].splitlines()
+            pGroup = "C1"
             for line in Symm_lines:
                 if line.find("Full point group  ") >=0:
                     line_symmInfo = line.split()
+                    pGroup = line_symmInfo[3]
 
-            output["symm"] = line_symmInfo[3]
+            output["symm"] = pGroup
 ####################################################
 
 
 #####For extracting properties of molecule after SCF        
-        if 1 in option_array[0:15]: 
+        if 1 in option_array[0:16]: 
             GS_lines = Links[1+symm].splitlines()
             Links[1+symm] = ""
 
@@ -111,21 +116,34 @@ class GaussianDFTRun:
             else:
                 output["GS_MaxBondLength"] = 0
 
-        if gap == 1:
+        if freq == 1:
+            print("For getting frequency")
+            Freq, IR, Raman, E_zp,  E_t, E_enth, E_free, Ei, Cv, St = GaussianRunPack.Get_FreqPro.Extract_Freq(GS_lines) 
+            output["freq"] = Freq 
+            output["IR"] = IR
+            output["Raman"] = Raman
+            output["Ezp"] = E_zp
+            output["Et"] = E_t
+            output["E_enth"] = E_enth
+            output["E_free"] = E_free
+            output["Ei"] = Ei
+            output["Cv"] = Cv
+            output["Si"] = St
+
+        if homolumo == 1:
   
             NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = GaussianRunPack.Get_MOEnergy.Extract_MO(GS_lines)
 
             if BetaEigenVal == []:
                 Alpha_gap = 27.211*(AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
-                output["gap"] = Alpha_gap
+                output["homolumo"] = Alpha_gap
             #    return Alpha_gap
             else:
                 Alpha_gap = 27.211*(AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
                 Beta_gap = 27.211*(BetaEigenVal[NumBetaElec]-BetaEigenVal[NumBetaElec-1])
   
-                output["gap"] = [Alpha_gap, Beta_gap]
+                output["homolumo"] = [Alpha_gap, Beta_gap]
             #    return Alpha_gap, Beta_gap
-  
   
         if dipole == 1:
             Dipole_X = []
@@ -514,7 +532,6 @@ class GaussianDFTRun:
 
         return s
 
-
     def run_gaussian(self):
         
         infilename = self.in_file
@@ -523,8 +540,8 @@ class GaussianDFTRun:
 
         options = option_line.split()
 
-        option_array = zeros(16)
-        option_array_Ex = zeros(16)
+        option_array = zeros(17)
+        option_array_Ex = zeros(17)
 
         targetstate = 1
 
@@ -543,6 +560,11 @@ class GaussianDFTRun:
             ReadFromchk = 1 
             Bondpair1 = []
             Bondpair2 = []
+        elif PreGauInput[1] == "fchk":
+            TotalCharge, SpinMulti = GaussianRunPack.fchk2chk.Get_fchk(PreGauInput[0])
+            ReadFromchk = 1 
+            Bondpair1 = []
+            Bondpair2 = []
         else:
             print ("Invalid input file")
 ############################################
@@ -553,45 +575,49 @@ class GaussianDFTRun:
             if option.lower() == 'opt':
 #                opt = 1
                 option_array[0] = 1
-            elif option.lower() == 'nmr':
+            elif option.lower() == 'freq':
 #                nmr = 1
                 option_array[1] = 1
+                #print ('freq')
+            elif option.lower() == 'nmr':
+#                nmr = 1
+                option_array[2] = 1
                 #print ('nmr')
             elif 'uv' in option.lower():
 #                uv = 1
-                option_array[2] = 1
+                option_array[3] = 1
                 if '=' in option:
                     ref_spectrum = option.split("=")
                     self.ref_uv_path = ref_spectrum[-1]
                 #print ('uv')
             elif option.lower() == 'energy':
 #                energy = 1
-                option_array[3] = 1
+                option_array[4] = 1
                 #print ('energy')
             elif option.lower() == 'homolumo':
-#                gap = 1
-                option_array[4] = 1
+#                homolumo = 1
+                option_array[5] = 1
                 #print ('HOMO/LUMO')
             elif option.lower() == 'dipole':
 #                dipole = 1
-                option_array[5] = 1
+                option_array[6] = 1
                 #print ('dipole')
             elif option.lower() == 'deen':
 #                deen = 1
-                option_array[6] = 1
+                option_array[7] = 1
                 #print ('Decomposition energy')
             elif option.lower() == 'stable2o2':
 #                stable2o2 = 1
-                option_array[7] = 1
+                option_array[8] = 1
                 #print ('Stability to O2')
 #            elif option == 'fluor':
             elif 'fluor' in option.lower():
 #                fluor = 1
-                option_array[2] = 1
+                option_array[3] = 1
                 if SpinMulti == 1:
-                    option_array[8] = 1
+                    option_array[9] = 1
                 else:
-                    option_array_Ex[8] = 1
+                    option_array_Ex[9] = 1
                 if '=' in option:
                     in_target = option.split("=")
                     targetstate = int(in_target[-1])
@@ -600,34 +626,36 @@ class GaussianDFTRun:
 #                tadf = 1
                 option_array[2] = 1
                 if SpinMulti == 1:
-                    option_array[8] = 1
                     option_array[9] = 1
+                    option_array[10] = 1
                 else:
-                    option_array_Ex[8] = 1
                     option_array_Ex[9] = 1
+                    option_array_Ex[10] = 1
                 #print ('Thermally Activated Delayed Fluorescence')
             elif option.lower() == 'vip':
 #                vip = 1
-                option_array[10] = 1
+                option_array[11] = 1
                 #print ('Ionization potential')
             elif option.lower() == 'vea':
 #                vea = 1
-                option_array[11] = 1
+                option_array[12] = 1
                 #print ('Electronic affinity')
             elif option.lower() == 'aip':
 #                aip = 1
-                option_array[12] = 1
+                option_array[11] = 1
+                option_array[13] = 1
                 #print ('Neutraization energy from cation')
             elif option.lower() == 'aea':
 #                aea = 1
-                option_array[13] = 1
+                option_array[12] = 1
+                option_array[14] = 1
                 #print ('Neutraization energy from anion')
             elif option.lower() == 'cden':
 #                nne = 1
-                option_array[14] = 1
+                option_array[15] = 1
                 #print ('Neutraization energy from anion')
             elif option.lower() == 'symm':
-                option_array[15] = 1
+                option_array[16] = 1
                 #print ('Calculate symmetry')
             else:
                 print('invalid option: ', option)
@@ -660,7 +688,7 @@ class GaussianDFTRun:
         line_readGeom = 'Geom=Checkpoint'
 ########################################################
 
-        if option_array[15] == 1:
+        if option_array[16] == 1:
             ofile.write(line_system)
             ofile.write(line_chk+'\n')
             ofile.write(line_o_method+'\n')
@@ -687,12 +715,12 @@ class GaussianDFTRun:
                 ofile.write('\n')
 #####For adding other jobs when other options are required...
 
-                if 1 in option_array[0:15]: 
+                if 1 in option_array[0:16]: 
 
                     ofile.write('--Link1--\n')
 ##########################################################
 
-        if 1 in option_array[0:15]: 
+        if 1 in option_array[0:16]: 
 
             ofile.write(line_system)
             ofile.write(line_chk+'\n')
@@ -700,6 +728,10 @@ class GaussianDFTRun:
 
             if option_array[0] == 1: # opt == 1
                 ofile.write('Opt=(MaxCycles=100)\n')
+
+           
+            if option_array[1] == 1: # opt == 1
+                ofile.write('Freq=(Raman)\n')
 
 #######Solvent effect############################
             SCRF, SCRF_read = self.MakeSolventLine()
@@ -729,7 +761,7 @@ class GaussianDFTRun:
                 ofile.write(SCRF_read)
 #######################################
 
-            if option_array[1] == 1: # nmr == 1
+            if option_array[2] == 1: # nmr == 1
 
                 ofile.write('--Link1--\n')
 
@@ -745,7 +777,7 @@ class GaussianDFTRun:
                 ofile.write('\n')
                 ofile.write(SCRF_read)
 
-            if option_array[10] == 1: # vip == 1
+            if option_array[11] == 1: # vip == 1
 
                 ofile.write('--Link1--\n')
                 ofile.write(line_system)
@@ -765,7 +797,7 @@ class GaussianDFTRun:
                 ofile.write('\n')
                 ofile.write(SCRF_read)
 
-            if option_array[11] == 1: # vea == 1
+            if option_array[12] == 1: # vea == 1
 
                 ofile.write('--Link1--\n')
                 ofile.write(line_system)
@@ -784,7 +816,7 @@ class GaussianDFTRun:
                 ofile.write('\n')
                 ofile.write(SCRF_read)
 
-            if option_array[12] == 1: # aip == 1
+            if option_array[13] == 1: # aip == 1
 
                 ofile.write('--Link1--\n')
                 ofile.write(line_system)
@@ -820,7 +852,7 @@ class GaussianDFTRun:
                 ofile.write('\n')
                 ofile.write(SCRF_read)
 
-            if option_array[13] == 1: #aea == 1
+            if option_array[14] == 1: #aea == 1
 
                 ofile.write('--Link1--\n')
                 ofile.write(line_system)
@@ -856,14 +888,13 @@ class GaussianDFTRun:
                 ofile.write('\n')
                 ofile.write(SCRF_read)
 
-
-            if option_array[2] == 1 : #uv == 1 or fluor==1 or tadf == 1
+            if option_array[3] == 1 : #uv == 1 or fluor==1 or tadf == 1
                 sTD = self.MakeLinkTD(line_chk, line_method, None, SCRF, SCRF_read, False, targetstate )
                 ofile.write(sTD) 
-            if option_array[8] == 1 :
+            if option_array[9] == 1 :
                 sTD = self.MakeLinkTD(line_chk, line_c_method, 'Singlet',  SCRF, SCRF_read, True, targetstate )
                 ofile.write(sTD) 
-            if option_array[9] == 1 :
+            if option_array[10] == 1 :
                 sTD = self.MakeLinkTD(line_chk, line_c_method, 'Triplet',  SCRF, SCRF_read, True, targetstate )
                 ofile.write(sTD) 
 
@@ -873,6 +904,9 @@ class GaussianDFTRun:
 
 ############Run Gaussian##############################
 
+        job_state = "normal"
+        output_dic = {}
+
         if os.path.isdir(PreGauInput[0]):
             shutil.rmtree(PreGauInput[0])
 
@@ -880,18 +914,25 @@ class GaussianDFTRun:
         shutil.move(GauInputName, PreGauInput[0])
 
         if ReadFromchk == 1 :
-            shutil.move(infilename, PreGauInput[0]) 
+            inchkfile = PreGauInput[0]+".chk"
+            shutil.move(inchkfile, PreGauInput[0]) 
 
         os.chdir(PreGauInput[0])
         
         try:
-            GaussianRunPack.Exe_Gaussian.exe_Gaussian(PreGauInput[0], self.timexe)
+            job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(PreGauInput[0], self.timexe)
             logfile = PreGauInput[0]+'.log'
             output_dic = self.Extract_values(logfile, option_array, Bondpair1, Bondpair2)
         except:
+            job_state = "error"
             pass
 
-        if option_array_Ex[8] == 1 or option_array_Ex[9] == 1: #fluor == 1 or tadf == 1 for open shel
+#        job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(PreGauInput[0], self.timexe)
+#        logfile = PreGauInput[0]+'.log'
+#        output_dic = self.Extract_values(logfile, option_array, Bondpair1, Bondpair2)
+
+
+        if option_array_Ex[9] == 1 or option_array_Ex[10] == 1: #fluor == 1 or tadf == 1 for open shell
     
             compute_state = output_dic["state_index"][0][int(targetstate)-1] 
             JobName_ExOpt = PreGauInput[0] + "_ExOpt"
@@ -906,7 +947,7 @@ class GaussianDFTRun:
             sTD = self.MakeLinkTD(line_chk, line_o_method, None, SCRF, SCRF_read, True, compute_state)
             ofile_ExOpt.write(sTD)
     
-            if option_array_Ex[9] == 1: #tadf == 1
+            if option_array_Ex[10] == 1: #tadf == 1
                 compute_state = output_dic["state_index"][1][int(targetstate)-1] 
                 sTD = self.MakeLinkTD(line_chk, line_o_method, None, SCRF, SCRF_read, True, compute_state)
                 ofile_ExOpt.write(sTD) 
@@ -914,13 +955,17 @@ class GaussianDFTRun:
             ofile_ExOpt.close()
 
             try:
-                GaussianRunPack.Exe_Gaussian.exe_Gaussian(JobName_ExOpt, self.timexe)
+                job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(JobName_ExOpt, self.timexe)
                 logfile_ExOpt = JobName_ExOpt + ".log"
                 output_dic_Ex = self.Extract_values(logfile_ExOpt, option_array_Ex, Bondpair1, Bondpair2)
             except:
+                job_state = "error"
                 pass
-    
+
+
             output_dic.update(output_dic_Ex)
+
+        output_dic["log"] = job_state
 
         GaussianRunPack.chk2fchk.Get_chklist()
 
