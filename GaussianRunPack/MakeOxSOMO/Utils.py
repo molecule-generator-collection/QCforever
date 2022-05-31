@@ -6,7 +6,7 @@ O2_MOs = [
 ]
 
 Basis = [
-  "LanL2DZ",
+  "LANL2DZ",
   "STO-3G",
   "3-21G",
   "3-21G*",

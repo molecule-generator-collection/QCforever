@@ -7,6 +7,7 @@ TMS = [
 ]
 
 Basis = [
+  "LANL2DZ",
   "STO-3G",
   "3-21G",
   "6-31G",

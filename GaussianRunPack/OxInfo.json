@@ -1,6 +1,6 @@
 {
     "BLYP": {
-        "LanL2DZ": {
+        "LANL2DZ": {
             "SOMO_a": -0.26907,
             "LUMO_b": -0.18694
         },
@@ -22,7 +22,7 @@
         }
     },
     "B3LYP": {
-        "LanL2DZ": {
+        "LANL2DZ": {
             "SOMO_a": -0.33818,
             "LUMO_b": -0.14568
         },
@@ -44,7 +44,7 @@
         }
     },
     "X3LYP": {
-        "LanL2DZ": {
+        "LANL2DZ": {
             "SOMO_a": -0.34201,
             "LUMO_b": -0.13923
         },
@@ -66,7 +66,7 @@
         }
     },
     "LC-BLYP": {
-        "LanL2DZ": {
+        "LANL2DZ": {
             "SOMO_a": -0.47245,
             "LUMO_b": -0.01722
         },
@@ -88,7 +88,7 @@
         }
     },
     "CAM-B3LYP": {
-        "LanL2DZ": {
+        "LANL2DZ": {
             "SOMO_a": -0.40643,
             "LUMO_b": -0.07976
         },

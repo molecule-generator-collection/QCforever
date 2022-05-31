@@ -14,6 +14,7 @@ import GaussianRunPack.Get_MolCoordinate
 import GaussianRunPack.Estimate_SpinContami
 import GaussianRunPack.Get_ChargeSpin
 import GaussianRunPack.Get_MOEnergy
+import GaussianRunPack.Get_MOEnergy_fchk
 import GaussianRunPack.chk2fchk
 import GaussianRunPack.fchk2chk
 import GaussianRunPack.UV_similarity
@@ -52,7 +53,7 @@ class GaussianDFTRun:
         return Energy[-1]
 
 
-    def Extract_values(self, infilename, option_array, Bondpair1, Bondpair2):
+    def Extract_values(self, jobname, option_array, Bondpair1, Bondpair2):
 
         opt       = int(option_array[0]) 
         freq      = int(option_array[1]) 
@@ -71,6 +72,9 @@ class GaussianDFTRun:
         aea       = int(option_array[14])
         cden      = int(option_array[15])
         symm      = int(option_array[16])
+
+        infilename = jobname+'.log'
+        fchkname = jobname+'.fchk'
 
         with open(infilename, 'r') as ifile:
             lines = ifile.readlines()
@@ -131,9 +135,13 @@ class GaussianDFTRun:
             output["Si"] = St
 
         if homolumo == 1:
-  
-            NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = GaussianRunPack.Get_MOEnergy.Extract_MO(GS_lines)
 
+            with open(fchkname, 'r') as ifile:
+                fchk_lines = ifile.readlines()
+  
+            NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = GaussianRunPack.Get_MOEnergy_fchk.Extract_MO(fchk_lines)
+
+          #  NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = GaussianRunPack.Get_MOEnergy.Extract_MO(GS_lines)
             if BetaEigenVal == []:
                 Alpha_gap = 27.211*(AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
                 output["homolumo"] = Alpha_gap
@@ -193,7 +201,16 @@ class GaussianDFTRun:
             output["deen"] = GS_Energy - (decomposed_Energy)
 
         if stable2o2 == 1:
-            NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = GaussianRunPack.Get_MOEnergy.Extract_MO(GS_lines)
+
+            try:
+                NumAlphaElec
+        
+            except:
+                with open(fchkname, 'r') as fchkfile:
+                    fchk_lines = fchkfile.readlines()
+  
+                NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = GaussianRunPack.Get_MOEnergy_fchk.Extract_MO(fchk_lines)
+             #   NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = GaussianRunPack.Get_MOEnergy.Extract_MO(GS_lines)
             O2_SOMO, O2_LUMO = GaussianRunPack.AtomInfo.O2_MO_refer(self.functional, self.basis)
 
             if BetaEigenVal == []:
@@ -367,7 +384,7 @@ class GaussianDFTRun:
                     MaxBondLength = 0
 
 
-                output["RelaxedEA_MaxBondLength"] = MaxBondLength
+                output["relaxedEA_MaxBondLength"] = MaxBondLength
 
 ######Normal electronic affinity calculation####################
                 output["aea"] = [27.211*(GS_Energy - NC_Energy), 27.211*(VNN_Energy - NC_Energy), NC_Comp_SS-NC_Ideal_SS, VNN_Comp_SS-NC_Ideal_SS]
@@ -919,17 +936,15 @@ class GaussianDFTRun:
 
         os.chdir(PreGauInput[0])
         
+        job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(PreGauInput[0], self.timexe)
+        GaussianRunPack.chk2fchk.Get_chklist()
         try:
-            job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(PreGauInput[0], self.timexe)
-            logfile = PreGauInput[0]+'.log'
-            output_dic = self.Extract_values(logfile, option_array, Bondpair1, Bondpair2)
+            output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
         except:
             job_state = "error"
             pass
 
-#        job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(PreGauInput[0], self.timexe)
-#        logfile = PreGauInput[0]+'.log'
-#        output_dic = self.Extract_values(logfile, option_array, Bondpair1, Bondpair2)
+#        output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
 
 
         if option_array_Ex[9] == 1 or option_array_Ex[10] == 1: #fluor == 1 or tadf == 1 for open shell
@@ -954,10 +969,10 @@ class GaussianDFTRun:
     
             ofile_ExOpt.close()
 
+            job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(JobName_ExOpt, self.timexe)
+            GaussianRunPack.chk2fchk.Get_chklist()
             try:
-                job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(JobName_ExOpt, self.timexe)
-                logfile_ExOpt = JobName_ExOpt + ".log"
-                output_dic_Ex = self.Extract_values(logfile_ExOpt, option_array_Ex, Bondpair1, Bondpair2)
+                output_dic_Ex = self.Extract_values(JobName_ExOpt, option_array_Ex, Bondpair1, Bondpair2)
             except:
                 job_state = "error"
                 pass
@@ -967,7 +982,6 @@ class GaussianDFTRun:
 
         output_dic["log"] = job_state
 
-        GaussianRunPack.chk2fchk.Get_chklist()
 
         os.chdir("..")
 

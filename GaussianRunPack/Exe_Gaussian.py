@@ -92,6 +92,7 @@ def exe_Gaussian(jobname, exe_time):
     #GaussianResult.kill()
 
     print(os.getcwd())
+    os.environ["GAUSS_SCRDIR"] = os.getcwd()
     GaussianPros = subprocess.Popen(["g16", jobname])
     for i in range(exe_time):
         time.sleep(1)
@@ -122,7 +123,6 @@ def exe_Gaussian(jobname, exe_time):
 ##############################################
     
     NFinishedJob = count_Finishjob(jobname)
-
 
     if Njob == NFinishedJob:
         job_state = "normal"
