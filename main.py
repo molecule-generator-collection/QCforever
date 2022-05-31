@@ -25,7 +25,7 @@ except:
 
 #for stargint from gaussian calculation
 #option = "symm uv"
-option = "opt Freq"
+option = "opt homolumo stable2o2 nmr"
 #option = "opt deen vip vea homolumo dipole uv symm"
 #option = "symm opt freq nmr uv=/home/sumita/GaussianRun_2.2beta/Samples/UV_peak.dat" 
 #option = "opt homolumo energy dipole deen stable2o2 uv=/home/sumita/GaussianRun_2.2beta/Samples/UV_peak.dat vip vea aip aea" 
@@ -35,7 +35,7 @@ option = "opt Freq"
 #option = "opt nmr uv energy homolumo dipole deen stable2o2 vip vea cden symm"
 #solvent = "water"
 
-test_sdf = GaussianRunPack.GaussianDFTRun('B3LYP', 'STO-3G', 8, option, infilename)
+test_sdf = GaussianRunPack.GaussianDFTRun('B3LYP', 'Lanl2DZ', 8, option, infilename)
 
 test_sdf.mem = '5GB'
 test_sdf.timexe = 60*60
