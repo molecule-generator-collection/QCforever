@@ -1,5 +1,6 @@
-# GaussianRunPack
-GaussianRunPack is a wrapper of Gaussian (https://gaussian.com). It is possible to evaluate a molecule with its multiple properties.
+# QCforever
+
+QCforever is a wrapper of Gaussian (https://gaussian.com). It is possible to evaluate a molecule with its multiple properties.
 
 ## Requirements
 1. [Gaussian](https://gaussian.com)==16
@@ -7,7 +8,7 @@ GaussianRunPack is a wrapper of Gaussian (https://gaussian.com). It is possible 
 3. [RDKit](https://anaconda.org/rdkit/rdkit)
 
 ## How to use
-GaussianRunPack accept a sdf file or a gaussian chk file.
+QCforever accept a sdf file or a gaussian chk file.
 
 > python main.py input_file
 
