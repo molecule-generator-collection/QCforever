@@ -2,7 +2,7 @@ import os, sys, math
 import re, gc
 import shutil
 import subprocess
-from numpy import *
+import numpy as np
 from rdkit import Chem
 from rdkit.Chem import AllChem, Descriptors, rdmolops
 
@@ -11,6 +11,7 @@ import GaussianRunPack.read_sdf
 import GaussianRunPack.Exe_Gaussian
 import GaussianRunPack.Get_ExcitedState
 import GaussianRunPack.Get_MolCoordinate
+import GaussianRunPack.Get_MolCoordinate_fchk
 import GaussianRunPack.Estimate_SpinContami
 import GaussianRunPack.Get_ChargeSpin
 import GaussianRunPack.Get_MOEnergy
@@ -22,7 +23,7 @@ import GaussianRunPack.Get_FreqPro
 
 class GaussianDFTRun:
 
-    def __init__(self, functional, basis, nproc, value, in_file, solvent="0", error=0):
+    def __init__(self, functional, basis, nproc, value, in_file, solvent="0", error=0,  restart=True):
 
         self.in_file = in_file
         self.functional = functional.lower()
@@ -31,10 +32,13 @@ class GaussianDFTRun:
 #        self.value = value.lower()
         self.value = value
         self.solvent = solvent.lower()
+        self.restart = restart
         self.error = error
 
         self.mem = ''
         self.timexe = 60*60*80
+        self.SpecTotalCharge = np.nan
+        self.SpecSpinMulti = np.nan
 
         self.ref_uv_path = ''
 
@@ -50,7 +54,9 @@ class GaussianDFTRun:
 
         Comp_SS, Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(lines)
 
-        return Energy[-1]
+        Energy_Spin = [Energy[-1], Comp_SS-Ideal_SS]
+
+        return Energy_Spin
 
 
     def Extract_values(self, jobname, option_array, Bondpair1, Bondpair2):
@@ -181,9 +187,10 @@ class GaussianDFTRun:
 
         if deen == 1:
             try:
-                GS_Energy = output["Energy"]
+                GS_Energy = output["Energy"][0]
             except KeyError:
-                GS_Energy = self.Extract_SCFEnergy(GS_lines)
+                output["Energy"] = self.Extract_SCFEnergy(GS_lines)
+                GS_Energy = output["Energy"][0] 
         
             Mol_atom, Mol_X, Mol_Y, Mol_Z = GaussianRunPack.Get_MolCoordinate.Extract_Coordinate(GS_lines)
 
@@ -286,9 +293,10 @@ class GaussianDFTRun:
         if vip == 1 or vea == 1:
 
             try:
-                GS_Energy = output["Energy"]
+                GS_Energy = output["Energy"][0]
             except KeyError:
-                GS_Energy = self.Extract_SCFEnergy(GS_lines)
+                output["Energy"] = self.Extract_SCFEnergy(GS_lines)
+                GS_Energy = output["Energy"][0] 
 
             print (GS_Energy)
 
@@ -298,13 +306,11 @@ class GaussianDFTRun:
                 IP_lines = Links[Index].splitlines()
                 Links[Index]=""
 
-                IP_Energy =  self.Extract_SCFEnergy(IP_lines)
-                IP_Comp_SS, IP_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(IP_lines)
-
-#                print (IP_Energy)
+                IP_Energy_SS =  self.Extract_SCFEnergy(IP_lines)
+#                IP_Comp_SS, IP_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(IP_lines)
 
 ######Normal ionization potential calculation####################
-                output["vip"] = [27.211*(IP_Energy - GS_Energy), IP_Comp_SS-IP_Ideal_SS]
+                output["vip"] = [27.211*(IP_Energy_SS[0] - GS_Energy), IP_Energy_SS[1]]
 #################################################################
 
             if vea == 1:
@@ -313,23 +319,21 @@ class GaussianDFTRun:
                 EA_lines = Links[Index].splitlines()
                 Links[Index]=""
 
-                EA_Energy =  self.Extract_SCFEnergy(EA_lines)
-                EA_Comp_SS, EA_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(EA_lines)
-
-#                print (EA_Energy)
-
+                EA_Energy_SS =  self.Extract_SCFEnergy(EA_lines)
+#                EA_Comp_SS, EA_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(EA_lines)
 
 ######Normal electronic affinity calculation####################
-                output["vea"] = [27.211*(GS_Energy - EA_Energy), EA_Comp_SS-EA_Ideal_SS]
+                output["vea"] = [27.211*(GS_Energy - EA_Energy_SS[0]), EA_Energy_SS[1]]
 #################################################################
 
 
         if aip >= 1 or aea >= 1:
 
             try:
-                GS_Energy = output["Energy"]
+                GS_Energy = output["Energy"][0]
             except KeyError:
-                GS_Energy = self.Extract_SCFEnergy(GS_lines)
+                output["Energy"] = self.Extract_SCFEnergy(GS_lines)
+                GS_Energy = output["Energy"][0] 
 
             if aip == 1:
 
@@ -341,14 +345,10 @@ class GaussianDFTRun:
                 Links[Index+1]=""
                 aip += 1
 
-                PC_Energy =  self.Extract_SCFEnergy(PC_lines)
-                PC_Comp_SS, PC_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(PC_lines)
-                VNP_Energy =  self.Extract_SCFEnergy(VNP_lines)
-                VNP_Comp_SS, VNP_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(VNP_lines)
-
-#                print (GS_Energy)
-#                print (PC_Energy)
-#                print (VNP_Energy)
+                PC_Energy_SS =  self.Extract_SCFEnergy(PC_lines)
+#                PC_Comp_SS, PC_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(PC_lines)
+                VNP_Energy_SS =  self.Extract_SCFEnergy(VNP_lines)
+#                VNP_Comp_SS, VNP_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(VNP_lines)
 
                 if Bondpair1 != []:
                     MaxBondLength = GaussianRunPack.Get_MolCoordinate.MaxBondLength(VNP_lines, Bondpair1, Bondpair2)
@@ -356,7 +356,7 @@ class GaussianDFTRun:
                     MaxBondLength = 0
 
                 output["relaxedIP_MaxBondLength"] = MaxBondLength
-                output["aip"] = [27.211*(PC_Energy - GS_Energy), 27.211*(PC_Energy - VNP_Energy), PC_Comp_SS-PC_Ideal_SS, VNP_Comp_SS-VNP_Ideal_SS]
+                output["aip"] = [27.211*(PC_Energy_SS[0] - GS_Energy), 27.211*(PC_Energy_SS[0] - VNP_Energy_SS[0]), PC_Energy_SS[1], VNP_Energy_SS[1]]
 
             if aea == 1:
 
@@ -368,15 +368,10 @@ class GaussianDFTRun:
                 Links[Index+1]=""
                 aea +=1
 
-                NC_Energy =  self.Extract_SCFEnergy(NC_lines)
-                NC_Comp_SS, NC_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(NC_lines)
-                VNN_Energy =  self.Extract_SCFEnergy(VNN_lines)
-                VNN_Comp_SS, NC_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(VNN_lines)
-
-#                print (GS_Energy)
-#                print (NC_Energy)
-#                print (VNN_Energy)
-
+                NC_Energy_SS =  self.Extract_SCFEnergy(NC_lines)
+#                NC_Comp_SS, NC_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(NC_lines)
+                VNN_Energy_SS =  self.Extract_SCFEnergy(VNN_lines)
+#                VNN_Comp_SS, NC_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(VNN_lines)
 
                 if Bondpair1 != []:
                     MaxBondLength = GaussianRunPack.Get_MolCoordinate.MaxBondLength(VNN_lines, Bondpair1, Bondpair2)
@@ -387,7 +382,7 @@ class GaussianDFTRun:
                 output["relaxedEA_MaxBondLength"] = MaxBondLength
 
 ######Normal electronic affinity calculation####################
-                output["aea"] = [27.211*(GS_Energy - NC_Energy), 27.211*(VNN_Energy - NC_Energy), NC_Comp_SS-NC_Ideal_SS, VNN_Comp_SS-NC_Ideal_SS]
+                output["aea"] = [27.211*(GS_Energy - NC_Energy_SS[0]), 27.211*(VNN_Energy_SS[0] - NC_Energy_SS[0]), NC_Energy_SS[1], VNN_Energy_SS[1]]
 #################################################################
 
   
@@ -499,12 +494,13 @@ class GaussianDFTRun:
         Jobname_line =line_chk.split('=')
         Jobname = Jobname_line[-1]
 
-### Setting NState######
+######Setting NState######
         if Opt == True:
             NState = targetstate + 4
         else:
             NState = 20
-#######################
+##########################
+
 
         line_oldchk = '%Oldchk='+Jobname
         if State == None:
@@ -557,8 +553,8 @@ class GaussianDFTRun:
 
         options = option_line.split()
 
-        option_array = zeros(17)
-        option_array_Ex = zeros(17)
+        option_array = np.zeros(17)
+        option_array_Ex = np.zeros(17)
 
         targetstate = 1
 
@@ -584,8 +580,19 @@ class GaussianDFTRun:
             Bondpair2 = []
         else:
             print ("Invalid input file")
-############################################
 
+##############################################
+
+
+#######Setting electronic structure###########
+
+        if np.isnan(self.SpecTotalCharge) !=  True:
+            TotalCharge = self.SpecTotalCharge
+
+        if np.isnan(self.SpecSpinMulti) != True:
+            SpinMulti = self.SpecSpinMulti
+
+##############################################
 
         for i in range(len(options)):
             option = options[i]
@@ -713,10 +720,14 @@ class GaussianDFTRun:
            # ofile.write('Guess=Only Symmetry=on'+'\n')
 #####Reading Geometry and MO from Checkpoint file
             if ReadFromchk == 1:
-                ofile.write(line_readGeom+'\n')
+                ofile.write(line_readMOGeom+'\n')
 #################################################
 
             ofile.write('\n')
+            #ofile.write(line_comment+'\n')
+            #ofile.write('\n')
+
+            #ofile.write('%5d %5d \n' % (TotalCharge, SpinMulti))
 
             if ReadFromsdf == 1:
 
@@ -729,12 +740,12 @@ class GaussianDFTRun:
                     ofile.write('%-4s % 10.5f  % 10.5f  % 10.5f \n'
                     % (Mol_atom[j],X[j], Y[j], Z[j]))
 
-                ofile.write('\n')
+            ofile.write('\n')
 #####For adding other jobs when other options are required...
 
-                if 1 in option_array[0:16]: 
+            if 1 in option_array[0:16]: 
 
-                    ofile.write('--Link1--\n')
+                ofile.write('--Link1--\n')
 ##########################################################
 
         if 1 in option_array[0:16]: 
@@ -938,13 +949,12 @@ class GaussianDFTRun:
         
         job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(PreGauInput[0], self.timexe)
         GaussianRunPack.chk2fchk.Get_chklist()
+      #  output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
         try:
             output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
         except:
             job_state = "error"
             pass
-
-#        output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
 
 
         if option_array_Ex[9] == 1 or option_array_Ex[10] == 1: #fluor == 1 or tadf == 1 for open shell
@@ -982,6 +992,8 @@ class GaussianDFTRun:
 
         output_dic["log"] = job_state
 
+        if self.restart == False:
+            GaussianRunPack.Get_MolCoordinate_fchk.Get_fchklist2xyz()
 
         os.chdir("..")
 
