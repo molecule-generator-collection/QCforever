@@ -8,7 +8,7 @@ QCforever is a wrapper of Gaussian (https://gaussian.com). It is possible to eva
 3. [RDKit](https://anaconda.org/rdkit/rdkit)
 
 ## How to use
-QCforever accept a sdf file or a gaussian chk file.
+QCforever accept a sdf file, xyz file, gaussian chk, or a gaussian fchk file.
 
 > python main.py input_file
 
