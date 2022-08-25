@@ -67,6 +67,10 @@ fluor:
 tadf:
 	compute the energy gap (in Eh) between minimum in the spin allowed state 
 	and the spin forbidden state.
+	
+pka:
+compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species.
+The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydorogen. 
 
 ## License
 
