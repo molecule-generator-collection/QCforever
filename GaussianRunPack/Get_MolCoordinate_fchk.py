@@ -87,26 +87,25 @@ def Extract_MolCoord(lines, out = None):
                 if len(MolCoord) == Numdata: 
                     count = 0
 
+
+        Mol_atom = []
+
+        Mol_X = []
+        Mol_Y = []
+        Mol_Z = []
+
+        for i in range(NumAtom):
+            Mol_atom.append(GaussianRunPack.AtomInfo.AtomicNumElec(int(NuclearCharge[i])))
+           # Mol_atom.append(AtomInfo.AtomicNumElec(int(NuclearCharge[i])))
+
+        for i in range(0, len(MolCoord)-1,3):
+            Mol_X.append(MolCoord[i]*Bohr2Ang)
+            Mol_Y.append(MolCoord[i+1]*Bohr2Ang)
+            Mol_Z.append(MolCoord[i+2]*Bohr2Ang)
+
         if out !=None:
 
-            Mol_atom = []
-
-            Mol_X = []
-            Mol_Y = []
-            Mol_Z = []
-
-            for i in range(NumAtom):
-                Mol_atom.append(GaussianRunPack.AtomInfo.AtomicNumElec(int(NuclearCharge[i])))
-               # Mol_atom.append(AtomInfo.AtomicNumElec(int(NuclearCharge[i])))
-
-
-            for i in range(0, len(MolCoord)-1,3):
-                Mol_X.append(MolCoord[i]*Bohr2Ang)
-                Mol_Y.append(MolCoord[i+1]*Bohr2Ang)
-                Mol_Z.append(MolCoord[i+2]*Bohr2Ang)
-
-
-        Make_xyzfile(Mol_atom, Mol_X, Mol_Y, Mol_Z, out, Charge, SpinMulti)
+            Make_xyzfile(Mol_atom, Mol_X, Mol_Y, Mol_Z, out, Charge, SpinMulti)
 
         return Charge, SpinMulti, Mol_atom, Mol_X, Mol_Y, Mol_Z
 

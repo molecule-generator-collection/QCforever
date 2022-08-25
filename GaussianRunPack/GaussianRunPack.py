@@ -8,6 +8,7 @@ from rdkit.Chem import AllChem, Descriptors, rdmolops
 
 import GaussianRunPack.AtomInfo
 import GaussianRunPack.read_sdf
+import GaussianRunPack.read_xyz
 import GaussianRunPack.Exe_Gaussian
 import GaussianRunPack.Get_ExcitedState
 import GaussianRunPack.Get_MolCoordinate
@@ -77,7 +78,8 @@ class GaussianDFTRun:
         aip       = int(option_array[13])
         aea       = int(option_array[14])
         cden      = int(option_array[15])
-        symm      = int(option_array[16])
+        pka       = int(option_array[16])
+        symm      = int(option_array[17])
 
         infilename = jobname+'.log'
         fchkname = jobname+'.fchk'
@@ -114,7 +116,7 @@ class GaussianDFTRun:
 
 
 #####For extracting properties of molecule after SCF        
-        if 1 in option_array[0:16]: 
+        if 1 in option_array[0:17]: 
             GS_lines = Links[1+symm].splitlines()
             Links[1+symm] = ""
 
@@ -553,8 +555,9 @@ class GaussianDFTRun:
 
         options = option_line.split()
 
-        option_array = np.zeros(17)
-        option_array_Ex = np.zeros(17)
+        option_array = np.zeros(18)
+        option_array_Ex = np.zeros(18)
+        option_array_pka = np.zeros(18)
 
         targetstate = 1
 
@@ -565,10 +568,16 @@ class GaussianDFTRun:
 ####File type of input?######################
         ReadFromchk = 0 
         ReadFromsdf = 0 
+        ReadFromxyz = 0 
 
         if PreGauInput[1] == "sdf":
             ReadFromsdf = 1 
             Mol_atom, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = GaussianRunPack.read_sdf.read_sdf(infilename)
+        elif PreGauInput[1] == "xyz":
+            ReadFromxyz = 1
+            Mol_atom, X, Y, Z, TotalCharge, SpinMulti = GaussianRunPack.read_xyz.read_xyz(infilename)
+            Bondpair1 = []
+            Bondpair2 = []
         elif PreGauInput[1] == "chk":
             ReadFromchk = 1 
             Bondpair1 = []
@@ -678,8 +687,13 @@ class GaussianDFTRun:
 #                nne = 1
                 option_array[15] = 1
                 #print ('Neutraization energy from anion')
-            elif option.lower() == 'symm':
+            elif option.lower() == 'pka':
+                option_array[4] = 1
+                option_array[15] = 1
                 option_array[16] = 1
+                option_array_pka[4] = 1
+            elif option.lower() == 'symm':
+                option_array[17] = 1
                 #print ('Calculate symmetry')
             else:
                 print('invalid option: ', option)
@@ -712,7 +726,7 @@ class GaussianDFTRun:
         line_readGeom = 'Geom=Checkpoint'
 ########################################################
 
-        if option_array[16] == 1:
+        if option_array[17] == 1:
             ofile.write(line_system)
             ofile.write(line_chk+'\n')
             ofile.write(line_o_method+'\n')
@@ -729,7 +743,7 @@ class GaussianDFTRun:
 
             #ofile.write('%5d %5d \n' % (TotalCharge, SpinMulti))
 
-            if ReadFromsdf == 1:
+            if ReadFromsdf == 1 or ReadFromxyz == 1:
 
                 ofile.write(line_comment+'\n')
                 ofile.write('\n')
@@ -743,12 +757,12 @@ class GaussianDFTRun:
             ofile.write('\n')
 #####For adding other jobs when other options are required...
 
-            if 1 in option_array[0:16]: 
+            if 1 in option_array[0:17]: 
 
                 ofile.write('--Link1--\n')
 ##########################################################
 
-        if 1 in option_array[0:16]: 
+        if 1 in option_array[0:17]: 
 
             ofile.write(line_system)
             ofile.write(line_chk+'\n')
@@ -774,7 +788,7 @@ class GaussianDFTRun:
 
 #####Reading Geometry from sdf file#####
 
-            if ReadFromsdf == 1:
+            if ReadFromsdf == 1 or ReadFromxyz == 1:
 
                 ofile.write(line_comment+'\n')
                 ofile.write('\n')
@@ -956,9 +970,83 @@ class GaussianDFTRun:
             job_state = "error"
             pass
 
+#####for pka computation#######################
 
-        if option_array_Ex[9] == 1 or option_array_Ex[10] == 1: #fluor == 1 or tadf == 1 for open shell
+        if option_array[16] == 1:
+
+            output_dic_pka = {}
+            
+            E_pH = output_dic["Energy"][0]
+            Atom = output_dic["cden"][0]
+            MullCharge = output_dic["cden"][1]
+
+            Index_MaxProtic = GaussianRunPack.Get_ChargeSpin.find_MaxProtic(Atom, MullCharge)
+
+            print(Index_MaxProtic)
+
+            GS_fchk = PreGauInput[0]+".fchk"
+
+            with open(GS_fchk,'r') as ifile:
+                GS_lines = ifile.readlines()
+            
+
+            TotalCharge, SpinMulti, Mol_atom, Mol_X, Mol_Y, Mol_Z = GaussianRunPack.Get_MolCoordinate_fchk.Extract_MolCoord(GS_lines)
+
+            DeHMol_atom = np.delete(Mol_atom,Index_MaxProtic) 
+            DeHMol_X = np.delete(Mol_X,Index_MaxProtic)
+            DeHMol_Y = np.delete(Mol_Y,Index_MaxProtic)
+            DeHMol_Z = np.delete(Mol_Z,Index_MaxProtic)
+
+            JobName_DeHMol = PreGauInput[0] + "_DeH"
+            GauInputName_DeHOpt = JobName_DeHMol + ".com"
+            GauchkName_DeHOpt = JobName_DeHMol + ".chk"
+
+            ofile_DeHMol = open(GauInputName_DeHOpt, 'w')
+
+            line_DeHchk = '%chk='+ JobName_DeHMol
+
+            ####making input for a deprotonated molecule######
+            ofile_DeHMol.write(line_system)
+            ofile_DeHMol.write(line_DeHchk + '\n')
+            ofile_DeHMol.write(line_o_method+'\n')
+            if option_array[0] == 1: # opt == 1
+                ofile_DeHMol.write('Opt=(MaxCycles=100)\n')
+            ofile_DeHMol.write(SCRF)
+
+            ofile_DeHMol.write("\n")
+            ofile_DeHMol.write("Deprotonated molecule \n")
+            ofile_DeHMol.write("\n")
+
+            ofile_DeHMol.write('%5d %5d \n' % (TotalCharge-1, SpinMulti))
+
+            for j in range(len(DeHMol_atom)):
+                ofile_DeHMol.write('%-4s % 10.5f  % 10.5f  % 10.5f \n'
+                 % (DeHMol_atom[j], DeHMol_X[j], DeHMol_Y[j], DeHMol_Z[j]))
+
+            ofile_DeHMol.write(SCRF_read)
+            ofile_DeHMol.write('\n')
+
+            ofile_DeHMol.close()
+
+            job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(JobName_DeHMol, self.timexe)
+            GaussianRunPack.chk2fchk.Get_chklist()
+#            output_dic_pka = self.Extract_values(JobName_DeHMol, option_array_pka, Bondpair1, Bondpair2)
+            try:
+                output_dic_pka = self.Extract_values(JobName_DeHMol, option_array_pka, Bondpair1, Bondpair2)
+            except:
+                job_state = "error"
+                pass
+
+            #print("pka: ", output_dic_pka)
+            E_dH = output_dic_pka["Energy"][0]
+
+            output_dic["pka"] = E_dH - E_pH
+
+#####for fluor == 1 or tadf == 1 for open shell#############
+        if option_array_Ex[9] == 1 or option_array_Ex[10] == 1: 
     
+            output_dic_Ex = {}
+        
             compute_state = output_dic["state_index"][0][int(targetstate)-1] 
             JobName_ExOpt = PreGauInput[0] + "_ExOpt"
             GauInputName_ExOpt = JobName_ExOpt + ".com"
@@ -992,8 +1080,11 @@ class GaussianDFTRun:
 
         output_dic["log"] = job_state
 
+
+###Convert fchk to xyz ###########################################
         if self.restart == False:
             GaussianRunPack.Get_MolCoordinate_fchk.Get_fchklist2xyz()
+##################################################################
 
         os.chdir("..")
 

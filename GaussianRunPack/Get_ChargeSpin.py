@@ -35,6 +35,30 @@ def Extract_ChargeSpin(lines):
 
 
     return Atom_index, Charge, Spin
+
+
+def find_MaxProtic(Atom, Charge):
+
+    HCharge = []
+    H_index = []
+
+    for i in range(len(Atom)):
+        if Atom[i] == 'H':
+            HCharge.append(Charge[i])
+            H_index.append(i)
+ 
+    if H_index != []:
+        Max_HCharge = max(HCharge)
+        Max_HCharge_index = HCharge.index(Max_HCharge)
+
+        print (Max_HCharge)
+    
+        return H_index[Max_HCharge_index]
+
+    else:
+
+        return None
+
          
 
 if __name__ == '__main__':
@@ -50,6 +74,9 @@ if __name__ == '__main__':
     with open(infilename, 'r') as ifile:
         lines = ifile.readlines()
 
+    Atom, Charge, Spin = Extract_ChargeSpin(lines)
+    
+    print(Atom, Charge)
        
-    print (Extract_ChargeSpin(lines))
 
+    print(find_MaxProtic(Atom, Charge))
