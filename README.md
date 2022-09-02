@@ -119,6 +119,7 @@ pka:
 	The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydorogen. 
 
 ## License
+This package is distributed under the MIT License.
 
 ## Contact
-- Masato Sumita
+- Masato Sumita (masato.sumita@riken.jp)
