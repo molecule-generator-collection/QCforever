@@ -36,6 +36,11 @@ Then make an instance (here is test).
 The Default value is True that means molecular information is saved as a Gaussian fchk file (electronic structure is also saved.), 
 otherwise molecular information is saved as a xyz file (electronic structure is not saved).
 
+And excuse Gaussian as the followign.
+
+> outdic = test.run_gaussian()
+
+
 By specifying the molecular properties you want as an option variable string,
 QCforever automatically calculates them. 
 The variable string must consisted of the following options, 
