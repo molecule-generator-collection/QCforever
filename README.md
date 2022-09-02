@@ -10,10 +10,10 @@ Multi step computation is demanded. QCforever automates this process and calcula
 
 ## How to use
 
-###Install
+### Install
 Just copy whole GaussianRunPack directory to your working directory. 
 
-###Usage
+### Usage
 Example code for QCforever (main.py) is prepared.
 QCforever accept a sdf, xyz , Gaussian chk, or a Gaussian fchk file.
 
