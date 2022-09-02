@@ -21,7 +21,9 @@ Example code for QCforever (main.py) is prepared.
 In the working directory you installed GaussianRunPack directory, import GaussianRunPack to use this package.
 
 > import GaussianRunPack
+
 Then make an instance (here is test).
+
 > test = GaussianRunPack.GaussianDFTRun(Functional, basis_set, ncore, option, input_file, solvent='water', restart=False)
 
 "Functional" is to specify the functional in the density functional theory (DFT).
