@@ -15,9 +15,23 @@ Just copy whole GaussianRunPack directory to your working directory.
 
 ### Usage
 Example code for QCforever (main.py) is prepared.
-QCforever accept a sdf, xyz , Gaussian chk, or a Gaussian fchk file.
 
 > python main.py input_file
+
+In the working directory you installed GaussianRunPack directory, import GaussianRunPack to use this package.
+Then make an instance.
+> import GaussianRunPack
+> test = GaussianRunPack.GaussianDFTRun(Functional, basis_set, ncore, option, input_file, solvent='water', restart=False)
+
+"Functional" is to specify the functional in the density functional theory (DFT).
+"basis_set" is to specify the basis set.
+"ncore" is an integer to specify the number of core for QC with Gaussian.
+"option" is a string.
+"input_file" is a string to specify the input file. QCforever accepts a sdf, xyz , Gaussian chk, or a Gaussian fchk file.
+"solvent" is to include the solvent effect through PCM. The default value is "0", in vacuo.
+"restart" is to control to save molecular information as fchk or xyz. 
+The Default value is True that means molecular information is saved as a Gaussian fchk file (electronic structure is also saved.), 
+otherwise molecular information is saved as a xyz file (electronic structure is not saved).
 
 By specifying the molecular properties you want as an option variable string,
 QCforever automatically calculates them. 
