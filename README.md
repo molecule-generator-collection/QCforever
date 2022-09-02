@@ -27,9 +27,11 @@ Then make an instance (here is test).
 
 > test = GaussianRunPack.GaussianDFTRun(Functional, basis_set, ncore, option, input_file, solvent='water', restart=False)
 
-"Functional" is to specify the functional in the density functional theory (DFT).
+"Functional" is to specify the functional in the density functional theory (DFT). Currently supported functionals are the following:
+  "BLYP", "B3LYP", "X3LYP", "LC-BLYP", "CAM-B3LYP".
 
-"basis_set" is to specify the basis set.
+"basis_set" is to specify the basis set. Current QCforever supports the following basis set:
+  "LANL2DZ", "STO-3G", "3-21G", "6-31G", "6-311G", "3-21G*", "3-21+G*", "6-31G*", "6-311G**", "6-31G**", "6-31+G*", "3-21G", "3-21G", "6-31+G**", "6-311+G*", "6-311+G**"
 
 "ncore" is an integer to specify the number of core for QC with Gaussian.
 
