@@ -49,6 +49,7 @@ And excuse Gaussian as the followign.
 
 In this examples, obtained results are saved as python dictionary style.
 
+### Options 
 By specifying the molecular properties you want as an option variable string,
 QCforever automatically calculates them. 
 The variable string must consisted of the following options, 
