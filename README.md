@@ -1,6 +1,7 @@
 # QCforever
 
-QCforever is a wrapper of Gaussian (https://gaussian.com). It is possible to evaluate a molecule with its multiple properties.
+QCforever is a wrapper of Gaussian (https://gaussian.com). To compute obsevable properties of a molecule through quantum chemical computation (QC),
+Multi step computation is demanded. QCforever automates this process and calculates multiple physical properties of molecules simultaneously. 
 
 ## Requirements
 1. [Gaussian](https://gaussian.com)==16
@@ -8,6 +9,12 @@ QCforever is a wrapper of Gaussian (https://gaussian.com). It is possible to eva
 3. [RDKit](https://anaconda.org/rdkit/rdkit)
 
 ## How to use
+
+###Install
+Just copy whole GaussianRunPack directory to your working directory. 
+
+###Usage
+Example code for QCforever (main.py) is prepared.
 QCforever accept a sdf, xyz , Gaussian chk, or a Gaussian fchk file.
 
 > python main.py input_file
