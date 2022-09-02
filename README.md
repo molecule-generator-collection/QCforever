@@ -29,7 +29,7 @@ Then make an instance (here is test).
 "Functional" is to specify the functional in the density functional theory (DFT).
 "basis_set" is to specify the basis set.
 "ncore" is an integer to specify the number of core for QC with Gaussian.
-"option" is a string.
+"option" is a string for specifying molecular properties.
 "input_file" is a string to specify the input file. QCforever accepts a sdf, xyz , Gaussian chk, or a Gaussian fchk file.
 "solvent" is to include the solvent effect through PCM. The default value is "0", in vacuo.
 "restart" is to control to save molecular information as fchk or xyz. 
