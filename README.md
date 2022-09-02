@@ -8,12 +8,14 @@ QCforever is a wrapper of Gaussian (https://gaussian.com). It is possible to eva
 3. [RDKit](https://anaconda.org/rdkit/rdkit)
 
 ## How to use
-QCforever accept a sdf file, xyz file, gaussian chk, or a gaussian fchk file.
+QCforever accept a sdf, xyz , Gaussian chk, or a Gaussian fchk file.
 
 > python main.py input_file
 
-By specifying the molecular properties you want as an option variables,
-the program will automatically calculate them. 
+By specifying the molecular properties you want as an option variable string,
+QCforever automatically calculates them. 
+The variable string must consisted of the following options, 
+seperated with more than one space:
 
 Following options are currently available:
 
@@ -65,12 +67,16 @@ fluor:
 	“fluore=#” (# is an integer, default is “fluor=1”)
 
 tadf:
-	compute the energy gap (in Eh) between minimum in the spin allowed state 
+	Compute the energy gap (in Eh) between minimum in the spin allowed state 
 	and the spin forbidden state.
+
+freq: 
+	Compute the variable related to the vibrational analysis of a molecule. IR, Raman, etc
+	
 	
 pka:
-compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species.
-The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydorogen. 
+	Compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species.
+	The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydorogen. 
 
 ## License
 
