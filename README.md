@@ -14,7 +14,7 @@ Multi step computation is demanded. QCforever automates this process and calcula
 ## How to use
 
 ### Install
-Just copy whole GaussianRunPack directory to your working directory. 
+Just copy  GaussianRunPack directory to your working directory. 
 
 ### Example
 Example code for QCforever (main.py) is prepared.
