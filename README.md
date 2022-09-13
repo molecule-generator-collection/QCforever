@@ -3,7 +3,7 @@
 
 ![Robot2+PC](https://user-images.githubusercontent.com/46772738/188896764-65ab12c1-3cc9-421d-8d87-ed33c932380a.png)
 
-QCforever is a wrapper of Gaussian (https://gaussian.com). To compute obsevable properties of a molecule through quantum chemical computation (QC),
+QCforever (https://doi.org/10.1021/acs.jcim.2c00812) is a wrapper of Gaussian (https://gaussian.com). To compute obsevable properties of a molecule through quantum chemical computation (QC),
 Multi step computation is demanded. QCforever automates this process and calculates multiple physical properties of molecules simultaneously. 
 
 ## Requirements
