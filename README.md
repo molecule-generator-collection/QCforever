@@ -102,12 +102,12 @@ aip:
 	adiabatic ionization energy (in eV) 
 	
 aea:
-	adiabtic electronic affinity (in eV)
+	adiabatic electronic affinity (in eV)
 
 fluor:
 	wavelength (in nm) of fluorescence are computed. 
 	if you want to specify the state that emits fluorescence, you can specify the index of state like
-	“fluore=#” (# is an integer, default is “fluor=1”)
+	“fluor=#” (# is an integer, default is “fluor=1”)
 
 tadf:
 	Compute the energy gap (in Eh) between minimum in the spin allowed state 
