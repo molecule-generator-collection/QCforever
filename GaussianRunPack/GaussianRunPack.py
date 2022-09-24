@@ -22,6 +22,8 @@ import GaussianRunPack.fchk2chk
 import GaussianRunPack.UV_similarity
 import GaussianRunPack.Get_FreqPro
 
+Eh2kJmol = 2625.5
+
 class GaussianDFTRun:
 
     def __init__(self, functional, basis, nproc, value, in_file, solvent="0", error=0,  restart=True):
@@ -1040,7 +1042,7 @@ class GaussianDFTRun:
             #print("pka: ", output_dic_pka)
             E_dH = output_dic_pka["Energy"][0]
 
-            output_dic["pka"] = E_dH - E_pH
+            output_dic["pka"] = (E_dH - E_pH)*Eh2kJmol
 
 #####for fluor == 1 or tadf == 1 for open shell#############
         if option_array_Ex[9] == 1 or option_array_Ex[10] == 1: 
