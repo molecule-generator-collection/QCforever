@@ -19,38 +19,42 @@ Just copy  GaussianRunPack directory to your working directory.
 ### Example
 Example code for QCforever (main.py) is prepared.
 
-> python main.py input_file
+```bash
+python main.py input_file
+```
 
 ### Usage
-In the working directory where you put the GaussianRunPack directory, import GaussianRunPack to use this package.
 
-> import GaussianRunPack
+```python
+# In the working directory where you put the GaussianRunPack directory, import GaussianRunPack to use this package.
+import GaussianRunPack
+# Then make an instance (here is test).
+test = GaussianRunPack.GaussianDFTRun(Functional, basis_set, ncore, option, input_file, solvent='water', restart=False)
+# And excuse Gaussian as the followign.
+outdic = test.run_gaussian()
+```
 
-Then make an instance (here is test).
+- ***Functional*** is to specify the functional in the density functional theory (DFT). 
+Currently supported functionals are the following: `BLYP`, `B3LYP`, `X3LYP`, `LC-BLYP`, and `CAM-B3LYP`.
 
-> test = GaussianRunPack.GaussianDFTRun(Functional, basis_set, ncore, option, input_file, solvent='water', restart=False)
+- ***basis_set*** is to specify the basis set. 
+  Current QCforever supports the following basis set:
+  `LANL2DZ`, `STO-3G`, `3-21G`, `6-31G`, `6-311G`, `3-21G*`, `3-21+G*`, `6-31G*`, `6-311G**`, `6-31G**`, 
+  `6-31+G*`, `3-21G`, `3-21G`, `6-31+G**`, `6-311+G*`, and `6-311+G**`
 
-"Functional" is to specify the functional in the density functional theory (DFT). Currently supported functionals are the following:
-  "BLYP", "B3LYP", "X3LYP", "LC-BLYP", "CAM-B3LYP".
+- ***ncore*** is an integer to specify the number of core for QC with Gaussian.
 
-"basis_set" is to specify the basis set. Current QCforever supports the following basis set:
-  "LANL2DZ", "STO-3G", "3-21G", "6-31G", "6-311G", "3-21G*", "3-21+G*", "6-31G*", "6-311G**", "6-31G**", "6-31+G*", "3-21G", "3-21G", "6-31+G**", "6-311+G*", "6-311+G**"
+- ***option*** is a string for specifying molecular properties as explained later.
 
-"ncore" is an integer to specify the number of core for QC with Gaussian.
+- ***input_file*** is a string to specify the input file. 
+  QCforever accepts a sdf, xyz , Gaussian chk, or a Gaussian fchk file.
 
-"option" is a string for specifying molecular properties as explained later.
+- ***solvent*** is to include the solvent effect through PCM. 
+  The default value is "0", in vacuo.
 
-"input_file" is a string to specify the input file. QCforever accepts a sdf, xyz , Gaussian chk, or a Gaussian fchk file.
-
-"solvent" is to include the solvent effect through PCM. The default value is "0", in vacuo.
-
-"restart" is to control to save molecular information as fchk or xyz. 
-The Default value is True that means molecular information is saved as a Gaussian fchk file (electronic structure is also saved.), 
-otherwise molecular information is saved as a xyz files (electronic structure is not saved).
-
-And excuse Gaussian as the followign.
-
-> outdic = test.run_gaussian()
+- ***restart*** is to control to save molecular information as fchk or xyz. 
+  The Default value is True that means molecular information is saved as a Gaussian fchk file (electronic structure is also saved.), 
+  otherwise molecular information is saved as a xyz files (electronic structure is not saved).
 
 In this examples, obtained results are saved as python dictionary style.
 
@@ -62,64 +66,26 @@ seperated with more than one space:
 
 Following options are currently available:
 
-symm:
-	just specify symmetry of a molecule.
-
-opt:
-	just perform geometry optimization of a molecule.
-
-nmr:
-	NMR chemical shift (ppm to TMS) of each atom is computed.
-  
-uv:
-	absorption wavelengths (nm)  (for spin allowed states) are computed. If you add an absolute path of text file that specify peak positions and their peak like (uv=/ab/path2uv.dat), it is possible to the similarity and dissimilarity between the target and reference.
-
-energy: 
-	SCF energy (in Eh) is printed.
-
-cden:
-	charge and spin densities on each atom are computed.
-
-homolumo:
-	HOMO/LUMO gap (Eh) calculation
-
-dipole:
-	dipole moment of a molecule
-
-deen:
-	decomposition energy (in eV) of a molecule
-
-stable2o2:
-	stability to oxygen molecule
-
-vip:
-	vertical ionization potential energy (in eV)
-	
-vea:
-	vertiacl electronic affinity (in eV)
-	
-aip:
-	adiabatic ionization energy (in eV) 
-	
-aea:
-	adiabatic electronic affinity (in eV)
-
-fluor:
-	wavelength (in nm) of fluorescence are computed. 
-	if you want to specify the state that emits fluorescence, you can specify the index of state like
-	“fluor=#” (# is an integer, default is “fluor=1”)
-
-tadf:
-	Compute the energy gap (in Eh) between minimum in the spin allowed state 
-	and the spin forbidden state.
-
-freq: 
-	Compute the variable related to the vibrational analysis of a molecule. IR, Raman, etc
-	
-	
-pka:
-	Compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species.
-	The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydorogen. 
+| Option name | Description                                                                                                                                                                                                                                                             |
+|-------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| symm        | just specify symmetry of a molecule.                                                                                                                                                                                                                                    |
+| opt         | just perform geometry optimization of a molecule.                                                                                                                                                                                                                       |
+| nmr         | NMR chemical shift (ppm to TMS) of each atom is computed.                                                                                                                                                                                                               |
+| uv          | absorption wavelengths (nm) (for spin allowed states) are computed. If you add an absolute path of text file that specify peak positions and their peak like (uv=/ab/path2uv.dat), it is possible to the similarity and dissimilarity between the target and reference. |
+| energy      | SCF energy (in Eh) is printed.                                                                                                                                                                                                                                          |
+| cden        | charge and spin densities on each atom are computed.                                                                                                                                                                                                                    |
+| homolumo    | HOMO/LUMO gap (Eh) calculation                                                                                                                                                                                                                                          |
+| dipole      | dipole moment of a molecule                                                                                                                                                                                                                                             |
+| deen        | decomposition energy (in eV) of a molecule                                                                                                                                                                                                                              |
+| stable2o2   | stability to oxygen molecule                                                                                                                                                                                                                                            |
+| vip         | vertical ionization potential energy (in eV)                                                                                                                                                                                                                            |
+| vea         | vertiacl electronic affinity (in eV)                                                                                                                                                                                                                                    |
+| aip         | adiabatic ionization energy (in eV)                                                                                                                                                                                                                                     |
+| aea         | adiabatic electronic affinity (in eV)                                                                                                                                                                                                                                   |
+| fluor       | wavelength (in nm) of fluorescence are computed. if you want to specify the state that emits fluorescence, you can specify the index of state like “fluor=#” (# is an integer, default is “fluor=1”)                                                                    |
+| tadf        | Compute the energy gap (in Eh) between minimum in the spin allowed state and the spin forbidden state.                                                                                                                                                                  |
+| freq        | Compute the variable related to the vibrational analysis of a molecule. IR, Raman, etc                                                                                                                                                                                  |
+| pka         | Compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species. The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydorogen.                                                                           |
 
 ## License
 This package is distributed under the MIT License.
