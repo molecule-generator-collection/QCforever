@@ -79,4 +79,5 @@ if __name__ == '__main__':
     print(Atom, Charge)
        
 
-    print(find_MaxProtic(Atom, Charge))
+######For find protic hydrogen
+#    print(find_MaxProtic(Atom, Charge))

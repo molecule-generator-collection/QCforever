@@ -21,6 +21,7 @@ import GaussianRunPack.chk2fchk
 import GaussianRunPack.fchk2chk
 import GaussianRunPack.UV_similarity
 import GaussianRunPack.Get_FreqPro
+import GaussianRunPack.Get_MolInterCoordinate
 
 Eh2kJmol = 2625.5
 
@@ -123,12 +124,9 @@ class GaussianDFTRun:
             Links[1+symm] = ""
 
         if opt == 1:
-            if Bondpair1 != []:
-                print ("Optimization was performed...Check geometry...")
-                MaxBondLength = GaussianRunPack.Get_MolCoordinate.MaxBondLength(GS_lines, Bondpair1, Bondpair2)
-                output["GS_MaxBondLength"] = MaxBondLength
-            else:
-                output["GS_MaxBondLength"] = 0
+            print ("Optimization was performed...Check geometry...")
+            MaxDisplace = GaussianRunPack.Get_MolInterCoordinate.Extract_InterMol(GS_lines)
+            output["GS_MaxDisplace"] = MaxDisplace
 
         if freq == 1:
             print("For getting frequency")
@@ -354,12 +352,11 @@ class GaussianDFTRun:
                 VNP_Energy_SS =  self.Extract_SCFEnergy(VNP_lines)
 #                VNP_Comp_SS, VNP_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(VNP_lines)
 
-                if Bondpair1 != []:
-                    MaxBondLength = GaussianRunPack.Get_MolCoordinate.MaxBondLength(VNP_lines, Bondpair1, Bondpair2)
-                else:
-                    MaxBondLength = 0
+###################For Check internal coordinate ###########
+                MaxDisplace = GaussianRunPack.Get_MolInterCoordinate.Extract_InterMol(PC_lines)
+#################################################################
 
-                output["relaxedIP_MaxBondLength"] = MaxBondLength
+                output["relaxedIP_MaxDisplace"] = MaxDisplace
                 output["aip"] = [27.211*(PC_Energy_SS[0] - GS_Energy), 27.211*(PC_Energy_SS[0] - VNP_Energy_SS[0]), PC_Energy_SS[1], VNP_Energy_SS[1]]
 
             if aea == 1:
@@ -377,14 +374,11 @@ class GaussianDFTRun:
                 VNN_Energy_SS =  self.Extract_SCFEnergy(VNN_lines)
 #                VNN_Comp_SS, NC_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(VNN_lines)
 
-                if Bondpair1 != []:
-                    MaxBondLength = GaussianRunPack.Get_MolCoordinate.MaxBondLength(VNN_lines, Bondpair1, Bondpair2)
-                else:
-                    MaxBondLength = 0
+###################For Check internal coordinate ###########
+                MaxDisplace = GaussianRunPack.Get_MolInterCoordinate.Extract_InterMol(NC_lines)
+#################################################################
 
-
-                output["relaxedEA_MaxBondLength"] = MaxBondLength
-
+                output["relaxedEA_MaxDisplace"] = MaxDisplace
 ######Normal electronic affinity calculation####################
                 output["aea"] = [27.211*(GS_Energy - NC_Energy_SS[0]), 27.211*(VNN_Energy_SS[0] - NC_Energy_SS[0]), NC_Energy_SS[1], VNN_Energy_SS[1]]
 #################################################################
@@ -426,13 +420,12 @@ class GaussianDFTRun:
             CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden  \
             = GaussianRunPack.Get_ExcitedState.Extract_ExcitedState(lines)
 
-            if Bondpair1 != []:
-                MaxBondLength = GaussianRunPack.Get_MolCoordinate.MaxBondLength(lines, Bondpair1, Bondpair2)
-            else:
-                MaxBondLength = 0
+
+###################For Check internal coordinate ###########
+            MaxDisplace = GaussianRunPack.Get_MolInterCoordinate.Extract_InterMol(lines)
 
             output["MinEtarget"] = S_Eext
-            output["Min_MaxBondLength"] = MaxBondLength
+            output["Min_MaxDisplace"] = MaxDisplace
             output["fluor"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
             Links[Index]=""
   
@@ -444,13 +437,11 @@ class GaussianDFTRun:
             CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden  \
             = GaussianRunPack.Get_ExcitedState.Extract_ExcitedState(lines)
 
-            if Bondpair1 != []:
-                MaxBondLength = GaussianRunPack.Get_MolCoordinate.MaxBondLength(lines, Bondpair1, Bondpair2)
-            else:
-                MaxBondLength = 0
+###################For Check internal coordinate ###########
+            MaxDisplace = GaussianRunPack.Get_MolInterCoordinate.Extract_InterMol(lines)
 
             output["T_Min"] = T_Eext
-            output["T_Min_MaxBondLength"] = MaxBondLength
+            output["T_Min_MaxDisplace"] = MaxDisplace
             output["T_Phos"] = [WL_forbidden, OS_forbidden, CD_L_forbidden, CD_OS_forbidden]
             TADF_Eng = 0.0
             if S_Found and T_Found:
@@ -965,12 +956,12 @@ class GaussianDFTRun:
         
         job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(PreGauInput[0], self.timexe)
         GaussianRunPack.chk2fchk.Get_chklist()
-      #  output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
-        try:
-            output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
-        except:
-            job_state = "error"
-            pass
+        output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
+      #  try:
+      #      output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
+      #  except:
+      #      job_state = "error"
+      #      pass
 
 #####for pka computation#######################
 
