@@ -531,8 +531,8 @@ class GaussianDFTRun:
         s = s + '\n'
         s = s + SCRF
         if Opt == True:
-#            s = s + "Opt=(MaxCycles=50)"
-            s = s + "Opt"
+            s = s + "Opt=(MaxCycles=50)"
+#            s = s + "Opt"
             s = s + '\n'
         s = s + '\n' 
 
@@ -650,7 +650,7 @@ class GaussianDFTRun:
                 #print ('Fluorescence')
             elif option.lower() == 'tadf':
 #                tadf = 1
-                option_array[2] = 1
+                option_array[3] = 1
                 if SpinMulti == 1:
                     option_array[9] = 1
                     option_array[10] = 1
@@ -765,7 +765,7 @@ class GaussianDFTRun:
                 ofile.write('Opt=(MaxCycles=100)\n')
 
            
-            if option_array[1] == 1: # opt == 1
+            if option_array[1] == 1: # freq == 1
                 ofile.write('Freq=(Raman)\n')
 
 #######Solvent effect############################
@@ -779,7 +779,7 @@ class GaussianDFTRun:
 
             ofile.write('\n')
 
-#####Reading Geometry from sdf file#####
+#####Reading Geometry from sdf or xyz file#####
 
             if ReadFromsdf == 1 or ReadFromxyz == 1:
 
@@ -828,7 +828,10 @@ class GaussianDFTRun:
                 ofile.write('ionization potential calculation\n')
                 ofile.write('\n')
 
-                ofile.write('%5d %5d \n' % (TotalCharge+1, SpinMulti+1))
+                if SpinMulti == 1:
+                    ofile.write('%5d %5d \n' % (TotalCharge+1, SpinMulti+1))
+                else:
+                    ofile.write('%5d %5d \n' % (TotalCharge+1, SpinMulti-1))
                 ofile.write('\n')
                 ofile.write(SCRF_read)
 
@@ -847,7 +850,10 @@ class GaussianDFTRun:
                 ofile.write('electronic affinity calculation\n')
                 ofile.write('\n')
 
-                ofile.write('%5d %5d \n' % (TotalCharge-1, SpinMulti+1))
+                if SpinMulti == 1:
+                    ofile.write('%5d %5d \n' % (TotalCharge-1, SpinMulti+1))
+                else:
+                    ofile.write('%5d %5d \n' % (TotalCharge-1, SpinMulti-1))
                 ofile.write('\n')
                 ofile.write(SCRF_read)
 
@@ -866,7 +872,10 @@ class GaussianDFTRun:
                 ofile.write('neutrization energy calculation from a cation\n')
                 ofile.write('\n')
 
-                ofile.write('%5d %5d \n' % (TotalCharge+1, SpinMulti+1))
+                if SpinMulti == 1:
+                    ofile.write('%5d %5d \n' % (TotalCharge+1, SpinMulti+1))
+                else:
+                    ofile.write('%5d %5d \n' % (TotalCharge+1, SpinMulti-1))
                 ofile.write('\n')
                 ofile.write(SCRF_read)
 
@@ -902,7 +911,10 @@ class GaussianDFTRun:
                 ofile.write('neutrization energy calculation from an anion\n')
                 ofile.write('\n')
 
-                ofile.write('%5d %5d \n' % (TotalCharge-1, SpinMulti+1))
+                if SpinMulti == 1:
+                    ofile.write('%5d %5d \n' % (TotalCharge-1, SpinMulti+1))
+                else:
+                    ofile.write('%5d %5d \n' % (TotalCharge-1, SpinMulti-1))
                 ofile.write('\n')
                 ofile.write(SCRF_read)
 
@@ -956,12 +968,12 @@ class GaussianDFTRun:
         
         job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(PreGauInput[0], self.timexe)
         GaussianRunPack.chk2fchk.Get_chklist()
-        output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
-      #  try:
-      #      output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
-      #  except:
-      #      job_state = "error"
-      #      pass
+        #output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
+        try:
+            output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
+        except:
+            job_state = "error"
+            pass
 
 #####for pka computation#######################
 
@@ -1037,6 +1049,8 @@ class GaussianDFTRun:
 
 #####for fluor == 1 or tadf == 1 for open shell#############
         if option_array_Ex[9] == 1 or option_array_Ex[10] == 1: 
+
+            TotalCharge, SpinMulti = GaussianRunPack.fchk2chk.Get_fchk(PreGauInput[0])
     
             output_dic_Ex = {}
         
@@ -1045,7 +1059,9 @@ class GaussianDFTRun:
             GauInputName_ExOpt = JobName_ExOpt + ".com"
             ofile_ExOpt = open(GauInputName_ExOpt ,'w')
 
-            ofile.write(line_system)
+            ofile_ExOpt.write(line_system)
+            ofile_ExOpt.write(line_chk+'\n')
+            ofile_ExOpt.write(line_o_method+'\n')
     
             ofile_ExOpt.write(line_readMOGeom+'\n')
             ofile_ExOpt.write('\n')
@@ -1062,12 +1078,12 @@ class GaussianDFTRun:
 
             job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(JobName_ExOpt, self.timexe)
             GaussianRunPack.chk2fchk.Get_chklist()
+           # output_dic_Ex = self.Extract_values(JobName_ExOpt, option_array_Ex, Bondpair1, Bondpair2)
             try:
                 output_dic_Ex = self.Extract_values(JobName_ExOpt, option_array_Ex, Bondpair1, Bondpair2)
             except:
                 job_state = "error"
                 pass
-
 
             output_dic.update(output_dic_Ex)
 
