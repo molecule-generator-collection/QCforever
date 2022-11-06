@@ -29,8 +29,8 @@ def Extract_ChargeSpin(lines):
 #                print(line)
                 Charge_spin_line = line.split()
                 Atom_index.append(Charge_spin_line[1])
-                Charge.append(Charge_spin_line[2])
-                Spin.append(Charge_spin_line[3])
+                Charge.append(float(Charge_spin_line[2]))
+                Spin.append(float(Charge_spin_line[3]))
                 continue
 
 
