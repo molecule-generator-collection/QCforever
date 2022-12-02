@@ -1,19 +1,17 @@
-import os, glob
-import shutil
+import glob
+import os
 import subprocess
 
 
 def Get_chklist():
-
-    for i in glob.glob('./*.chk'):
-        print(i)
+    for f in glob.glob('./*.chk'):
+        print(f)
         try:
-            subprocess.run(['formchk', i])
+            subprocess.run(['formchk', f])
         except:
-            print ("Failed converting chk to fchk!")            
+            print("Failed converting chk to fchk!")            
+        os.remove(os.path.join('.', f))
 
-        os.remove('./'+ i)
 
 if __name__ == '__main__':
-
     Get_chklist()
