@@ -72,7 +72,7 @@ class GaussianDFTRun:
         aea = int(option_array[14])
         cden = int(option_array[15])
         pka = int(option_array[16])  # not used
-        satkoopmans = int(option_array[17]) # not used
+        satkoopmans = int(option_array[17]) 
         symm = int(option_array[18])
         infilename = f"{jobname}.log"
         fchkname = f"{jobname}.fchk"
