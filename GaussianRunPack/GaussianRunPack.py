@@ -22,6 +22,7 @@ import GaussianRunPack.Get_MolInterCoordinate
 
 
 Eh2kJmol = 2625.5
+Eh2eV = 27.211
 
 
 class GaussianDFTRun:
@@ -71,7 +72,8 @@ class GaussianDFTRun:
         aea = int(option_array[14])
         cden = int(option_array[15])
         pka = int(option_array[16])  # not used
-        symm = int(option_array[17])
+        satkoopmans = int(option_array[17]) # not used
+        symm = int(option_array[18])
         infilename = f"{jobname}.log"
         fchkname = f"{jobname}.fchk"
 
@@ -91,7 +93,7 @@ class GaussianDFTRun:
         lines = ""
 
         # For extracting symmetry of molecule without SCF
-        if symm ==1:
+        if symm == 1:
             Symm_lines = Links[symm].splitlines()
             pGroup = "C1"
             for line in Symm_lines:
@@ -130,12 +132,12 @@ class GaussianDFTRun:
             NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = GaussianRunPack.Get_MOEnergy_fchk.Extract_MO(fchk_lines)
             # NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = GaussianRunPack.Get_MOEnergy.Extract_MO(GS_lines)
             if BetaEigenVal == []:
-                Alpha_gap = 27.211 * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
+                Alpha_gap = Eh2eV * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
                 output["homolumo"] = Alpha_gap
                 # return Alpha_gap
             else:
-                Alpha_gap = 27.211 * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
-                Beta_gap = 27.211 * (BetaEigenVal[NumBetaElec]-BetaEigenVal[NumBetaElec-1])
+                Alpha_gap = Eh2eV * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
+                Beta_gap = Eh2eV * (BetaEigenVal[NumBetaElec]-BetaEigenVal[NumBetaElec-1])
                 output["homolumo"] = [Alpha_gap, Beta_gap]
                 # return Alpha_gap, Beta_gap
 
@@ -235,7 +237,7 @@ class GaussianDFTRun:
             except KeyError:
                 output["Energy"] = self.Extract_SCFEnergy(GS_lines)
                 GS_Energy = output["Energy"][0] 
-            print (GS_Energy)
+           # print (GS_Energy)
             if vip == 1:
                 Index = 1 + symm + nmr + vip
                 IP_lines = Links[Index].splitlines()
@@ -243,7 +245,7 @@ class GaussianDFTRun:
                 IP_Energy_SS = self.Extract_SCFEnergy(IP_lines)
                 # IP_Comp_SS, IP_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(IP_lines)
                 # Normal ionization potential calculation
-                output["vip"] = [27.211*(IP_Energy_SS[0]-GS_Energy), IP_Energy_SS[1]]
+                output["vip"] = [Eh2eV*(IP_Energy_SS[0]-GS_Energy), IP_Energy_SS[1]]
             if vea == 1:
                 Index = 1 + symm + nmr + vip + vea
                 EA_lines = Links[Index].splitlines()
@@ -251,7 +253,7 @@ class GaussianDFTRun:
                 EA_Energy_SS =  self.Extract_SCFEnergy(EA_lines)
                 # EA_Comp_SS, EA_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(EA_lines)
                 # Normal electronic affinity calculation
-                output["vea"] = [27.211*(GS_Energy-EA_Energy_SS[0]), EA_Energy_SS[1]]
+                output["vea"] = [Eh2eV*(GS_Energy-EA_Energy_SS[0]), EA_Energy_SS[1]]
 
         if aip >= 1 or aea >= 1:
             try:
@@ -273,7 +275,7 @@ class GaussianDFTRun:
                 # For Check internal coordinate
                 MaxDisplace = GaussianRunPack.Get_MolInterCoordinate.Extract_InterMol(PC_lines)
                 output["relaxedIP_MaxDisplace"] = MaxDisplace
-                output["aip"] = [27.211*(PC_Energy_SS[0]-GS_Energy), 27.211*(PC_Energy_SS[0]-VNP_Energy_SS[0]), PC_Energy_SS[1], VNP_Energy_SS[1]]
+                output["aip"] = [Eh2eV*(PC_Energy_SS[0]-GS_Energy), Eh2eV*(PC_Energy_SS[0]-VNP_Energy_SS[0]), PC_Energy_SS[1], VNP_Energy_SS[1]]
             if aea == 1:
                 Index = 1 + symm + nmr + vip + vea + aip + aea 
                 NC_lines = Links[Index].splitlines()
@@ -289,7 +291,18 @@ class GaussianDFTRun:
                 MaxDisplace = GaussianRunPack.Get_MolInterCoordinate.Extract_InterMol(NC_lines)
                 output["relaxedEA_MaxDisplace"] = MaxDisplace
                 # Normal electronic affinity calculation
-                output["aea"] = [27.211*(GS_Energy-NC_Energy_SS[0]), 27.211*(VNN_Energy_SS[0]-NC_Energy_SS[0]), NC_Energy_SS[1], VNN_Energy_SS[1]]
+                output["aea"] = [Eh2eV*(GS_Energy-NC_Energy_SS[0]), Eh2eV*(VNN_Energy_SS[0]-NC_Energy_SS[0]), NC_Energy_SS[1], VNN_Energy_SS[1]]
+
+        if satkoopmans == 1:
+            dSCF_vip = output["vip"][0]
+            dSCF_vea = output["vea"][0]
+            Alpha_eHOMO = AlphaEigenVal[NumAlphaElec-1] 
+            Beta_eHOMO = BetaEigenVal[NumBetaElec-1]
+            Alpha_eLUMO = AlphaEigenVal[NumAlphaElec] 
+            Beta_eLUMO = BetaEigenVal[NumBetaElec]
+            Delta_vip = dSCF_vip + Eh2eV*max(Alpha_eHOMO, Beta_eHOMO)
+            Delta_vea = dSCF_vea + Eh2eV*min(Alpha_eLUMO, Beta_eLUMO)
+            output["satkoopmans"] = [Delta_vip, Delta_vea]
   
         if uv == 1:
             Index = 1 + symm + nmr + vip + vea + aip + aea + 1 
@@ -306,7 +319,7 @@ class GaussianDFTRun:
                 S, D = GaussianRunPack.UV_similarity.smililarity_dissimilarity(ref_uv["uv"][0], ref_uv["uv"][1], output["uv"][0], output["uv"][1])
                 output["Similality/Disdimilarity"] = [S, D]
   
-        if fluor==1 or tadf==1:
+        if fluor == 1 or tadf == 1:
             Index = 1 + symm + uv + nmr + vip + vea + aip + aea + fluor 
             lines = "" if Index >= n else Links[Index].splitlines()
             S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
@@ -395,9 +408,9 @@ class GaussianDFTRun:
         infilename = self.in_file
         option_line = self.value    
         options = option_line.split()
-        option_array = np.zeros(18)
-        option_array_Ex = np.zeros(18)
-        option_array_pka = np.zeros(18)
+        option_array = np.zeros(19)
+        option_array_Ex = np.zeros(19)
+        option_array_pka = np.zeros(19)
         targetstate = 1
         PreGauInput = infilename.split('.')
         GauInputName = PreGauInput[0]+'.com'    
@@ -430,7 +443,8 @@ class GaussianDFTRun:
             TotalCharge = self.SpecTotalCharge
         if np.isnan(self.SpecSpinMulti) != True:
             SpinMulti = self.SpecSpinMulti
-        #
+
+        # Setting options
         for i in range(len(options)):
             option = options[i]
             if option.lower() == 'opt':
@@ -505,8 +519,13 @@ class GaussianDFTRun:
                 option_array[15] = 1
                 option_array[16] = 1
                 option_array_pka[4] = 1
-            elif option.lower() == 'symm':
+            elif option.lower() == 'satkoopmans':
+                option_array[5] = 1  # for getting orbital energy
+                option_array[11] = 1 # for computing VIP
+                option_array[12] = 1 # for computing VEA
                 option_array[17] = 1
+            elif option.lower() == 'symm':
+                option_array[18] = 1
             else:
                 print('invalid option: ', option)
 
@@ -531,7 +550,7 @@ class GaussianDFTRun:
         line_readOnlyMOGeom = 'Geom=CheckPoint Guess=Read'
         line_readGeom = 'Geom=Checkpoint'
 
-        if option_array[17] == 1:
+        if option_array[18] == 1:
             ofile.write(line_system)
             ofile.write(line_chk+'\n')
             ofile.write(line_o_method+'\n')
@@ -553,10 +572,10 @@ class GaussianDFTRun:
                     % (Mol_atom[j],X[j], Y[j], Z[j]))
             ofile.write('\n')
             # For adding other jobs when other options are required...
-            if 1 in option_array[0:17]: 
+            if 1 in option_array[0:18]: 
                 ofile.write('--Link1--\n')
 
-        if 1 in option_array[0:17]: 
+        if 1 in option_array[0:18]: 
             ofile.write(line_system)
             ofile.write(line_chk+'\n')
             ofile.write(line_o_method+'\n')
@@ -726,8 +745,9 @@ class GaussianDFTRun:
         #output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
         try:
             output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
-        except:
+        except Exception as e:
             job_state = "error"
+            print(e)
             pass
 
         # for pka computation
@@ -775,8 +795,9 @@ class GaussianDFTRun:
             # output_dic_pka = self.Extract_values(JobName_DeHMol, option_array_pka, Bondpair1, Bondpair2)
             try:
                 output_dic_pka = self.Extract_values(JobName_DeHMol, option_array_pka, Bondpair1, Bondpair2)
-            except:
+            except Exception as e:
                 job_state = "error"
+                print (e)
                 pass
             #print("pka: ", output_dic_pka)
             E_dH = output_dic_pka["Energy"][0]
@@ -809,8 +830,9 @@ class GaussianDFTRun:
             # output_dic_Ex = self.Extract_values(JobName_ExOpt, option_array_Ex, Bondpair1, Bondpair2)
             try:
                 output_dic_Ex = self.Extract_values(JobName_ExOpt, option_array_Ex, Bondpair1, Bondpair2)
-            except:
+            except Exception as e:
                 job_state = "error"
+                print (e)
                 pass
             output_dic.update(output_dic_Ex)
         output_dic["log"] = job_state
