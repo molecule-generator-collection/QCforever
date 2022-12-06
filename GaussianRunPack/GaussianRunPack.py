@@ -19,6 +19,7 @@ import GaussianRunPack.fchk2chk
 import GaussianRunPack.UV_similarity
 import GaussianRunPack.Get_FreqPro
 import GaussianRunPack.Get_MolInterCoordinate
+import GaussianRunPack.Gen_IOPline_functional
 
 
 Eh2kJmol = 2625.5
@@ -40,6 +41,7 @@ class GaussianDFTRun:
         self.SpecTotalCharge = np.nan
         self.SpecSpinMulti = np.nan
         self.ref_uv_path = ''
+        self.para_functional = []
 
     def Extract_SCFEnergy(self, lines):
         Energy = []
@@ -80,10 +82,6 @@ class GaussianDFTRun:
         output = {}
         with open(infilename, 'r') as ifile:
             lines = ifile.readlines()
-        #for line in lines:
-        #    if line.find("Error termination") >=0:
-        #        print("Gausssian is stopped due to some errors")
-        #        return output
         print("Spliting links....")
         Links = self.SplitLinks(infilename)
         n = len(Links)
@@ -539,9 +537,14 @@ class GaussianDFTRun:
                 line_system += line_proc
         line_chk = f'%chk={PreGauInput[0]}'
         line_oldchk = f'%Oldchk={PreGauInput[0]}'
-        line_method = f'#{self.functional}/{self.basis} test'
-        line_o_method = f'#u{self.functional}/{self.basis} test'
-        line_c_method = f'#r{self.functional}/{self.basis} test'
+        line_iop_functional = ''
+        if self.para_functional == []:
+            pass
+        else:
+            line_iop_functional += GaussianRunPack.Gen_IOPline_functional.functional_para(self.functional, self.para_functional)
+        line_method = f'#{self.functional}/{self.basis} test {line_iop_functional} '
+        line_o_method = f'#u{self.functional}/{self.basis} test {line_iop_functional} '
+        line_c_method = f'#r{self.functional}/{self.basis} test {line_iop_functional} '
         line_comment = infilename
 
         ofile = open(GauInputName ,'w')
