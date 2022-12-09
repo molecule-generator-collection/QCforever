@@ -1,6 +1,7 @@
-import os, sys, gc
-#from pprint import pprint
-import GaussianRunPack
+import sys
+
+from qcforever.gaussian_run import GaussianRunPack
+
 				
 usage ='Usage; %s infile' % sys.argv[0]
 
