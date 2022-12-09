@@ -1,10 +1,10 @@
 import os, sys, gc, csv, pickle
 import numpy as np
-import GaussianRunPack
+from qcforever.gaussian_run import GaussianRunPack
 				
 usage ='Usage; %s' % sys.argv[0]
 
-option = "symm pka opt homolumo energy dipole deen stable2o2 uv=/home/sumita/GaussianRun_2.4beta/Samples/UV_peak.dat aip aea tadf" 
+option = "symm pka opt homolumo energy dipole deen stable2o2 uv=/Users/shouichi/Desktop/workspace/QCforever/Samples/UV_peak.dat aip aea tadf" 
 
 infilename = 'ch2o.xyz'
 

@@ -3,23 +3,7 @@ import shutil
 
 import numpy as np
 
-import GaussianRunPack.AtomInfo
-import GaussianRunPack.read_sdf
-import GaussianRunPack.read_xyz
-import GaussianRunPack.Exe_Gaussian
-import GaussianRunPack.Get_ExcitedState
-import GaussianRunPack.Get_MolCoordinate
-import GaussianRunPack.Get_MolCoordinate_fchk
-import GaussianRunPack.Estimate_SpinContami
-import GaussianRunPack.Get_ChargeSpin
-import GaussianRunPack.Get_MOEnergy
-import GaussianRunPack.Get_MOEnergy_fchk
-import GaussianRunPack.chk2fchk
-import GaussianRunPack.fchk2chk
-import GaussianRunPack.UV_similarity
-import GaussianRunPack.Get_FreqPro
-import GaussianRunPack.Get_MolInterCoordinate
-import GaussianRunPack.Gen_IOPline_functional
+from qcforever import gaussian_run
 
 
 Eh2kJmol = 2625.5
@@ -49,7 +33,7 @@ class GaussianDFTRun:
             if line.find("SCF Done:  ") >= 0:
                 line_StateInfo = line.split()
                 Energy.append(float(line_StateInfo[4]))
-        Comp_SS, Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(lines)
+        Comp_SS, Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(lines)
         Energy_Spin = [Energy[-1], Comp_SS-Ideal_SS]
         return Energy_Spin
 
@@ -107,12 +91,12 @@ class GaussianDFTRun:
 
         if opt == 1:
             print ("Optimization was performed...Check geometry...")
-            MaxDisplace = GaussianRunPack.Get_MolInterCoordinate.Extract_InterMol(GS_lines)
+            MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(GS_lines)
             output["GS_MaxDisplace"] = MaxDisplace
 
         if freq == 1:
             print("For getting frequency")
-            Freq, IR, Raman, E_zp,  E_t, E_enth, E_free, Ei, Cv, St = GaussianRunPack.Get_FreqPro.Extract_Freq(GS_lines) 
+            Freq, IR, Raman, E_zp,  E_t, E_enth, E_free, Ei, Cv, St = gaussian_run.Get_FreqPro.Extract_Freq(GS_lines) 
             output["freq"] = Freq 
             output["IR"] = IR
             output["Raman"] = Raman
@@ -127,8 +111,8 @@ class GaussianDFTRun:
         if homolumo == 1:
             with open(fchkname, 'r') as ifile:
                 fchk_lines = ifile.readlines()
-            NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = GaussianRunPack.Get_MOEnergy_fchk.Extract_MO(fchk_lines)
-            # NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = GaussianRunPack.Get_MOEnergy.Extract_MO(GS_lines)
+            NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy_fchk.Extract_MO(fchk_lines)
+            # NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy.Extract_MO(GS_lines)
             if BetaEigenVal == []:
                 Alpha_gap = Eh2eV * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
                 output["homolumo"] = Alpha_gap
@@ -163,11 +147,11 @@ class GaussianDFTRun:
             except KeyError:
                 output["Energy"] = self.Extract_SCFEnergy(GS_lines)
                 GS_Energy = output["Energy"][0] 
-            Mol_atom, _, _, _ = GaussianRunPack.Get_MolCoordinate.Extract_Coordinate(GS_lines)
+            Mol_atom, _, _, _ = gaussian_run.Get_MolCoordinate.Extract_Coordinate(GS_lines)
             # Calculating Decomposed atoms total energy
             decomposed_Energy = 0
             for i in range(len(Mol_atom)):    
-                decomposed_Energy += GaussianRunPack.AtomInfo.One_Atom_Energy(Mol_atom[i], self.functional, self.basis)
+                decomposed_Energy += gaussian_run.AtomInfo.One_Atom_Energy(Mol_atom[i], self.functional, self.basis)
             print("Decomposed energy: ", decomposed_Energy)
             # return deen 
             output["deen"] = GS_Energy - (decomposed_Energy)
@@ -178,9 +162,9 @@ class GaussianDFTRun:
             except:
                 with open(fchkname, 'r') as fchkfile:
                     fchk_lines = fchkfile.readlines()
-                NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = GaussianRunPack.Get_MOEnergy_fchk.Extract_MO(fchk_lines)
-                # NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = GaussianRunPack.Get_MOEnergy.Extract_MO(GS_lines)
-            O2_SOMO, O2_LUMO = GaussianRunPack.AtomInfo.O2_MO_refer(self.functional, self.basis)
+                NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy_fchk.Extract_MO(fchk_lines)
+                # NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy.Extract_MO(GS_lines)
+            O2_SOMO, O2_LUMO = gaussian_run.AtomInfo.O2_MO_refer(self.functional, self.basis)
             if BetaEigenVal == []:
                 """
                 OxidizedbyO2  >  0 oxidation by O2 is hard to occure.
@@ -197,7 +181,7 @@ class GaussianDFTRun:
                 output["stable2o2"] = [OxidizedbyO2,ReducedbyO2]
 
         if cden == 1:
-            output["cden"] = GaussianRunPack.Get_ChargeSpin.Extract_ChargeSpin(GS_lines)
+            output["cden"] = gaussian_run.Get_ChargeSpin.Extract_ChargeSpin(GS_lines)
 
         """ Index of Links
         Index = 0 : (always blank)
@@ -225,7 +209,7 @@ class GaussianDFTRun:
             # calculating chemical shift for H, C, or Si
             for i in range(len(Element)):
                 if Element[i]=="H" or Element[i]=="C" or Element[i]=="Si":
-                    ppm[i] = GaussianRunPack.AtomInfo.One_TMS_refer(Element[i], self.functional, self.basis) - ppm[i]
+                    ppm[i] = gaussian_run.AtomInfo.One_TMS_refer(Element[i], self.functional, self.basis) - ppm[i]
             # return Element, ppm 
             output["nmr"] = [Element, ppm]
 
@@ -241,7 +225,7 @@ class GaussianDFTRun:
                 IP_lines = Links[Index].splitlines()
                 Links[Index] = ""
                 IP_Energy_SS = self.Extract_SCFEnergy(IP_lines)
-                # IP_Comp_SS, IP_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(IP_lines)
+                # IP_Comp_SS, IP_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(IP_lines)
                 # Normal ionization potential calculation
                 output["vip"] = [Eh2eV*(IP_Energy_SS[0]-GS_Energy), IP_Energy_SS[1]]
             if vea == 1:
@@ -249,7 +233,7 @@ class GaussianDFTRun:
                 EA_lines = Links[Index].splitlines()
                 Links[Index] = ""
                 EA_Energy_SS =  self.Extract_SCFEnergy(EA_lines)
-                # EA_Comp_SS, EA_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(EA_lines)
+                # EA_Comp_SS, EA_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(EA_lines)
                 # Normal electronic affinity calculation
                 output["vea"] = [Eh2eV*(GS_Energy-EA_Energy_SS[0]), EA_Energy_SS[1]]
 
@@ -267,11 +251,11 @@ class GaussianDFTRun:
                 Links[Index+1] = ""
                 aip += 1
                 PC_Energy_SS = self.Extract_SCFEnergy(PC_lines)
-                # PC_Comp_SS, PC_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(PC_lines)
+                # PC_Comp_SS, PC_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(PC_lines)
                 VNP_Energy_SS = self.Extract_SCFEnergy(VNP_lines)
-                # VNP_Comp_SS, VNP_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(VNP_lines)
+                # VNP_Comp_SS, VNP_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(VNP_lines)
                 # For Check internal coordinate
-                MaxDisplace = GaussianRunPack.Get_MolInterCoordinate.Extract_InterMol(PC_lines)
+                MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(PC_lines)
                 output["relaxedIP_MaxDisplace"] = MaxDisplace
                 output["aip"] = [Eh2eV*(PC_Energy_SS[0]-GS_Energy), Eh2eV*(PC_Energy_SS[0]-VNP_Energy_SS[0]), PC_Energy_SS[1], VNP_Energy_SS[1]]
             if aea == 1:
@@ -282,11 +266,11 @@ class GaussianDFTRun:
                 Links[Index+1] = ""
                 aea += 1
                 NC_Energy_SS = self.Extract_SCFEnergy(NC_lines)
-                # NC_Comp_SS, NC_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(NC_lines)
+                # NC_Comp_SS, NC_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(NC_lines)
                 VNN_Energy_SS = self.Extract_SCFEnergy(VNN_lines)
-                # VNN_Comp_SS, NC_Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(VNN_lines)
+                # VNN_Comp_SS, NC_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(VNN_lines)
                 # For Check internal coordinate
-                MaxDisplace = GaussianRunPack.Get_MolInterCoordinate.Extract_InterMol(NC_lines)
+                MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(NC_lines)
                 output["relaxedEA_MaxDisplace"] = MaxDisplace
                 # Normal electronic affinity calculation
                 output["aea"] = [Eh2eV*(GS_Energy-NC_Energy_SS[0]), Eh2eV*(VNN_Energy_SS[0]-NC_Energy_SS[0]), NC_Energy_SS[1], VNN_Energy_SS[1]]
@@ -306,24 +290,24 @@ class GaussianDFTRun:
             Index = 1 + symm + nmr + vip + vea + aip + aea + 1 
             lines = "" if Index >= n else Links[Index].splitlines()
             _, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = GaussianRunPack.Get_ExcitedState.Extract_ExcitedState(lines)
+                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
             output["uv"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
             output["state_index"] = [State_allowed, State_forbidden]
             Links[Index] = ""
             if self.ref_uv_path != '':
                 ref_uv = {}
                 print(f"Read the reference spectrum...{self.ref_uv_path}")
-                ref_uv["uv"] = GaussianRunPack.UV_similarity.read_data(self.ref_uv_path)
-                S, D = GaussianRunPack.UV_similarity.smililarity_dissimilarity(ref_uv["uv"][0], ref_uv["uv"][1], output["uv"][0], output["uv"][1])
+                ref_uv["uv"] = gaussian_run.UV_similarity.read_data(self.ref_uv_path)
+                S, D = gaussian_run.UV_similarity.smililarity_dissimilarity(ref_uv["uv"][0], ref_uv["uv"][1], output["uv"][0], output["uv"][1])
                 output["Similality/Disdimilarity"] = [S, D]
   
         if fluor == 1 or tadf == 1:
             Index = 1 + symm + uv + nmr + vip + vea + aip + aea + fluor 
             lines = "" if Index >= n else Links[Index].splitlines()
             S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = GaussianRunPack.Get_ExcitedState.Extract_ExcitedState(lines)
+                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
             # For Check internal coordinate
-            MaxDisplace = GaussianRunPack.Get_MolInterCoordinate.Extract_InterMol(lines)
+            MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
             output["MinEtarget"] = S_Eext
             output["Min_MaxDisplace"] = MaxDisplace
             output["fluor"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
@@ -333,9 +317,9 @@ class GaussianDFTRun:
             Index = 1 + symm + uv + nmr + vip + vea + aip + aea + fluor + tadf
             lines = "" if Index >= n else Links[Index].splitlines()
             T_Found, _, T_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden  = GaussianRunPack.Get_ExcitedState.Extract_ExcitedState(lines)
+                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden  = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
             # For Check internal coordinate
-            MaxDisplace = GaussianRunPack.Get_MolInterCoordinate.Extract_InterMol(lines)
+            MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
             output["T_Min"] = T_Eext
             output["T_Min_MaxDisplace"] = MaxDisplace
             output["T_Phos"] = [WL_forbidden, OS_forbidden, CD_L_forbidden, CD_OS_forbidden]
@@ -418,10 +402,10 @@ class GaussianDFTRun:
         ReadFromxyz = 0 
         if PreGauInput[1] == "sdf":
             ReadFromsdf = 1 
-            Mol_atom, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = GaussianRunPack.read_sdf.read_sdf(infilename)
+            Mol_atom, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = gaussian_run.read_sdf.read_sdf(infilename)
         elif PreGauInput[1] == "xyz":
             ReadFromxyz = 1
-            Mol_atom, X, Y, Z, TotalCharge, SpinMulti = GaussianRunPack.read_xyz.read_xyz(infilename)
+            Mol_atom, X, Y, Z, TotalCharge, SpinMulti = gaussian_run.read_xyz.read_xyz(infilename)
             Bondpair1 = []
             Bondpair2 = []
         elif PreGauInput[1] == "chk":
@@ -429,7 +413,7 @@ class GaussianDFTRun:
             Bondpair1 = []
             Bondpair2 = []
         elif PreGauInput[1] == "fchk":
-            TotalCharge, SpinMulti = GaussianRunPack.fchk2chk.Get_fchk(PreGauInput[0])
+            TotalCharge, SpinMulti = gaussian_run.fchk2chk.Get_fchk(PreGauInput[0])
             ReadFromchk = 1 
             Bondpair1 = []
             Bondpair2 = []
@@ -541,7 +525,7 @@ class GaussianDFTRun:
         if self.para_functional == []:
             pass
         else:
-            line_iop_functional += GaussianRunPack.Gen_IOPline_functional.functional_para(self.functional, self.para_functional)
+            line_iop_functional += gaussian_run.Gen_IOPline_functional.functional_para(self.functional, self.para_functional)
         line_method = f'#{self.functional}/{self.basis} test {line_iop_functional} '
         line_o_method = f'#u{self.functional}/{self.basis} test {line_iop_functional} '
         line_c_method = f'#r{self.functional}/{self.basis} test {line_iop_functional} '
@@ -743,8 +727,8 @@ class GaussianDFTRun:
             inchkfile = PreGauInput[0]+".chk"
             shutil.move(inchkfile, PreGauInput[0]) 
         os.chdir(PreGauInput[0])
-        job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(PreGauInput[0], self.timexe)
-        GaussianRunPack.chk2fchk.Get_chklist()
+        job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(PreGauInput[0], self.timexe)
+        gaussian_run.chk2fchk.Get_chklist()
         #output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
         try:
             output_dic = self.Extract_values(PreGauInput[0], option_array, Bondpair1, Bondpair2)
@@ -759,12 +743,12 @@ class GaussianDFTRun:
             E_pH = output_dic["Energy"][0]
             Atom = output_dic["cden"][0]
             MullCharge = output_dic["cden"][1]
-            Index_MaxProtic = GaussianRunPack.Get_ChargeSpin.find_MaxProtic(Atom, MullCharge)
+            Index_MaxProtic = gaussian_run.Get_ChargeSpin.find_MaxProtic(Atom, MullCharge)
             print(Index_MaxProtic)
             GS_fchk = PreGauInput[0]+".fchk"
             with open(GS_fchk,'r') as ifile:
                 GS_lines = ifile.readlines()
-            TotalCharge, SpinMulti, Mol_atom, Mol_X, Mol_Y, Mol_Z = GaussianRunPack.Get_MolCoordinate_fchk.Extract_MolCoord(GS_lines)
+            TotalCharge, SpinMulti, Mol_atom, Mol_X, Mol_Y, Mol_Z = gaussian_run.Get_MolCoordinate_fchk.Extract_MolCoord(GS_lines)
             DeHMol_atom = np.delete(Mol_atom,Index_MaxProtic) 
             DeHMol_X = np.delete(Mol_X,Index_MaxProtic)
             DeHMol_Y = np.delete(Mol_Y,Index_MaxProtic)
@@ -793,8 +777,8 @@ class GaussianDFTRun:
             ofile_DeHMol.write('\n')
             ofile_DeHMol.close()
 
-            job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(JobName_DeHMol, self.timexe)
-            GaussianRunPack.chk2fchk.Get_chklist()
+            job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_DeHMol, self.timexe)
+            gaussian_run.chk2fchk.Get_chklist()
             # output_dic_pka = self.Extract_values(JobName_DeHMol, option_array_pka, Bondpair1, Bondpair2)
             try:
                 output_dic_pka = self.Extract_values(JobName_DeHMol, option_array_pka, Bondpair1, Bondpair2)
@@ -808,7 +792,7 @@ class GaussianDFTRun:
 
         # for fluor == 1 or tadf == 1 for open shell
         if option_array_Ex[9] == 1 or option_array_Ex[10] == 1: 
-            TotalCharge, SpinMulti = GaussianRunPack.fchk2chk.Get_fchk(PreGauInput[0])
+            TotalCharge, SpinMulti = gaussian_run.fchk2chk.Get_fchk(PreGauInput[0])
             output_dic_Ex = {}
             compute_state = output_dic["state_index"][0][int(targetstate)-1] 
             JobName_ExOpt = PreGauInput[0] + "_ExOpt"
@@ -828,8 +812,8 @@ class GaussianDFTRun:
                 ofile_ExOpt.write(sTD) 
             ofile_ExOpt.close()
 
-            job_state = GaussianRunPack.Exe_Gaussian.exe_Gaussian(JobName_ExOpt, self.timexe)
-            GaussianRunPack.chk2fchk.Get_chklist()
+            job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_ExOpt, self.timexe)
+            gaussian_run.chk2fchk.Get_chklist()
             # output_dic_Ex = self.Extract_values(JobName_ExOpt, option_array_Ex, Bondpair1, Bondpair2)
             try:
                 output_dic_Ex = self.Extract_values(JobName_ExOpt, option_array_Ex, Bondpair1, Bondpair2)
@@ -842,7 +826,7 @@ class GaussianDFTRun:
 
         # Convert fchk to xyz 
         if self.restart == False:
-            GaussianRunPack.Get_MolCoordinate_fchk.Get_fchklist2xyz()
+            gaussian_run.Get_MolCoordinate_fchk.Get_fchklist2xyz()
         os.chdir("..")
         return(output_dic)
 

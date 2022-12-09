@@ -1,7 +1,6 @@
 import re
-from numpy import *
 
-import GaussianRunPack.Estimate_SpinContami
+from qcforever import gaussian_run
 
 
 def classify_SpinStates(Ideal_SS, SS, WaveLength, OS, CD_L, CD_OS):
@@ -79,7 +78,7 @@ def Extract_ExcitedState(lines):
     WaveLength = []
     V_OS = []
     SS = []
-    _, Ideal_SS = GaussianRunPack.Estimate_SpinContami.Estimate_SpinDiff(lines)
+    _, Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(lines)
 
     print ("Get information about excited state")
     for line in lines:

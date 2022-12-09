@@ -2,7 +2,7 @@ import glob
 import os
 import re
 
-import GaussianRunPack.AtomInfo
+from qcforever import gaussian_run
 
 
 Bohr2Ang = 0.529177
@@ -74,8 +74,7 @@ def Extract_MolCoord(lines, out = None):
         Mol_Y = []
         Mol_Z = []
         for i in range(NumAtom):
-            Mol_atom.append(GaussianRunPack.AtomInfo.AtomicNumElec(int(NuclearCharge[i])))
-            # Mol_atom.append(AtomInfo.AtomicNumElec(int(NuclearCharge[i])))
+            Mol_atom.append(gaussian_run.AtomInfo.AtomicNumElec(int(NuclearCharge[i])))
         for i in range(0, len(MolCoord)-1,3):
             Mol_X.append(MolCoord[i]*Bohr2Ang)
             Mol_Y.append(MolCoord[i+1]*Bohr2Ang)

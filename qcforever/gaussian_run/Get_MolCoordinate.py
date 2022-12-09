@@ -2,7 +2,7 @@ import sys
 import gc
 from numpy import *
 
-import GaussianRunPack.AtomInfo
+from qcforever import gaussian_run
 
 
 def Make_xyzfile(atom, X, Y, Z, ofile, charge, spin):
@@ -142,7 +142,7 @@ def Extract_Coordinate(lines, outfile=None):
     Mol_CartY = zeros(N)
     Mol_CartZ = zeros(N)
     for i in range(N):
-        Mol_atom.append(GaussianRunPack.AtomInfo.AtomicNumElec(NumElement[i]))
+        Mol_atom.append(gaussian_run.AtomInfo.AtomicNumElec(NumElement[i]))
         Mol_CartX[i] = X[i]
         Mol_CartY[i] = Y[i]
         Mol_CartZ[i] = Z[i]

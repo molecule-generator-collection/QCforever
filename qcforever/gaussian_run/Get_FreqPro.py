@@ -1,5 +1,4 @@
 import sys
-from numpy import *
 
 
 def Extract_Freq(lines):
