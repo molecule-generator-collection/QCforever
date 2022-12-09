@@ -14,6 +14,9 @@ INSTALL_REQUIRES = [
 PACKAGES = [                    
     'qcforever',
     'qcforever.gaussian_run']
+PACKAGE_DATA = {
+    'qcforever': ['gaussian_run/*.json'],
+}
 CLASSIFIERS = [           
     'Intended Audience :: Science/Research',
     'Programming Language :: Python :: 3.7',    
@@ -36,5 +39,6 @@ setup(
     python_requires=">=3.7",                                                      
     install_requires=INSTALL_REQUIRES,
     packages=PACKAGES,                    
+    package_data=PACKAGE_DATA,
     classifiers=CLASSIFIERS
 )  
