@@ -4,6 +4,7 @@ import shutil
 import numpy as np
 
 from qcforever import gaussian_run
+from qcforever.util import read_mol_file
 
 
 Eh2kJmol = 2625.5
@@ -402,10 +403,10 @@ class GaussianDFTRun:
         ReadFromxyz = 0 
         if PreGauInput[1] == "sdf":
             ReadFromsdf = 1 
-            Mol_atom, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = gaussian_run.read_sdf.read_sdf(infilename)
+            Mol_atom, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf(infilename)
         elif PreGauInput[1] == "xyz":
             ReadFromxyz = 1
-            Mol_atom, X, Y, Z, TotalCharge, SpinMulti = gaussian_run.read_xyz.read_xyz(infilename)
+            Mol_atom, X, Y, Z, TotalCharge, SpinMulti = read_mol_file.read_xyz(infilename)
             Bondpair1 = []
             Bondpair2 = []
         elif PreGauInput[1] == "chk":

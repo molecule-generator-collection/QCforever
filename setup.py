@@ -13,7 +13,8 @@ INSTALL_REQUIRES = [
     'rdkit-pypi==2021.03.5']
 PACKAGES = [                    
     'qcforever',
-    'qcforever.gaussian_run']
+    'qcforever.gaussian_run',
+    'qcforever.util']
 PACKAGE_DATA = {
     'qcforever': ['gaussian_run/*.json'],
 }

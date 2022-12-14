@@ -1,4 +1,4 @@
-from qcforever.gaussian_run import (
+from . import (
     AtomInfo,
     CF_1D,
     chk2fchk,
@@ -15,6 +15,4 @@ from qcforever.gaussian_run import (
     Get_MolCoordinate_fchk,
     Get_MolCoordinate,
     Get_MolInterCoordinate,
-    read_sdf,
-    read_xyz,
     UV_similarity)
