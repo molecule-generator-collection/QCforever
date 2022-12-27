@@ -14,6 +14,7 @@ INSTALL_REQUIRES = [
 PACKAGES = [                    
     'qcforever',
     'qcforever.gaussian_run',
+    'qcforever.gamess_run',
     'qcforever.util']
 PACKAGE_DATA = {
     'qcforever': ['gaussian_run/*.json'],
