@@ -1,16 +1,36 @@
-import glob
 import os
+import re
 import sys
-import subprocess
+import glob
 import shutil
+import subprocess
+
+
+def read_rungms(gmspath):
+
+    rungms_line = open(gmspath)
+    lines = rungms_line.readlines()
+    rungms_line.close()
+
+    for ii in range(len(lines)):
+        ll = lines[ii]
+        if(re.match("set SCR",ll)):
+            scr_list = ll.split('=')
+            scrpath = scr_list[-1].replace("\n", "")
+        
+        if(re.match("set USERSCR",ll)):
+            userscr_list = ll.split('=')
+            userscrpath = userscr_list[-1].replace("\n", "")
+
+    return scrpath, userscrpath
 
 
 def exe_Gamess(jobname, gamessversion, nproc):
     job_state = ""
     cwd = os.getcwd()
     print(cwd)
-    scr = os.getenv('SCR')
-    userscr = os.getenv('USERSCR')
+    gmspath = shutil.which('rungms')
+    scr, userscr = read_rungms(gmspath)
     job_intfile = scr+'/'+jobname+'*'
     userjob_intfile = userscr+'/'+jobname+'*'
     for f in glob.glob(job_intfile):
