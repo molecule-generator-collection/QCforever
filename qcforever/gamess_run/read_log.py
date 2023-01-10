@@ -5,9 +5,8 @@ import os
 
 def read_log(outfile):
 
-    output_line = open(outfile)
-    lines = output_line.readlines()
-    output_line.close()
+    with open (outfile) as output_line:
+        lines = output_line.readlines()
 
     return lines
 
@@ -25,6 +24,7 @@ def getNumberElectron(lines):
                 num_occu_beta = int(mmat.group(1))
 
     return num_occu_alpha, num_occu_beta
+
 
 def getEnergy(lines):
 
@@ -68,7 +68,7 @@ def getBlock(lines, label):
         ret.append(currentlist)
     return ret
     
-def getMO(block):
+def getMO_set(block):
     flag = 0
     ret = []
     currentlist = []
@@ -111,6 +111,36 @@ def getMO(block):
         raise Exception("???different length bet index list and value list. parsing error???")
 
     return alpha_values, beta_values
+
+def getMO_single(block):
+    ret = []
+    currentlist = []
+    ii = 0
+    
+    hitflag = 0
+
+    elec_flag = 0
+    indices = []
+    values = []
+    while(ii < len(block)-1):
+        ll = block[ii]
+        nex = block[ii+1]
+        if(re.search("^          +[0-9]+ ",ll) and re.search("^          ",nex) and not re.search("[A-DF-Za-df-z]",nex)):
+            ipt = re.split("[\s]+",re.sub("[\s]+$","",re.sub("^[\s]+","",ll)))
+            vpt = re.split("[\s]+",re.sub("[\s]+$","",re.sub("^[\s]+","",nex)))
+            for pp in range(len(ipt)):
+                    indices.append(int(ipt[pp]))
+                    values.append(float(vpt[pp]))
+        ii += 1
+
+    #print(indices)
+    #print(values)
+    
+    if(len(indices) != len(values)) :
+        raise Exception("???different length bet index list and value list. parsing error???")
+
+    return values
+
 
 def gethomolumogap(alpha_values, beta_values, num_alpha_elec, num_beta_elec):
     
@@ -173,9 +203,13 @@ if __name__ == '__main__':
 
     print(getEnergy(llines))
 
-    bb = getBlock(llines,"MOLECULAR ORBITALS")
-    #print(bb)
-    alpha_values, beta_values = getMO(bb[-1])
+    bb = getBlock(llines,"EIGENVECTORS")
+    #print(bb[-2])
+    #print(bb[-1])
+    alpha_values = getMO_single(bb[-2])
+    beta_values = getMO_single(bb[-1])
+    #bb = getBlock(llines,"MOLECULAR ORBITALS")
+    #alpha_values, beta_values = getMO_set(bb[-1])
     alpha_gap, beta_gap = gethomolumogap(alpha_values, beta_values, num_occu_alpha, num_occu_beta)
     dd = getBlock(llines,"ELECTROSTATIC MOMENTS")    
     dval = getDipoleMoment(dd[-1])

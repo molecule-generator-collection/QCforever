@@ -63,7 +63,12 @@ class GamessDFTRun:
         if homolumo == 1:
             num_occu_alpha, num_occu_beta  = gamess_run.read_log.getNumberElectron(lines)
             bb = gamess_run.read_log.getBlock(lines,"MOLECULAR ORBITALS")
-            alpha_values, beta_values = gamess_run.read_log.getMO(bb[-1])
+            if bb == []:
+                bb = gamess_run.read_log.getBlock(lines,"EIGENVECTORS")
+                alpha_values = gamess_run.read_log.getMO_single(bb[-2])
+                beta_values = gamess_run.read_log.getMO_single(bb[-1])
+            else:
+                alpha_values, beta_values = gamess_run.read_log.getMO_set(bb[-1])
             alpha_gap, beta_gap = gamess_run.read_log.gethomolumogap(alpha_values, beta_values, num_occu_alpha, num_occu_beta)
             output["homolumo"] = [alpha_gap, beta_gap]
 
