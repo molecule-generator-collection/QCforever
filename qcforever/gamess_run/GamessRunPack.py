@@ -46,21 +46,37 @@ class GamessDFTRun:
 
         return memory_MB/8
 
-    def Extract_values(self, jobname, option_array):
+    def Extract_values(self, jobname, option_dict):
 
-        opt = int(option_array[0])
-        energy = int(option_array[4])
-        homolumo = int(option_array[5])
-        dipole = int(option_array[6])
+        if 'opt' in option_dict:
+            opt = option_dict['opt']
+        else:
+            opt = False
+
+        if 'energy' in option_dict:
+            energy = option_dict['energy']
+        else:
+            energy = False
+
+        if 'homolumo' in option_dict:
+            homolumo = option_dict['homolumo']
+        else:
+            homolumo = False
+
+        if 'dipole' in option_dict:
+            dipole = option_dict['dipole']
+        else:
+            dipole = False
+
         infilename = f"{jobname}.log"
 
         output = {}
         lines = gamess_run.read_log.read_log(infilename)
 
-        if energy == 1:
-            output["energy"] = gamess_run.read_log.getEnergy(lines)
+        if energy:
+            output['energy'] = gamess_run.read_log.getEnergy(lines)
 
-        if homolumo == 1:
+        if homolumo:
             num_occu_alpha, num_occu_beta  = gamess_run.read_log.getNumberElectron(lines)
             bb = gamess_run.read_log.getBlock(lines,"MOLECULAR ORBITALS")
             if bb == []:
@@ -70,12 +86,12 @@ class GamessDFTRun:
             else:
                 alpha_values, beta_values = gamess_run.read_log.getMO_set(bb[-1])
             alpha_gap, beta_gap = gamess_run.read_log.gethomolumogap(alpha_values, beta_values, num_occu_alpha, num_occu_beta)
-            output["homolumo"] = [alpha_gap, beta_gap]
+            output['homolumo'] = [alpha_gap, beta_gap]
 
-        if dipole == 1:
+        if dipole:
             dd = gamess_run.read_log.getBlock(lines,"ELECTROSTATIC MOMENTS")    
             dval = gamess_run.read_log.getDipoleMoment(dd[-1])
-            output["dipole"] = dval
+            output['dipole'] = dval
 
         return output
 
@@ -83,9 +99,9 @@ class GamessDFTRun:
         infilename = self.in_file
         option_line = self.value    
         options = option_line.split()
-        option_array = np.zeros(19)
-        option_array_Ex = np.zeros(19)  # not used
-        option_array_pka = np.zeros(19) # not used
+        option_dict = {}
+        #option_dict_Ex = np.zeros(19)  # not used
+        #option_dict_pka = np.zeros(19) # not used
         targetstate = 1
         PreGamInput = infilename.split('.')
         GamInputName = PreGamInput[0]+'.inp'    
@@ -113,13 +129,13 @@ class GamessDFTRun:
         for i in range(len(options)):
             option = options[i]
             if option.lower() == 'opt':
-                option_array[0] = 1
+                option_dict['opt'] = True
             elif option.lower() == 'energy':
-                option_array[4] = 1
+                option_dict['energy'] = True
             elif option.lower() == 'homolumo':
-                option_array[5] = 1
+                option_dict['homolumo'] = True
             elif option.lower() == 'dipole':
-                option_array[6] = 1
+                option_dict['dipole'] = True
             else:
                 print('invalid option: ', option)
 
@@ -130,7 +146,7 @@ class GamessDFTRun:
             mem_words = self.conversion_memory(self.mem)
 
 #setting for run type
-        if option_array[0] == 1:
+        if 'opt' in  option_dict:
             run_type = 'OPTIMIZE'
         else:
             run_type = 'ENERGY'
@@ -167,7 +183,7 @@ class GamessDFTRun:
         os.chdir(PreGamInput[0])
         job_state = gamess_run.Exe_Gamess.exe_Gamess(PreGamInput[0], self.gamessversion, self.nproc)
         try:
-            output_dic = self.Extract_values(PreGamInput[0], option_array)
+            output_dic = self.Extract_values(PreGamInput[0], option_dict)
         except Exception as e: 
             job_state = "error"
             print(e)

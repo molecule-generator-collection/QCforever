@@ -157,9 +157,6 @@ def gethomolumogap(alpha_values, beta_values, num_alpha_elec, num_beta_elec):
             ret1 = beta_values[ii]
             ret2 = beta_values[ii+1]
     beta_gap  =(float(ret2)-float(ret1))*27.211
-#    if(ret1 == None):
-#        raise Exception("???? "+str(targetindex)+" not found");
-#    return [ret1,ret2];
 
     return  alpha_gap, beta_gap
 
