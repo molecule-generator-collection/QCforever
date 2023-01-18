@@ -48,35 +48,20 @@ class GamessDFTRun:
 
     def Extract_values(self, jobname, option_dict):
 
-        if 'opt' in option_dict:
-            opt = option_dict['opt']
-        else:
-            opt = False
-
-        if 'energy' in option_dict:
-            energy = option_dict['energy']
-        else:
-            energy = False
-
-        if 'homolumo' in option_dict:
-            homolumo = option_dict['homolumo']
-        else:
-            homolumo = False
-
-        if 'dipole' in option_dict:
-            dipole = option_dict['dipole']
-        else:
-            dipole = False
+        opt = option_dict['opt'] if 'opt' in option_dict else False
+        is_energy_specified = option_dict['energy'] if 'energy' in option_dict else False
+        is_homolumo_specified = option_dict['homolumo'] if 'homolumo' in option_dict else False
+        is_dipole_specified = option_dict['dipole'] if 'dipole' in option_dict else False 
 
         infilename = f"{jobname}.log"
 
         output = {}
         lines = gamess_run.read_log.read_log(infilename)
 
-        if energy:
+        if is_energy_specified:
             output['energy'] = gamess_run.read_log.getEnergy(lines)
 
-        if homolumo:
+        if is_homolumo_specified:
             num_occu_alpha, num_occu_beta  = gamess_run.read_log.getNumberElectron(lines)
             bb = gamess_run.read_log.getBlock(lines,"MOLECULAR ORBITALS")
             if bb == []:
@@ -88,7 +73,7 @@ class GamessDFTRun:
             alpha_gap, beta_gap = gamess_run.read_log.gethomolumogap(alpha_values, beta_values, num_occu_alpha, num_occu_beta)
             output['homolumo'] = [alpha_gap, beta_gap]
 
-        if dipole:
+        if is_dipole_specified:
             dd = gamess_run.read_log.getBlock(lines,"ELECTROSTATIC MOMENTS")    
             dval = gamess_run.read_log.getDipoleMoment(dd[-1])
             output['dipole'] = dval
