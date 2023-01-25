@@ -10,6 +10,19 @@ def read_dat(datfile):
 
     return lines
 
+def count_orbital(lines):
+    count = 1
+    for i in range(len(lines)):
+        if i > 0:
+            if lines[i-1][:2] != lines[i][:2] :
+                count += 1
+            if count > 1 and lines[i][:2] == ' 1':
+                Nalpha_orbital = count
+                count = 1
+        Nbeta_orbital = count
+    
+    return count
+
 
 def getMolBlock(lines, label):
     flag = 0
@@ -36,6 +49,7 @@ def getMolBlock(lines, label):
         ii+=1
     if(len(currentlist)):
         ret.append(currentlist)
+
     return ret[-1]
 
 
@@ -80,23 +94,30 @@ if __name__ == '__main__':
     llines = read_dat(sys.argv[1])
 
 #Molecular coordinate
-    cc = getMolBlock(llines,"COORDINATES OF SYMMETRY UNIQUE ATOMS")
+    try:
+        cc = getMolBlock(llines,"COORDINATES OF SYMMETRY UNIQUE ATOMS")
+    except:
+        cc = get_dataBlock(llines, "DATA")
+
     print (cc)
 
     dat_line = ' $DATA\n'
     dat_line += 'Comment\n'
     dat_line += 'C1\n'
     for i in range(len(cc)):
-        dat_line += cc[i]
+        if len(cc[i].split()) == 5:
+            dat_line += cc[i]
     dat_line += ' $END\n'
 
 #Molecular orbitals
     bb = get_dataBlock(llines,"VEC")
 
+    print(count_orbital(bb))
     MOvec_line = ' $VEC\n'
     for i in range(len(bb)):
         MOvec_line += bb[i]
     MOvec_line += ' $END\n'
+
 
     with open('mol_test.txt', 'w') as ofile:
         ofile.write(dat_line)

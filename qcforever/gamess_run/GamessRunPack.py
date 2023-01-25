@@ -52,6 +52,7 @@ class GamessDFTRun:
         is_energy_specified = option_dict['energy'] if 'energy' in option_dict else False
         is_homolumo_specified = option_dict['homolumo'] if 'homolumo' in option_dict else False
         is_dipole_specified = option_dict['dipole'] if 'dipole' in option_dict else False 
+        is_uv_specified = option_dict['uv'] if 'uv' in option_dict else False 
 
         infilename = f"{jobname}.log"
 
@@ -78,7 +79,83 @@ class GamessDFTRun:
             dval = gamess_run.read_log.getDipoleMoment(dd[-1])
             output['dipole'] = dval
 
+        if is_uv_specified:
+            exjobname = jobname+'_TD'
+            infilename_ex = f"{exjobname}.log"
+            exlines = gamess_run.read_log.read_log(infilename_ex)
+            wavel, os = gamess_run.read_log.getTDDFT(exlines)
+
+            output['uv'] = [wavel, os]
+        
+        lines = [] 
+        exlines = []
+
         return output
+
+    def make_input(
+        self, run_type, 
+        TotalCharge, SpinMulti, 
+        GamInputName, Mol_atom=[], X=[], Y=[], Z=[], 
+        TDDFT=False, datfile=None):
+
+#setting for memory
+        if self.mem == '':
+            mem_words = 125000000/10**6 #1 GB on 64 bit PC as the unit of 10**6 words 
+        else:
+            mem_words = self.conversion_memory(self.mem)
+
+#setting for basis set
+        GBASIS, NGAUSS, NDFUNC = gamess_run.make_basis.basis_dissection(self.basis)
+
+        if datfile != None and Mol_atom == []:
+            datlines = gamess_run.read_dat.read_dat(datfile)
+            try:
+                cc = gamess_run.read_dat.getMolBlock(datlines,"COORDINATES OF SYMMETRY UNIQUE ATOMS")
+            except:
+                cc = gamess_run.read_dat.get_dataBlock(datlines, "DATA")
+            orb_bb = gamess_run.read_dat.get_dataBlock(datlines, "VEC")
+            Norb = gamess_run.read_dat.count_orbital(orb_bb)
+
+#make input
+        with open(GamInputName ,'w') as ofile:
+            line_input = f' $CONTRL SCFTYP=UHF RUNTYP={run_type} DFTTYP={self.functional}'
+            if TDDFT:
+                line_input += ' TDDFT=EXCITE \n' 
+            else: 
+                line_input += '\n'
+            line_input += f'  COORD=UNIQUE NZVAR=0 ICHARG={TotalCharge} MULT={SpinMulti} $END\n'
+            if TDDFT:
+                line_input += ' $TDDFT NSTATE=10 $END\n' 
+            else: 
+                line_input += ''
+            line_input += ' $SCF damp=.TRUE. $END\n'
+            time_limit = self.timeexe/60
+            line_input += f' $SYSTEM TIMLIM={time_limit} MWORDS={mem_words} $END\n'
+            line_input += ' $STATPT OPTTOL=1.0E-5 $END\n'
+            line_input += f' $BASIS GBASIS={GBASIS} NGAUSS={NGAUSS} NDFUNC={NDFUNC} $END\n'
+            if datfile == None:
+                line_input += ' $GUESS GUESS=HUCKEL $END\n' 
+            else:
+                line_input += f' $GUESS GUESS=MOREAD NORB={Norb} $END\n'
+            line_input += ' $DATA\n'
+            line_input += f'{GamInputName} {self.functional}/{self.basis}\n'
+            line_input += 'C1\n'
+            if datfile == None and Mol_atom != []:
+                for i in range(len(Mol_atom)):
+                    AtomicNum = float(gamess_run.AtomInfo.AtomicNumElec(Mol_atom[i]))
+                    line_input += f'{Mol_atom[i]}   {AtomicNum:.1f}   {X[i]:.10f}   {Y[i]:.10f}   {Z[i]:.10f}\n' 
+                line_input += ' $END\n'
+            else:
+                for i in range(len(cc)):
+                    if len(cc[i].split()) == 5:
+                        line_input += cc[i] 
+                line_input += ' $END\n'
+                line_input += ' $VEC\n'
+                for i in range(len(orb_bb)):
+                    line_input += orb_bb[i]
+                line_input += ' $END\n'
+
+            ofile.write(line_input)
 
     def run_gamess(self):
         infilename = self.in_file
@@ -89,7 +166,8 @@ class GamessDFTRun:
         #option_dict_pka = np.zeros(19) # not used
         targetstate = 1
         PreGamInput = infilename.split('.')
-        GamInputName = PreGamInput[0]+'.inp'    
+        jobname = PreGamInput[0]
+        GamInputName = jobname +'.inp'    
         # File type of input?
         ReadFromsdf = 0 
         ReadFromxyz = 0 
@@ -121,14 +199,10 @@ class GamessDFTRun:
                 option_dict['homolumo'] = True
             elif option.lower() == 'dipole':
                 option_dict['dipole'] = True
+            elif option.lower() == 'uv':
+                option_dict['uv'] = True
             else:
                 print('invalid option: ', option)
-
-#setting for memory
-        if self.mem == '':
-            mem_words = 125000000/10**6 #1 GB on 64 bit PC as the unit of 10**6 words 
-        else:
-            mem_words = self.conversion_memory(self.mem)
 
 #setting for run type
         if 'opt' in  option_dict:
@@ -136,29 +210,7 @@ class GamessDFTRun:
         else:
             run_type = 'ENERGY'
 
-#setting for basis set
-        GBASIS, NGAUSS, NDFUNC = gamess_run.make_basis.basis_dissection(self.basis)
-
-#make input
-        with open(GamInputName ,'w') as ofile:
-            line_input = f' $CONTRL SCFTYP=UHF RUNTYP={run_type} COORD=UNIQUE NZVAR=0\n'
-            line_input += f'  ICHARG={TotalCharge} MULT={SpinMulti} $END\n'
-            line_input += ' $SCF damp=.TRUE. $END\n'
-            line_input += f' $DFT DFTTYP={self.functional} $END\n'
-            time_limit = self.timeexe/60
-            line_input += f' $SYSTEM TIMLIM={time_limit} MWORDS={mem_words} $END\n'
-            line_input += ' $STATPT OPTTOL=1.0E-5 $END\n'
-            line_input += f' $BASIS GBASIS={GBASIS} NGAUSS={NGAUSS} NDFUNC={NDFUNC} $END\n'
-            line_input += ' $GUESS GUESS=HUCKEL $END\n'
-            line_input += ' $DATA\n'
-            line_input += f'{PreGamInput[0]} {self.functional}/{self.basis}\n'
-            line_input += 'C1\n'
-            for i in range(len(Mol_atom)):
-                AtomicNum = float(gamess_run.AtomInfo.AtomicNumElec(Mol_atom[i]))
-                line_input += f'{Mol_atom[i]}   {AtomicNum:.1f}   {X[i]:.10f}   {Y[i]:.10f}   {Z[i]:.10f}\n' 
-                
-            line_input += ' $END\n'
-            ofile.write(line_input)
+        self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, Mol_atom, X, Y, Z, TDDFT=False, datfile=None)
 
         output_dic = {}
         if os.path.isdir(PreGamInput[0]):
@@ -166,17 +218,30 @@ class GamessDFTRun:
         os.mkdir(PreGamInput[0])
         shutil.move(GamInputName, PreGamInput[0])
         os.chdir(PreGamInput[0])
-        job_state = gamess_run.Exe_Gamess.exe_Gamess(PreGamInput[0], self.gamessversion, self.nproc)
+        job_state = gamess_run.Exe_Gamess.exe_Gamess(jobname, self.gamessversion, self.nproc)
+
+#for uv computation
+        if 'uv' in  option_dict:
+            run_type = 'ENERGY'
+        
+            GSdatfile = jobname+'.dat'
+            exjobname = jobname+'_TD'
+            GamInputName = exjobname +'.inp'    
+
+            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, TDDFT=True, datfile=GSdatfile)
+
+            job_state = gamess_run.Exe_Gamess.exe_Gamess(exjobname, self.gamessversion, self.nproc)
+
         try:
-            output_dic = self.Extract_values(PreGamInput[0], option_dict)
+            output_dic = self.Extract_values(jobname, option_dict)
         except Exception as e: 
             job_state = "error"
             print(e)
             pass
 
         output_dic["log"] = job_state
-
         os.chdir("..")
+
         return(output_dic)
             
 				

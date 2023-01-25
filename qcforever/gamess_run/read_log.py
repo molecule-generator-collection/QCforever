@@ -40,6 +40,30 @@ def getEnergy(lines):
 
     return energy[-1]
 
+def getTDDFT(lines):
+    
+    Wavel = []
+    OS = []
+
+    flag = 0
+    ii = 0
+    while(ii < len(lines)):
+        ll = lines[ii]
+
+        if (flag == 0 and re.search("SUMMARY OF TDDFT RESULTS", ll)):
+            flag = 1
+            ii += 2
+        if (flag == 1 and re.match("\s+[0-9]",ll)):
+            sline = ll.split()
+            if len(sline) > 3: 
+                Wavel.append(1240/float(sline[2]))
+                OS.append(float(sline[-1]))
+        if (flag == 1 and  re.match("\s+\n", ll)):
+            flag = 0
+        ii += 1
+
+    return Wavel, OS
+
 
 def getBlock(lines, label):
     flag = 0
@@ -199,6 +223,11 @@ if __name__ == '__main__':
     num_occu_alpha, num_occu_beta  = getNumberElectron(llines)
 
     print(getEnergy(llines))
+
+    Wavel, OS = getTDDFT(llines)
+
+    print ("Wave length:", Wavel)
+    print ("OS:", OS)
 
     bb = getBlock(llines,"EIGENVECTORS")
     #print(bb[-2])
