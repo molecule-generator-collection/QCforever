@@ -22,10 +22,10 @@ pip install --upgrade git+https://github.com/molecule-generator-collection/QCfor
 
 ### Example
 
-Example code for QCforever (main.py) is prepared.
+Example code for QCforever (gaussian_main.py) is prepared.
 
 ```bash
-python main.py input_file
+python gaussian_main.py input_file
 ```
 
 ### Usage
