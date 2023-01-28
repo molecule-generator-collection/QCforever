@@ -131,7 +131,6 @@ class GamessDFTRun:
             line_input += f' $SYSTEM TIMLIM={time_limit} MWORDS={mem_words} $END\n'
             if run_type == 'OPTIMIZE':
                 line_input += ' $STATPT OPTTOL=1.0E-5 NSTEP=100 $END\n'
-            line_input += ' $SCF damp=.TRUE. $END\n'
             line_input += f' $BASIS GBASIS={GBASIS} NGAUSS={NGAUSS} NDFUNC={NDFUNC} $END\n'
             if datfile == None:
                 line_input += ' $GUESS GUESS=HUCKEL $END\n' 
