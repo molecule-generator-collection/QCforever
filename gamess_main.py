@@ -10,7 +10,7 @@ except:
 
 
 #for stargint from gaussian calculation
-option = "homolumo energy dipole uv"
+option = "opt homolumo energy dipole uv fluor"
 #option = "opt uv vip vea"
 #option = "opt deen vip vea homolumo dipole uv symm"
 #option = "symm opt freq nmr uv=/home/sumita/GaussianRun_2.2beta/Samples/UV_peak.dat" 
@@ -21,7 +21,7 @@ option = "homolumo energy dipole uv"
 #option = "opt nmr uv energy homolumo dipole deen stable2o2 vip vea cden symm"
 
 #test = GaussianRunPack.GaussianDFTRun('B3LYP', 'STO-3G', 10, option, infilename, solvent='water', restart=False)
-test = GamessRunPack.GamessDFTRun('B3LYP', '3-21G', 8, option, infilename)
+test = GamessRunPack.GamessDFTRun('BHHLYP', '3-21G', 8, option, infilename)
 
 test.mem = '5GB'
 test.timexe = 60*60
