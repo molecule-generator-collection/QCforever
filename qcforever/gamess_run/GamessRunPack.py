@@ -104,7 +104,7 @@ class GamessDFTRun:
         TotalCharge, SpinMulti, 
         GamInputName, Mol_atom=[], X=[], Y=[], Z=[], 
         TDDFT=False, target=[1, 1],  datfile=None):
-
+        #target[0]=target state index, target[1]=spin multiplicity of the target state
 #setting for memory
         if self.mem == '':
             mem_words = 125000000/10**6 #1 GB on 64 bit PC as the unit of 10**6 words 
@@ -123,7 +123,7 @@ class GamessDFTRun:
             orb_bb = gamess_run.read_dat.get_dataBlock(datlines, "VEC")
             Norb = gamess_run.read_dat.count_orbital(orb_bb)
 
-        if TDDFT and run_type=='OPTIMIZE' and target[0]==1:
+        if TDDFT and run_type=='OPTIMIZE' and target[1]==1:
             scftype = "RHF"
         else:
             scftype = "UHF"
@@ -137,9 +137,9 @@ class GamessDFTRun:
                 line_input += '\n'
             line_input += f'  COORD=UNIQUE NZVAR=0 ICHARG={TotalCharge} MULT={SpinMulti} $END\n'
             if TDDFT:
-                line_input += f' $TDDFT NSTATE=10 IROOT={target[1]}'
+                line_input += f' $TDDFT NSTATE=10 IROOT={target[0]}'
             if scftype == "RHF":
-                line_input += f' MULT={target[0]} $END\n' 
+                line_input += f' MULT={target[1]} $END\n' 
             else:
                 line_input += f' $END\n' 
             line_input += ' $SCF damp=.TRUE. $END\n'
