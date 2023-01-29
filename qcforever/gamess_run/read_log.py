@@ -41,10 +41,9 @@ def getEnergy(lines):
     return energy[-1]
 
 def getTDDFT(lines):
-    
+
     Wavel = []
     OS = []
-
     flag = 0
     ii = 0
     while(ii < len(lines)):
@@ -52,11 +51,13 @@ def getTDDFT(lines):
 
         if (flag == 0 and re.search("SUMMARY OF TDDFT RESULTS", ll)):
             flag = 1
+            Wavel = []
+            OS = []
             ii += 2
-        if (flag == 1 and re.match("\s+[0-9]",ll)):
+        if (flag == 1 and re.match("\s+[0-9]",ll) and not re.search('HARTREE', ll)):
             sline = ll.split()
-            if len(sline) > 3: 
-                Wavel.append(1240/float(sline[2]))
+            if len(sline) > 4: 
+                Wavel.append(1240/float(sline[-5]))
                 OS.append(float(sline[-1]))
         if (flag == 1 and  re.match("\s+\n", ll)):
             flag = 0

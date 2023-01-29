@@ -53,6 +53,7 @@ class GamessDFTRun:
         is_homolumo_specified = option_dict['homolumo'] if 'homolumo' in option_dict else False
         is_dipole_specified = option_dict['dipole'] if 'dipole' in option_dict else False 
         is_uv_specified = option_dict['uv'] if 'uv' in option_dict else False 
+        is_fluor_specified = option_dict['fluor'] if 'fluor' in option_dict else False 
 
         infilename = f"{jobname}.log"
 
@@ -84,8 +85,14 @@ class GamessDFTRun:
             infilename_ex = f"{exjobname}.log"
             exlines = gamess_run.read_log.read_log(infilename_ex)
             wavel, os = gamess_run.read_log.getTDDFT(exlines)
-
             output['uv'] = [wavel, os]
+
+        if is_fluor_specified:
+            exoptjobname = jobname+'_TDopt'
+            infilename_exopt = f"{exoptjobname}.log"
+            exoptlines = gamess_run.read_log.read_log(infilename_exopt)
+            wavel, os = gamess_run.read_log.getTDDFT(exoptlines)
+            output['fluor'] = [wavel, os]
         
         lines = [] 
         exlines = []
@@ -96,7 +103,7 @@ class GamessDFTRun:
         self, run_type, 
         TotalCharge, SpinMulti, 
         GamInputName, Mol_atom=[], X=[], Y=[], Z=[], 
-        TDDFT=False, datfile=None):
+        TDDFT=False, target=[1, 1],  datfile=None):
 
 #setting for memory
         if self.mem == '':
@@ -116,16 +123,25 @@ class GamessDFTRun:
             orb_bb = gamess_run.read_dat.get_dataBlock(datlines, "VEC")
             Norb = gamess_run.read_dat.count_orbital(orb_bb)
 
+        if TDDFT and run_type=='OPTIMIZE' and target[0]==1:
+            scftype = "RHF"
+        else:
+            scftype = "UHF"
+
 #make input
         with open(GamInputName ,'w') as ofile:
-            line_input = f' $CONTRL SCFTYP=UHF RUNTYP={run_type} DFTTYP={self.functional}'
+            line_input = f' $CONTRL SCFTYP={scftype} RUNTYP={run_type} DFTTYP={self.functional}'
             if TDDFT:
                 line_input += ' TDDFT=EXCITE \n' 
             else: 
                 line_input += '\n'
             line_input += f'  COORD=UNIQUE NZVAR=0 ICHARG={TotalCharge} MULT={SpinMulti} $END\n'
             if TDDFT:
-                line_input += ' $TDDFT NSTATE=10 $END\n' 
+                line_input += f' $TDDFT NSTATE=10 IROOT={target[1]}'
+            if scftype == "RHF":
+                line_input += f' MULT={target[0]} $END\n' 
+            else:
+                line_input += f' $END\n' 
             line_input += ' $SCF damp=.TRUE. $END\n'
             time_limit = self.timeexe/60
             line_input += f' $SYSTEM TIMLIM={time_limit} MWORDS={mem_words} $END\n'
@@ -200,6 +216,12 @@ class GamessDFTRun:
                 option_dict['dipole'] = True
             elif option.lower() == 'uv':
                 option_dict['uv'] = True
+            elif option.lower() == 'fluor':
+                option_dict['uv'] = True
+                option_dict['fluor'] = True
+                if '=' in option:
+                    in_target = option.split('=')
+                    targetstate = int(in_target[-1])
             else:
                 print('invalid option: ', option)
 
@@ -228,8 +250,17 @@ class GamessDFTRun:
             GamInputName = exjobname +'.inp'    
 
             self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, TDDFT=True, datfile=GSdatfile)
-
             job_state = gamess_run.Exe_Gamess.exe_Gamess(exjobname, self.gamessversion, self.nproc)
+
+        if 'fluor' in  option_dict:
+            run_type = 'OPTIMIZE'
+
+            GSdatfile = jobname+'.dat'
+            exoptjobname = jobname+'_TDopt'
+            GamInputName = exoptjobname +'.inp'    
+
+            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, TDDFT=True, target=[targetstate, SpinMulti], datfile=GSdatfile)
+            job_state = gamess_run.Exe_Gamess.exe_Gamess(exoptjobname, self.gamessversion, self.nproc)
 
         try:
             output_dic = self.Extract_values(jobname, option_dict)
