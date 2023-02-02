@@ -1,6 +1,7 @@
 import glob
 import os
 import gc
+import sys
 import subprocess
 import time
 
@@ -75,7 +76,7 @@ def exe_Gaussian(jobname, exe_time):
     NFinishedJob = count_Finishjob(jobname)
     if Njob == NFinishedJob:
         job_state = "normal"
-    elif job_state != "timeout":
+    elif job_state != "timeout" or Njob != NFinishedJob:
         job_state = "abnormal"
 
     print (GaussianPros)
@@ -83,3 +84,14 @@ def exe_Gaussian(jobname, exe_time):
     gc.collect()
 
     return job_state 
+
+if __name__ == '__main__':
+    usage ='Usage; %s jobname' % sys.argv[0]
+
+    try:
+        jobname = sys.argv[1]
+    except:
+        print (usage); sys.exit()
+
+    print('Number of jobs: ', count_Njob(jobname))
+    print('Number of normally finished job', count_Finishjob(jobname))
