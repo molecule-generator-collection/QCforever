@@ -58,40 +58,41 @@ class GamessDFTRun:
         infilename = f"{jobname}.log"
 
         output = {}
-        lines = gamess_run.read_log.read_log(infilename)
+        parselog = gamess_run.parse_log.parse_log(infilename)
 
         if is_energy_specified:
-            output['energy'] = gamess_run.read_log.getEnergy(lines)
+            #output['energy'] = gamess_run.read_log.getEnergy(lines)
+            output['energy'] = parselog.getEnergy()
 
         if is_homolumo_specified:
-            num_occu_alpha, num_occu_beta  = gamess_run.read_log.getNumberElectron(lines)
-            bb = gamess_run.read_log.getBlock(lines,"MOLECULAR ORBITALS")
+            num_occu_alpha, num_occu_beta  = parselog.getNumberElectron()
+            bb = parselog.getBlock("MOLECULAR ORBITALS")
             if bb == []:
-                bb = gamess_run.read_log.getBlock(lines,"EIGENVECTORS")
-                alpha_values = gamess_run.read_log.getMO_single(bb[-2])
-                beta_values = gamess_run.read_log.getMO_single(bb[-1])
+                bb = parselog.getBlock("EIGENVECTORS")
+                alpha_values = parselog.getMO_single(bb[-2])
+                beta_values = parselog.getMO_single(bb[-1])
             else:
-                alpha_values, beta_values = gamess_run.read_log.getMO_set(bb[-1])
-            alpha_gap, beta_gap = gamess_run.read_log.gethomolumogap(alpha_values, beta_values, num_occu_alpha, num_occu_beta)
+                alpha_values, beta_values = parselog.getMO_set(bb[-1])
+            alpha_gap, beta_gap = parselog.gethomolumogap(alpha_values, beta_values, num_occu_alpha, num_occu_beta)
             output['homolumo'] = [alpha_gap, beta_gap]
 
         if is_dipole_specified:
-            dd = gamess_run.read_log.getBlock(lines,"ELECTROSTATIC MOMENTS")    
-            dval = gamess_run.read_log.getDipoleMoment(dd[-1])
+            dd = parselog.getBlock("ELECTROSTATIC MOMENTS")    
+            dval = parselog.getDipoleMoment(dd[-1])
             output['dipole'] = dval
 
         if is_uv_specified:
             exjobname = jobname+'_TD'
             infilename_ex = f"{exjobname}.log"
-            exlines = gamess_run.read_log.read_log(infilename_ex)
-            wavel, os = gamess_run.read_log.getTDDFT(exlines)
+            parseexlog = gamess_run.parse_log.parse_log(infilename_ex)
+            wavel, os = parseexlog.getTDDFT()
             output['uv'] = [wavel, os]
 
         if is_fluor_specified:
             exoptjobname = jobname+'_TDopt'
             infilename_exopt = f"{exoptjobname}.log"
-            exoptlines = gamess_run.read_log.read_log(infilename_exopt)
-            wavel, os = gamess_run.read_log.getTDDFT(exoptlines)
+            parseexoptlog = gamess_run.parse_log.parse_log(infilename_exopt)
+            wavel, os = parseexoptlog.getTDDFT()
             output['fluor'] = [wavel, os]
         
         lines = [] 
