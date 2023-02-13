@@ -10,13 +10,6 @@ class parse_log:
         with open (outfile) as output_line:
             self.lines = output_line.readlines()
 
-    def read_log(self, outfile):
-
-        with open (outfile) as output_line:
-            lines = output_line.readlines()
-
-        return lines
-
     def getNumberElectron(self ):
 
         for ii in range(len(self.lines)):
