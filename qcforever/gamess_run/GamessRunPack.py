@@ -61,7 +61,6 @@ class GamessDFTRun:
         parselog = gamess_run.parse_log.parse_log(infilename)
 
         if is_energy_specified:
-            #output['energy'] = gamess_run.read_log.getEnergy(lines)
             output['energy'] = parselog.getEnergy()
 
         if is_homolumo_specified:
