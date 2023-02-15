@@ -31,6 +31,6 @@ def functional_para(functional, para):
     return iop_line
 
 if __name__ == '__main__':
-    print(functional_para('lc-blyp', [0.33]))
-    print(functional_para('cam-b3lyp', [0.33,0.33, 0.25]))
+    print(functional_para('lc-blyp', [0.3312]))
+    print(functional_para('cam-b3lyp', [0.3322,0.3333, 0.2512]))
 

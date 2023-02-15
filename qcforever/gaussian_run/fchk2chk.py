@@ -1,5 +1,6 @@
 import sys
 import subprocess
+import re
 
 
 def ChargeSpin_fchk(fchkfile):
@@ -8,12 +9,12 @@ def ChargeSpin_fchk(fchkfile):
     with open(fchkfile, 'r') as fchk:
         lines = fchk.readlines()
     for line in lines:
-        if line.find("Charge ") > 0:
+        if (re.match("Charge", line)):
             Charge_inf = line.split()
-            TotalCharge = Charge_inf[-1]
-        if line.find("Multiplicity ") > 0:
+            TotalCharge = int(Charge_inf[-1])
+        if (re.match("Multiplicity", line)):
             Multi_inf = line.split()
-            SpinMulti = Multi_inf[-1]
+            SpinMulti = int(Multi_inf[-1])
     lines = ""
     return TotalCharge, SpinMulti
 

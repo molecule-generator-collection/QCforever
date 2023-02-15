@@ -517,7 +517,6 @@ class GaussianDFTRun:
             else:
                 print('invalid option: ', option)
 
-
         if len(option_dict.keys()) == 1 and option_dict.keys() == 'symm': 
             scf_needed = False 
         else:
