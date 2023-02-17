@@ -113,7 +113,7 @@ def read_xyz(infile):
         Charge = 0 
         SpinMulti = 0
         for line in ifile:
-            print(line)
+        #    print(line)
             if count == 0:
                 Atom_num = line.split()
                 N = int(Atom_num[0])

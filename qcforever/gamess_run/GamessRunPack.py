@@ -54,6 +54,8 @@ class GamessDFTRun:
         is_dipole_specified = option_dict['dipole'] if 'dipole' in option_dict else False 
         is_uv_specified = option_dict['uv'] if 'uv' in option_dict else False 
         is_fluor_specified = option_dict['fluor'] if 'fluor' in option_dict else False 
+        is_vip_specified = option_dict['vip'] if 'vip' in option_dict else False 
+        is_vea_specified = option_dict['vea'] if 'vea' in option_dict else False 
 
         infilename = f"{jobname}.log"
 
@@ -81,18 +83,32 @@ class GamessDFTRun:
             output['dipole'] = dval
 
         if is_uv_specified:
-            exjobname = jobname+'_TD'
+            exjobname = jobname + '_TD'
             infilename_ex = f"{exjobname}.log"
             parseexlog = gamess_run.parse_log.parse_log(infilename_ex)
             wavel, os = parseexlog.getTDDFT()
             output['uv'] = [wavel, os]
 
         if is_fluor_specified:
-            exoptjobname = jobname+'_TDopt'
+            exoptjobname = jobname + '_TDopt'
             infilename_exopt = f"{exoptjobname}.log"
             parseexoptlog = gamess_run.parse_log.parse_log(infilename_exopt)
             wavel, os = parseexoptlog.getTDDFT()
             output['fluor'] = [wavel, os]
+
+        if is_vip_specified:
+            vipjobname = jobname + '_VIP'
+            infilename_vip = f"{vipjobname}.log"
+            parseviplog = gamess_run.parse_log.parse_log(infilename_vip)
+            vip_E = parseviplog.getEnergy()
+            output['vip'] = Eh2eV * (vip_E - output['energy'])
+
+        if is_vea_specified:
+            veajobname = jobname + '_VEA'
+            infilename_vea = f"{veajobname}.log"
+            parsevealog = gamess_run.parse_log.parse_log(infilename_vea)
+            vea_E = parsevealog.getEnergy()
+            output['vea'] = Eh2eV * (output['energy'] - vea_E)
         
         lines = [] 
         exlines = []
@@ -103,7 +119,7 @@ class GamessDFTRun:
         self, run_type, 
         TotalCharge, SpinMulti, 
         GamInputName, Mol_atom=[], X=[], Y=[], Z=[], 
-        TDDFT=False, target=[1, 1],  datfile=None):
+        TDDFT=False, target=[1, 1], datfile=None):
         #target[0]=target state index, target[1]=spin multiplicity of the target state
 #setting for memory
         if self.mem == '':
@@ -133,6 +149,8 @@ class GamessDFTRun:
             line_input = f' $CONTRL SCFTYP={scftype} RUNTYP={run_type} DFTTYP={self.functional}'
             if TDDFT:
                 line_input += ' TDDFT=EXCITE \n' 
+            elif TDDFT == 'SPNFLP':
+                line_input += ' TDDFT=SPNFLP \n' 
             else: 
                 line_input += '\n'
             line_input += f'  COORD=UNIQUE NZVAR=0 ICHARG={TotalCharge} MULT={SpinMulti} $END\n'
@@ -222,6 +240,12 @@ class GamessDFTRun:
                 if '=' in option:
                     in_target = option.split('=')
                     targetstate = int(in_target[-1])
+            elif option.lower() == 'vip':
+                option_dict['energy'] = True
+                option_dict['vip'] = True
+            elif option.lower() == 'vea':
+                option_dict['energy'] = True
+                option_dict['vea'] = True
             else:
                 print('invalid option: ', option)
 
@@ -245,8 +269,8 @@ class GamessDFTRun:
         if 'uv' in  option_dict:
             run_type = 'ENERGY'
         
-            GSdatfile = jobname+'.dat'
-            exjobname = jobname+'_TD'
+            GSdatfile = jobname + '.dat'
+            exjobname = jobname + '_TD'
             GamInputName = exjobname +'.inp'    
 
             self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, TDDFT=True, datfile=GSdatfile)
@@ -255,12 +279,46 @@ class GamessDFTRun:
         if 'fluor' in  option_dict:
             run_type = 'OPTIMIZE'
 
-            GSdatfile = jobname+'.dat'
-            exoptjobname = jobname+'_TDopt'
+            GSdatfile = jobname + '.dat'
+            exoptjobname = jobname + '_TDopt'
             GamInputName = exoptjobname +'.inp'    
 
             self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, TDDFT=True, target=[targetstate, SpinMulti], datfile=GSdatfile)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(exoptjobname, self.gamessversion, self.nproc)
+
+        if 'vip' in option_dict:
+            run_type = 'ENERGY'
+
+            GSdatfile = jobname + '.dat'
+            vipjobname = jobname + '_VIP'
+            GamInputName = vipjobname + '.inp'
+
+            IPTotalCharge = TotalCharge + 1
+        
+            if SpinMulti%2 != 0:
+                IPSpinMulti = SpinMulti + 1
+            else:
+                IPSpinMulti = SpinMulti - 1
+
+            self.make_input(run_type, IPTotalCharge, IPSpinMulti, GamInputName, datfile=GSdatfile)
+            job_state = gamess_run.Exe_Gamess.exe_Gamess(vipjobname, self.gamessversion, self.nproc)
+
+        if 'vea' in option_dict:
+            run_type = 'ENERGY'
+
+            GSdatfile = jobname + '.dat'
+            veajobname = jobname + '_VEA'
+            GamInputName = veajobname + '.inp'
+
+            EATotalCharge = TotalCharge - 1
+        
+            if SpinMulti%2 != 0:
+                EASpinMulti = SpinMulti + 1
+            else:
+                EASpinMulti = SpinMulti - 1
+
+            self.make_input(run_type, EATotalCharge, EASpinMulti, GamInputName, datfile=GSdatfile)
+            job_state = gamess_run.Exe_Gamess.exe_Gamess(veajobname, self.gamessversion, self.nproc)
 
         try:
             output_dic = self.Extract_values(jobname, option_dict)

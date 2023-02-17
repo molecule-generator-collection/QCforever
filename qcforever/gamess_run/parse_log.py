@@ -10,7 +10,7 @@ class parse_log:
         with open (outfile) as output_line:
             self.lines = output_line.readlines()
 
-    def getNumberElectron(self ):
+    def getNumberElectron(self):
 
         for ii in range(len(self.lines)):
             ll = self.lines[ii]
@@ -36,7 +36,7 @@ class parse_log:
                 sline = ll.split()
                 energy.append(sline[-4])
 
-        return energy[-1]
+        return float(energy[-1])
 
     def getTDDFT(self):
 
