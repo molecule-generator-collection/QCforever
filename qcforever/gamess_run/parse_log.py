@@ -10,6 +10,17 @@ class parse_log:
         with open (outfile) as output_line:
             self.lines = output_line.readlines()
 
+    def Check_SCF(self):
+
+        scf_state = True
+
+        for ii in range(len(self.lines)):
+            ll = self.lines[ii]
+            if (re.match("\s*SCF IS UNCONVERGED",ll)):
+                scf_state = "scf error"
+
+        return scf_state
+        
     def getNumberElectron(self):
 
         for ii in range(len(self.lines)):
@@ -210,7 +221,8 @@ if __name__ == '__main__':
     except:
         print (usage); sys.exit()
 
-    parselog = parse_lot(infilename)
+    parselog = parse_log(infilename)
+    print(parselog.Check_SCF())
 
     flag_homolumo = False
     flag_dipole = False

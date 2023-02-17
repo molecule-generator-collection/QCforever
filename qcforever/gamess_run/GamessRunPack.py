@@ -61,9 +61,14 @@ class GamessDFTRun:
 
         output = {}
         parselog = gamess_run.parse_log.parse_log(infilename)
+        job_scfstate = parselog.Check_SCF()
 
         if is_energy_specified:
-            output['energy'] = parselog.getEnergy()
+            if job_scfstate == True:
+                output['energy'] = parselog.getEnergy()
+            else:
+                output['energy'] = ''
+                output['log'] = job_scfstate
 
         if is_homolumo_specified:
             num_occu_alpha, num_occu_beta  = parselog.getNumberElectron()
@@ -100,15 +105,25 @@ class GamessDFTRun:
             vipjobname = jobname + '_VIP'
             infilename_vip = f"{vipjobname}.log"
             parseviplog = gamess_run.parse_log.parse_log(infilename_vip)
-            vip_E = parseviplog.getEnergy()
-            output['vip'] = Eh2eV * (vip_E - output['energy'])
+            vip_scfstate = parseviplog.Check_SCF()
+            if vip_scfstate == True:
+                vip_E = parseviplog.getEnergy()
+                output['vip'] = Eh2eV * (vip_E - output['energy'])
+            else:
+                output['vip'] = ''
+                output['log'] = vip_scfstate
 
         if is_vea_specified:
             veajobname = jobname + '_VEA'
             infilename_vea = f"{veajobname}.log"
             parsevealog = gamess_run.parse_log.parse_log(infilename_vea)
-            vea_E = parsevealog.getEnergy()
-            output['vea'] = Eh2eV * (output['energy'] - vea_E)
+            vea_scfstate = parsevealog.Check_SCF()
+            if vea_scfstate == True:
+                vea_E = parsevealog.getEnergy()
+                output['vea'] = Eh2eV * (output['energy'] - vea_E)
+            else:
+                output['vea'] = ''
+                output['log'] = vea_scfstate
         
         lines = [] 
         exlines = []
@@ -147,7 +162,7 @@ class GamessDFTRun:
 #make input
         with open(GamInputName ,'w') as ofile:
             line_input = f' $CONTRL SCFTYP={scftype} RUNTYP={run_type} DFTTYP={self.functional}'
-            if TDDFT:
+            if TDDFT == True:
                 line_input += ' TDDFT=EXCITE \n' 
             elif TDDFT == 'SPNFLP':
                 line_input += ' TDDFT=SPNFLP \n' 
@@ -295,7 +310,7 @@ class GamessDFTRun:
 
             IPTotalCharge = TotalCharge + 1
         
-            if SpinMulti%2 != 0:
+            if SpinMulti == 1:
                 IPSpinMulti = SpinMulti + 1
             else:
                 IPSpinMulti = SpinMulti - 1
@@ -312,7 +327,7 @@ class GamessDFTRun:
 
             EATotalCharge = TotalCharge - 1
         
-            if SpinMulti%2 != 0:
+            if SpinMulti == 1:
                 EASpinMulti = SpinMulti + 1
             else:
                 EASpinMulti = SpinMulti - 1
@@ -327,7 +342,9 @@ class GamessDFTRun:
             print(e)
             pass
 
-        output_dic["log"] = job_state
+        if 'log' not in output_dic:
+            output_dic["log"] = job_state
+
         os.chdir("..")
 
         return(output_dic)
