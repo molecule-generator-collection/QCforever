@@ -56,6 +56,8 @@ class GamessDFTRun:
         is_fluor_specified = option_dict['fluor'] if 'fluor' in option_dict else False 
         is_vip_specified = option_dict['vip'] if 'vip' in option_dict else False 
         is_vea_specified = option_dict['vea'] if 'vea' in option_dict else False 
+        is_aip_specified = option_dict['aip'] if 'aip' in option_dict else False 
+        is_aea_specified = option_dict['aea'] if 'aea' in option_dict else False 
 
         infilename = f"{jobname}.log"
 
@@ -90,24 +92,24 @@ class GamessDFTRun:
         if is_uv_specified:
             exjobname = jobname + '_TD'
             infilename_ex = f"{exjobname}.log"
-            parseexlog = gamess_run.parse_log.parse_log(infilename_ex)
-            wavel, os = parseexlog.getTDDFT()
+            parse_exlog = gamess_run.parse_log.parse_log(infilename_ex)
+            wavel, os = parse_exlog.getTDDFT()
             output['uv'] = [wavel, os]
 
         if is_fluor_specified:
-            exoptjobname = jobname + '_TDopt'
-            infilename_exopt = f"{exoptjobname}.log"
-            parseexoptlog = gamess_run.parse_log.parse_log(infilename_exopt)
-            wavel, os = parseexoptlog.getTDDFT()
+            fluorjobname = jobname + '_TDopt'
+            infilename_fluor = f"{fluorjobname}.log"
+            parse_fluorlog = gamess_run.parse_log.parse_log(infilename_fluor)
+            wavel, os = parse_fluorlog.getTDDFT()
             output['fluor'] = [wavel, os]
 
         if is_vip_specified:
             vipjobname = jobname + '_VIP'
             infilename_vip = f"{vipjobname}.log"
-            parseviplog = gamess_run.parse_log.parse_log(infilename_vip)
-            vip_scfstate = parseviplog.Check_SCF()
+            parse_viplog = gamess_run.parse_log.parse_log(infilename_vip)
+            vip_scfstate = parse_viplog.Check_SCF()
             if vip_scfstate == True:
-                vip_E = parseviplog.getEnergy()
+                vip_E = parse_viplog.getEnergy()
                 output['vip'] = Eh2eV * (vip_E - output['energy'])
             else:
                 output['vip'] = ''
@@ -116,13 +118,37 @@ class GamessDFTRun:
         if is_vea_specified:
             veajobname = jobname + '_VEA'
             infilename_vea = f"{veajobname}.log"
-            parsevealog = gamess_run.parse_log.parse_log(infilename_vea)
-            vea_scfstate = parsevealog.Check_SCF()
+            parse_vealog = gamess_run.parse_log.parse_log(infilename_vea)
+            vea_scfstate = parse_vealog.Check_SCF()
             if vea_scfstate == True:
-                vea_E = parsevealog.getEnergy()
+                vea_E = parse_vealog.getEnergy()
                 output['vea'] = Eh2eV * (output['energy'] - vea_E)
             else:
                 output['vea'] = ''
+                output['log'] = vea_scfstate
+
+        if is_aip_specified:
+            aipjobname = jobname + '_AIP'
+            infilename_aip = f"{aipjobname}.log"
+            parse_aiplog = gamess_run.parse_log.parse_log(infilename_aip)
+            aip_scfstate = parse_aiplog.Check_SCF()
+            if aip_scfstate == True:
+                aip_E = parse_aiplog.getEnergy()
+                output['aip'] = Eh2eV * (aip_E - output['energy'])
+            else:
+                output['vip'] = ''
+                output['log'] = aip_scfstate
+
+        if is_aea_specified:
+            aeajobname = jobname + '_AEA'
+            infilename_aea = f"{aeajobname}.log"
+            parse_aealog = gamess_run.parse_log.parse_log(infilename_aea)
+            aea_scfstate = parse_aealog.Check_SCF()
+            if aea_scfstate == True:
+                aea_E = parse_aealog.getEnergy()
+                output['aea'] = Eh2eV * (output['energy'] - aea_E)
+            else:
+                output['aea'] = ''
                 output['log'] = vea_scfstate
         
         lines = [] 
@@ -261,6 +287,14 @@ class GamessDFTRun:
             elif option.lower() == 'vea':
                 option_dict['energy'] = True
                 option_dict['vea'] = True
+            elif option.lower() == 'aip':
+                option_dict['energy'] = True
+                option_dict['vip'] = True
+                option_dict['aip'] = True
+            elif option.lower() == 'aea':
+                option_dict['energy'] = True
+                option_dict['vea'] = True
+                option_dict['aea'] = True
             else:
                 print('invalid option: ', option)
 
@@ -334,6 +368,26 @@ class GamessDFTRun:
 
             self.make_input(run_type, EATotalCharge, EASpinMulti, GamInputName, datfile=GSdatfile)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(veajobname, self.gamessversion, self.nproc)
+
+        if 'aip' in option_dict:
+            run_type = 'OPTIMIZE'
+
+            VIPdatfile = vipjobname + '.dat'
+            aipjobname = jobname + '_AIP'
+            GamInputName = aipjobname + '.inp'
+
+            self.make_input(run_type, IPTotalCharge, IPSpinMulti, GamInputName, datfile=VIPdatfile)
+            job_state = gamess_run.Exe_Gamess.exe_Gamess(aipjobname, self.gamessversion, self.nproc)
+
+        if 'aea' in option_dict:
+            run_type = 'OPTIMIZE'
+
+            VEAdatfile = veajobname + '.dat'
+            aeajobname = jobname + '_AEA'
+            GamInputName = aeajobname + '.inp'
+
+            self.make_input(run_type, EATotalCharge, EASpinMulti, GamInputName, datfile=VEAdatfile)
+            job_state = gamess_run.Exe_Gamess.exe_Gamess(aeajobname, self.gamessversion, self.nproc)
 
         try:
             output_dic = self.Extract_values(jobname, option_dict)
