@@ -436,37 +436,27 @@ class GaussianDFTRun:
         for i in range(len(options)):
             option = options[i]
             if option.lower() == 'opt':
-                # opt = 1
                 option_dict['opt'] = True
             elif option.lower() == 'freq':
-                # nmr = 1
                 option_dict['freq'] = True
             elif option.lower() == 'nmr':
-                # nmr = 1
                 option_dict['nmr'] = True
             elif 'uv' in option.lower():
-                # uv = 1
                 option_dict['uv'] = True
                 if '=' in option:
                     ref_spectrum = option.split("=")
                     self.ref_uv_path = ref_spectrum[-1]
             elif option.lower() == 'energy':
-                # energy = 1
                 option_dict['energy'] = True
             elif option.lower() == 'homolumo':
-                # homolumo = 1
                 option_dict['homolumo'] = True
             elif option.lower() == 'dipole':
-                # dipole = 1
                 option_dict['dipole'] = True
             elif option.lower() == 'deen':
-                # deen = 1
                 option_dict['deen'] = True
             elif option.lower() == 'stable2o2':
-                # stable2o2 = 1
                 option_dict['stable2o2'] = True
             elif 'fluor' in option.lower():
-                # fluor = 1
                 option_dict['uv'] = True
                 if SpinMulti == 1:
                     option_dict['fluor'] = True
@@ -476,7 +466,6 @@ class GaussianDFTRun:
                     in_target = option.split("=")
                     targetstate = int(in_target[-1])
             elif option.lower() == 'tadf':
-                # tadf = 1
                 option_dict['uv'] = True
                 if SpinMulti == 1:
                     option_dict['fluor'] = True
@@ -485,22 +474,16 @@ class GaussianDFTRun:
                     option_dict_Ex['fluor'] = True
                     option_dict_Ex['tadf'] = True
             elif option.lower() == 'vip':
-                # vip = 1
                 option_dict['vip'] = True
             elif option.lower() == 'vea':
-                # vea = 1
                 option_dict['vea'] = True
             elif option.lower() == 'aip':
-                # aip = 1
                 option_dict['vip'] = True
                 option_dict['aip'] = True
             elif option.lower() == 'aea':
-                # aea = 1
                 option_dict['vea'] = True
                 option_dict['aea'] = True
             elif option.lower() == 'cden':
-                # nne = 1
-                #print ('Neutraization energy from anion')
                 option_dict['cden'] = True
             elif option.lower() == 'pka':
                 option_dict['energy'] = True
@@ -542,190 +525,190 @@ class GaussianDFTRun:
         line_c_method = f'#r{self.functional}/{self.basis} test {line_iop_functional} '
         line_comment = infilename
 
-        ofile = open(GauInputName ,'w')
-        # For reading geomerty and MO from checkpoint file
         line_readMOGeom = 'Geom=AllCheck Guess=Read'
         line_readOnlyMOGeom = 'Geom=CheckPoint Guess=Read'
         line_readGeom = 'Geom=Checkpoint'
 
-        if 'symm' in option_dict:
-            ofile.write(line_system)
-            ofile.write(line_chk+'\n')
-            ofile.write(line_o_method+'\n')
-            ofile.write('Guess=Only Symmetry=loose'+'\n')
-           # ofile.write('Guess=Only Symmetry=on'+'\n')
+        #ofile = open(GauInputName ,'w')
+        with open(GauInputName, 'w') as ofile:
+        # For reading geomerty and MO from checkpoint file
+
+            input_s = ''
+
+            if 'symm' in option_dict:
+                input_s += line_system
+                input_s += line_chk+'\n'
+                input_s += line_o_method+'\n'
+                input_s += 'Guess=Only Symmetry=loose\n'
+                #input_s += 'Guess=Only Symmetry=on\n'
         # Reading Geometry and MO from Checkpoint file
-            if ReadFromchk == 1:
-                ofile.write(line_readMOGeom+'\n')
-            ofile.write('\n')
-            #ofile.write(line_comment+'\n')
-            #ofile.write('\n')
-            #ofile.write('%5d %5d \n' % (TotalCharge, SpinMulti))
-            if ReadFromsdf == 1 or ReadFromxyz == 1:
-                ofile.write(line_comment+'\n')
-                ofile.write('\n')
-                ofile.write('%5d %5d \n' % (TotalCharge, SpinMulti))
-                for j in range(len(Mol_atom)):
-                    ofile.write('%-4s % 10.5f  % 10.5f  % 10.5f \n'
-                    % (Mol_atom[j],X[j], Y[j], Z[j]))
-            ofile.write('\n')
-            # For adding other jobs when other options are required...
-            if scf_needed: 
-                ofile.write('--Link1--\n')
+                if ReadFromchk == 1:
+                    input_s += line_readMOGeom + '\n'
+                input_s +=  '\n'
+                if ReadFromsdf == 1 or ReadFromxyz == 1:
+                    input_s += line_comment+' symmetry\n'
+                    input_s +='\n'
+                    input_s += f'{TotalCharge: 5d}  {SpinMulti: 5d} \n'
+                    for j in range(len(Mol_atom)):
+                        input_s += f'{Mol_atom[j]:4s} {X[j]: 10.5f}  {Y[j]: 10.5f} {Z[j]: 10.5f}\n'
+                input_s += '\n'
+                # For adding other jobs when other options are required...
+                if scf_needed: 
+                    input_s += '--Link1--\n'
 
-        if scf_needed:
-            ofile.write(line_system)
-            ofile.write(line_chk+'\n')
-            ofile.write(line_o_method+'\n')
+            if scf_needed:
+                input_s += line_system
+                input_s += line_chk+'\n'
+                input_s += line_o_method+'\n'
 
-            if 'opt' in option_dict: # opt == 1
-                ofile.write('Opt=(MaxCycles=100)\n')
+                if 'opt' in option_dict: # opt == 1
+                    input_s += 'Opt=(MaxCycles=100)\n'
 
-            if 'freq' in option_dict: # freq == 1
-                ofile.write('Freq=(Raman)\n')
-            # Solvent effect
-            SCRF, SCRF_read = self.MakeSolventLine()
-            ofile.write(SCRF)
+                if 'freq' in option_dict: # freq == 1
+                    input_s += 'Freq=(Raman)\n'
+                # Solvent effect
+                SCRF, SCRF_read = self.MakeSolventLine()
+                input_s += SCRF
 
-            # Reading Geometry and MO from Checkpoint file
-            if ReadFromchk == 1:
-                ofile.write(line_readMOGeom+'\n')
-            ofile.write('\n')
+                # Reading Geometry and MO from Checkpoint file
+                if ReadFromchk == 1:
+                    input_s += line_readMOGeom+'\n'
+                input_s +='\n'
 
-            # Reading Geometry from sdf or xyz file
-            if ReadFromsdf == 1 or ReadFromxyz == 1:
-                ofile.write(line_comment+'\n')
-                ofile.write('\n')
-                ofile.write('%5d %5d \n' % (TotalCharge, SpinMulti))
-                for j in range(len(Mol_atom)):
-                    ofile.write('%-4s % 10.5f  % 10.5f  % 10.5f \n'
-                     % (Mol_atom[j],X[j], Y[j], Z[j]))
-                ofile.write('\n')
-                ofile.write(SCRF_read)
-            #
-            if 'nmr' in option_dict: # nmr == 1
-                ofile.write('--Link1--\n')
-                ofile.write(line_system)
-                ofile.write(line_chk+'\n')
-                ofile.write(line_method+'\n')
-                line_method_nmr = 'NMR'
-                ofile.write(line_method_nmr+'\n')
-                ofile.write(SCRF)
-                ofile.write(line_readMOGeom+'\n')
-                ofile.write('\n')
-                ofile.write(SCRF_read)
+                # Reading Geometry from sdf or xyz file
+                if ReadFromsdf == 1 or ReadFromxyz == 1:
+                    input_s += line_comment+' ground state\n'
+                    input_s += '\n'
+                    input_s += f'{TotalCharge: 5d}  {SpinMulti: 5d} \n'
+                    for j in range(len(Mol_atom)):
+                        input_s += f'{Mol_atom[j]:4s} {X[j]: 10.5f}  {Y[j]: 10.5f} {Z[j]: 10.5f}\n'
+                    input_s += '\n'
+                    input_s += SCRF_read
+                #
+                if 'nmr' in option_dict: # nmr == 1
+                    input_s += '--Link1--\n'
+                    input_s += line_system
+                    input_s += line_chk+'\n'
+                    input_s += line_method+'\n'
+                    input_s += 'NMR'
+                    input_s += line_method_nmr+'\n'
+                    input_s += SCRF
+                    input_s +=line_readMOGeom+'\n'
+                    input_s += '\n'
+                    input_s += SCRF_read
 
-            if 'vip' in option_dict: # vip == 1
-                ofile.write('--Link1--\n')
-                ofile.write(line_system)
-                ofile.write(line_chk+'_IP\n')
-                ofile.write(line_oldchk+'\n')
-                ofile.write(line_o_method+'\n')
-                ofile.write(SCRF)
-                ofile.write(line_readOnlyMOGeom+'\n')
-                ofile.write('\n')
-                ofile.write('ionization potential calculation\n')
-                ofile.write('\n')
-                if SpinMulti == 1:
-                    ofile.write('%5d %5d \n' % (TotalCharge+1, SpinMulti+1))
-                else:
-                    ofile.write('%5d %5d \n' % (TotalCharge+1, SpinMulti-1))
-                ofile.write('\n')
-                ofile.write(SCRF_read)
+                if 'vip' in option_dict: # vip == 1
+                    input_s += '--Link1--\n'
+                    input_s += line_system
+                    input_s += line_chk+'_IP\n'
+                    input_s += line_oldchk+'\n'
+                    input_s += line_o_method+'\n'
+                    input_s += SCRF
+                    input_s += line_readOnlyMOGeom+'\n'
+                    input_s += '\n'
+                    input_s += 'Ionization potential calculation\n'
+                    input_s += '\n'
+                    if SpinMulti == 1:
+                        input_s += f'{TotalCharge+1: 5d}  {SpinMulti+1: 5d} \n'
+                    else:
+                        input_s += f'{TotalCharge+1: 5d}  {SpinMulti-1: 5d} \n'
+                    input_s += '\n'
+                    input_s += SCRF_read
 
-            if 'vea' in option_dict: # vea == 1
-                ofile.write('--Link1--\n')
-                ofile.write(line_system)
-                ofile.write(line_oldchk+'\n')
-                ofile.write(line_chk+'_EA\n')
-                ofile.write(line_o_method+'\n')
-                ofile.write(SCRF)
-                ofile.write(line_readOnlyMOGeom+'\n')
-                ofile.write('\n')
-                ofile.write('electronic affinity calculation\n')
-                ofile.write('\n')
-                if SpinMulti == 1:
-                    ofile.write('%5d %5d \n' % (TotalCharge-1, SpinMulti+1))
-                else:
-                    ofile.write('%5d %5d \n' % (TotalCharge-1, SpinMulti-1))
-                ofile.write('\n')
-                ofile.write(SCRF_read)
+                if 'vea' in option_dict: # vea == 1
+                    input_s += '--Link1--\n'
+                    input_s += line_system
+                    input_s += line_oldchk+'\n'
+                    input_s += line_chk+'_EA\n'
+                    input_s += line_o_method+'\n'
+                    input_s += SCRF
+                    input_s += line_readOnlyMOGeom+'\n'
+                    input_s += '\n'
+                    input_s += 'Electronic affinity calculation\n'
+                    input_s += '\n'
+                    if SpinMulti == 1:
+                        input_s += f'{TotalCharge-1: 5d}  {SpinMulti+1: 5d} \n'
+                    else:
+                        input_s += f'{TotalCharge-1: 5d}  {SpinMulti-1: 5d} \n'
+                    input_s += '\n'
+                    input_s += SCRF_read
 
-            if 'aip' in option_dict: # aip == 1
-                ofile.write('--Link1--\n')
-                ofile.write(line_system)
-                ofile.write(line_chk+'_PC\n')
-                ofile.write(line_oldchk+'_IP\n')
-                ofile.write(line_o_method+' Opt'+'\n')
-                ofile.write(SCRF)
-                ofile.write(line_readOnlyMOGeom+'\n')
-                ofile.write('\n')
-                ofile.write('neutrization energy calculation from a cation\n')
-                ofile.write('\n')
-                if SpinMulti == 1:
-                    ofile.write('%5d %5d \n' % (TotalCharge+1, SpinMulti+1))
-                else:
-                    ofile.write('%5d %5d \n' % (TotalCharge+1, SpinMulti-1))
-                ofile.write('\n')
-                ofile.write(SCRF_read)
-                ofile.write('--Link1--\n')
-                ofile.write(line_system)
-                ofile.write(line_chk+'_PC\n')
-                #ofile.write(line_oldchk+'\n')
-                ofile.write(line_o_method+'\n')
-                ofile.write(SCRF)
-                ofile.write(line_readGeom+'\n')
-                ofile.write('\n')
-                ofile.write('neutrization energy calculation from a cation\n')
-                ofile.write('\n')
-                ofile.write('%5d %5d \n' % (TotalCharge, SpinMulti))
-                ofile.write('\n')
-                ofile.write(SCRF_read)
+                if 'aip' in option_dict: # aip == 1
+                    input_s += '--Link1--\n'
+                    input_s += line_system
+                    input_s += line_chk+'_PC\n'
+                    input_s += line_oldchk+'_IP\n'
+                    input_s += line_o_method+' Opt'+'\n'
+                    input_s += SCRF
+                    input_s += line_readOnlyMOGeom+'\n'
+                    input_s += '\n'
+                    input_s += 'Adiabatic ionization potential calculation\n'
+                    input_s += '\n'
+                    if SpinMulti == 1:
+                        input_s += f'{TotalCharge+1: 5d}  {SpinMulti+1: 5d} \n'
+                    else:
+                        input_s += f'{TotalCharge+1: 5d}  {SpinMulti-1: 5d} \n'
+                    input_s += '\n'
+                    input_s += SCRF_read
+                    input_s += '--Link1--\n'
+                    input_s += line_system
+                    input_s += line_chk+'_PC\n'
+                    #input_s += line_oldchk+'\n'
+                    input_s += line_o_method+'\n'
+                    input_s += SCRF
+                    input_s += line_readGeom+'\n'
+                    input_s += '\n'
+                    input_s += 'neutrization energy calculation from a cation\n'
+                    input_s += '\n'
+                    input_s += f'{TotalCharge: 5d}  {SpinMulti: 5d} \n'
+                    input_s += '\n'
+                    input_s += SCRF_read
 
-            if 'aea' in  option_dict: #aea == 1
-                ofile.write('--Link1--\n')
-                ofile.write(line_system)
-                ofile.write(line_oldchk+'_EA\n')
-                ofile.write(line_chk+'_NC\n')
-                ofile.write(line_o_method+' Opt'+'\n')
-                ofile.write(SCRF)
-                ofile.write(line_readOnlyMOGeom+'\n')
-                ofile.write('\n')
-                ofile.write('neutrization energy calculation from an anion\n')
-                ofile.write('\n')
-                if SpinMulti == 1:
-                    ofile.write('%5d %5d \n' % (TotalCharge-1, SpinMulti+1))
-                else:
-                    ofile.write('%5d %5d \n' % (TotalCharge-1, SpinMulti-1))
-                ofile.write('\n')
-                ofile.write(SCRF_read)
-                ofile.write('--Link1--\n')
-                ofile.write(line_system)
-                #ofile.write(line_oldchk+'\n')
-                ofile.write(line_chk+'_NC\n')
-                ofile.write(line_o_method+'\n')
-                ofile.write(SCRF)
-                ofile.write(line_readGeom+'\n')
-                ofile.write('\n')
-                ofile.write('neutrization energy calculation from an anion\n')
-                ofile.write('\n')
-                ofile.write('%5d %5d \n' % (TotalCharge, SpinMulti))
-                ofile.write('\n')
-                ofile.write(SCRF_read)
+                if 'aea' in  option_dict: #aea == 1
+                    input_s += '--Link1--\n'
+                    input_s += line_system
+                    input_s += line_oldchk+'_EA\n'
+                    input_s += line_chk+'_NC\n'
+                    input_s += line_o_method+' Opt'+'\n'
+                    input_s += SCRF
+                    input_s += line_readOnlyMOGeom+'\n'
+                    input_s += '\n'
+                    input_s += 'neutrization energy calculation from an anion\n'
+                    input_s += '\n'
+                    if SpinMulti == 1:
+                        input_s += f'{TotalCharge-1: 5d}  {SpinMulti+1: 5d} \n'
+                    else:
+                        input_s += f'{TotalCharge-1: 5d}  {SpinMulti-1: 5d} \n'
+                    input_s += '\n'
+                    input_s += SCRF_read
+                    input_s += '--Link1--\n'
+                    input_s += line_system
+                    #input_s += line_oldchk+'\n'
+                    input_s += line_chk+'_NC\n'
+                    input_s += line_o_method+'\n'
+                    input_s += SCRF
+                    input_s += line_readGeom+'\n'
+                    input_s += '\n'
+                    input_s += 'neutrization energy calculation from an anion\n'
+                    input_s += '\n'
+                    input_s += f'{TotalCharge: 5d}  {SpinMulti: 5d} \n'
+                    input_s += '\n'
+                    input_s += SCRF_read
 
-            if 'uv' in option_dict: #uv == 1 or fluor==1 or tadf == 1
-                sTD = self.MakeLinkTD(line_chk, line_method, None, SCRF, SCRF_read, False, targetstate )
-                ofile.write(sTD) 
+                if 'uv' in option_dict: #uv == 1 or fluor==1 or tadf == 1
+                    sTD = self.MakeLinkTD(line_chk, line_method, None, SCRF, SCRF_read, False, targetstate )
+                    input_s += sTD
 
-            if 'fluor' in option_dict:
-                sTD = self.MakeLinkTD(line_chk, line_c_method, 'Singlet',  SCRF, SCRF_read, True, targetstate )
-                ofile.write(sTD) 
+                if 'fluor' in option_dict:
+                    sTD = self.MakeLinkTD(line_chk, line_c_method, 'Singlet',  SCRF, SCRF_read, True, targetstate )
+                    input_s += sTD
 
-            if 'tadf' in option_dict:
-                sTD = self.MakeLinkTD(line_chk, line_c_method, 'Triplet',  SCRF, SCRF_read, True, targetstate )
-                ofile.write(sTD) 
-            ofile.write('\n') 
-        ofile.close()
+                if 'tadf' in option_dict:
+                    sTD = self.MakeLinkTD(line_chk, line_c_method, 'Triplet',  SCRF, SCRF_read, True, targetstate )
+                    input_s += sTD
+                input_s += '\n'
+
+            ofile.write(input_s)
 
         # Run Gaussian
         job_state = "normal"
@@ -768,25 +751,29 @@ class GaussianDFTRun:
             GauInputName_DeHOpt = JobName_DeHMol + ".com"
             GauchkName_DeHOpt = JobName_DeHMol + ".chk"
 
-            ofile_DeHMol = open(GauInputName_DeHOpt, 'w')
-            line_DeHchk = '%chk='+ JobName_DeHMol
-            # making input for a deprotonated molecule
-            ofile_DeHMol.write(line_system)
-            ofile_DeHMol.write(line_DeHchk + '\n')
-            ofile_DeHMol.write(line_o_method+'\n')
-            if 'opt' in option_dict: # opt == 1
-                ofile_DeHMol.write('Opt=(MaxCycles=100)\n')
-            ofile_DeHMol.write(SCRF)
-            ofile_DeHMol.write("\n")
-            ofile_DeHMol.write("Deprotonated molecule \n")
-            ofile_DeHMol.write("\n")
-            ofile_DeHMol.write('%5d %5d \n' % (TotalCharge-1, SpinMulti))
-            for j in range(len(DeHMol_atom)):
-                ofile_DeHMol.write('%-4s % 10.5f  % 10.5f  % 10.5f \n'
-                 % (DeHMol_atom[j], DeHMol_X[j], DeHMol_Y[j], DeHMol_Z[j]))
-            ofile_DeHMol.write(SCRF_read)
-            ofile_DeHMol.write('\n')
-            ofile_DeHMol.close()
+            with open(GauInputName_DeHOpt, 'w') as ofile_DeHMol:
+
+                DeH_input_s = ''
+
+                line_DeHchk = '%chk='+ JobName_DeHMol
+                # making input for a deprotonated molecule
+                DeH_input_s += line_system
+                DeH_input_s += line_DeHchk + '\n' 
+                DeH_input_s += line_o_method+'\n'
+
+                if 'opt' in option_dict: # opt == 1
+                    DeH_input_s += 'Opt=(MaxCycles=100)\n'
+                DeH_input_s += SCRF
+                DeH_input_s += '\n'
+                DeH_input_s += 'Deprotonated molecule \n'
+                DeH_input_s += '\n'
+                DeH_input_s += f'{TotalCharge-1: 5d} {SpinMulti: 5d}\n'
+                for j in range(len(DeHMol_atom)):
+                    DeH_input_s += f'{DeHMol_atom[j]:4s} {DeHMol_X[j]: 10.5f} {DeHMol_Y[j]: 10.5f} {DeHMol_Z[j]: 10.5f}\n'
+                DeH_input_s += SCRF_read
+                DeH_input_s += '\n'
+
+                ofile_DeHMol.write(DeH_input_s)
 
             job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_DeHMol, self.timexe)
             gaussian_run.chk2fchk.Get_chklist()
@@ -809,19 +796,21 @@ class GaussianDFTRun:
             JobName_ExOpt = PreGauInput[0] + "_ExOpt"
             GauInputName_ExOpt = JobName_ExOpt + ".com"
 
-            ofile_ExOpt = open(GauInputName_ExOpt ,'w')
-            ofile_ExOpt.write(line_system)
-            ofile_ExOpt.write(line_chk+'\n')
-            ofile_ExOpt.write(line_o_method+'\n')
-            ofile_ExOpt.write(line_readMOGeom+'\n')
-            ofile_ExOpt.write('\n')
-            sTD = self.MakeLinkTD(line_chk, line_o_method, None, SCRF, SCRF_read, True, compute_state)
-            ofile_ExOpt.write(sTD)
-            if 'tadf' in option_dict_Ex: #tadf == 1
-                compute_state = output_dic["state_index"][1][int(targetstate)-1] 
+            with open(GauInputName_ExOpt ,'w') as ofile_ExOpt:
+                exopt_input_s = ''
+                exopt_input_s += line_system
+                exopt_input_s += line_chk+'\n'
+                exopt_input_s += line_o_method+'\n'
+                exopt_input_s += line_readMOGeom+'\n'
+                exopt_input_s += '\n'
+
                 sTD = self.MakeLinkTD(line_chk, line_o_method, None, SCRF, SCRF_read, True, compute_state)
-                ofile_ExOpt.write(sTD) 
-            ofile_ExOpt.close()
+                exopt_input_s += sTD
+                if 'tadf' in option_dict_Ex: #tadf == 1
+                    compute_state = output_dic["state_index"][1][int(targetstate)-1] 
+                    sTD = self.MakeLinkTD(line_chk, line_o_method, None, SCRF, SCRF_read, True, compute_state)
+                    exopt_iput_s += sTD
+                ofile_ExOpt.write(exopt_input_s) 
 
             job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_ExOpt, self.timexe)
             gaussian_run.chk2fchk.Get_chklist()
