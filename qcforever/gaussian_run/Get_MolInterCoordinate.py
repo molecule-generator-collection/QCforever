@@ -6,13 +6,8 @@ import numpy as np
 
 def Extract_InterMol(lines, outfile=None):
     print ("Start finding internal coordinates...")
-    Init_BondLength    = []
-    Init_BondAngle     = []
-    Init_DihedralAngle = []
-    Final_BondLength    = []
-    Final_BondAngle     = []
-    Final_DihedralAngle = []
     count_Station = 0
+    ifrag = 0
     icount = 0
     fcount = 0
     # Counting Stationary points
@@ -28,7 +23,11 @@ def Extract_InterMol(lines, outfile=None):
     if Total_NumStation > 0:
         print ("Total number of stationary points: ", Total_NumStation)
         for line in lines:
-            if line.find("!    Initial Parameters    !") >= 0:
+            if line.find("!    Initial Parameters    !") >= 0 and ifrag == 0 :
+                Init_BondLength    = []
+                Init_BondAngle     = []
+                Init_DihedralAngle = []
+                ifrag += 1
                 icount += 1
                 print ("Initial internal coordinate parameters were found.")
                 continue
@@ -61,6 +60,9 @@ def Extract_InterMol(lines, outfile=None):
             if line.find("!   Optimized Parameters   !") >= 0:
                 fcount += 1
                 print ("Final internal coordinate parameters were found.")
+                Final_BondLength    = []
+                Final_BondAngle     = []
+                Final_DihedralAngle = []
                 continue
             if fcount >= 1 and fcount <= 4:
                 fcount += 1
@@ -97,12 +99,14 @@ def Extract_InterMol(lines, outfile=None):
         Final_BondAngle = [0.0, 0.0]
         Final_DihedralAngle = [0.0, 0.0]
 
+
     Init_BondLength     = np.array(Init_BondLength)
     Init_BondAngle      = np.array(Init_BondAngle)
     Init_DihedralAngle  = np.array(Init_DihedralAngle)
     Final_BondLength    = np.array(Final_BondLength)
     Final_BondAngle     = np.array(Final_BondAngle)
     Final_DihedralAngle = np.array(Final_DihedralAngle)
+
     DisplacementB = Final_BondLength -  Init_BondLength
     DisplacementA = Final_BondAngle -  Init_BondAngle
     DisplacementD = Final_DihedralAngle -  Init_DihedralAngle
