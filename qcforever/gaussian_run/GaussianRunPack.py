@@ -26,6 +26,7 @@ class GaussianDFTRun:
         self.SpecTotalCharge = np.nan
         self.SpecSpinMulti = np.nan
         self.ref_uv_path = ''
+        self.geom_spec = {}
         self.para_functional = []
 
     def Extract_SCFEnergy(self, lines):
@@ -367,7 +368,7 @@ class GaussianDFTRun:
         line_newchk = f"%chk={Jobname}_ExOptState{targetstate}" if State == None else f"%chk={Jobname}_ExOptState{State}"
         # Potaintially cause a bug because '==' is used instead of 'is' to check 'None'. Need to check
         line_method_TD = f"TD(Nstate={NState}, root={targetstate})" if State == None else f"TD(Nstate={NState}, {State}, root={targetstate})"
-        line_readMOGeom = 'Geom=AllCheck Guess=Read'
+        line_readAllMOGeom = 'Geom=AllCheck Guess=Read'
         s = ''
         s += '--Link1--\n'
         if self.mem != '':
@@ -383,7 +384,7 @@ class GaussianDFTRun:
             s += f"{line_chk}\n"
         s += f"{line_method}\n"
         s += f"{line_method_TD}\n"
-        s += f"{line_readMOGeom}\n"
+        s += f"{line_readAllMOGeom}\n"
         s += SCRF
         if Opt == True:
             s += "Opt=(MaxCycles=50)\n"
@@ -403,24 +404,24 @@ class GaussianDFTRun:
         PreGauInput = infilename.split('.')
         GauInputName = PreGauInput[0]+'.com'    
         # File type of input?
-        ReadFromchk = 0 
-        ReadFromsdf = 0 
-        ReadFromxyz = 0 
+        ReadFromchk = False 
+        ReadFromsdf = False
+        ReadFromxyz = False
         if PreGauInput[1] == "sdf":
-            ReadFromsdf = 1 
+            ReadFromsdf = True 
             Mol_atom, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf(infilename)
         elif PreGauInput[1] == "xyz":
-            ReadFromxyz = 1
+            ReadFromxyz = True
             Mol_atom, X, Y, Z, TotalCharge, SpinMulti = read_mol_file.read_xyz(infilename)
             Bondpair1 = []
             Bondpair2 = []
         elif PreGauInput[1] == "chk":
-            ReadFromchk = 1 
+            ReadFromchk = True 
             Bondpair1 = []
             Bondpair2 = []
         elif PreGauInput[1] == "fchk":
             TotalCharge, SpinMulti = gaussian_run.fchk2chk.Get_fchk(PreGauInput[0])
-            ReadFromchk = 1 
+            ReadFromchk = True 
             Bondpair1 = []
             Bondpair2 = []
         else:
@@ -525,11 +526,16 @@ class GaussianDFTRun:
         line_c_method = f'#r{self.functional}/{self.basis} test {line_iop_functional} '
         line_comment = infilename
 
-        line_readMOGeom = 'Geom=AllCheck Guess=Read'
+        line_readAllMOGeom = 'Geom=AllCheck Guess=Read'
         line_readOnlyMOGeom = 'Geom=CheckPoint Guess=Read'
         line_readGeom = 'Geom=Checkpoint'
+        if self.geom_spec != {}: 
+            line_GeomConstrain = 'Geom=ModRedundant'
+            line_readGeomConstrain = 'Geom=(Checkpoint,ModRedundant)'
+            line_readAllGeomGuessConstrain = 'Geom=(AllCheckpoint,ModRedundant) Guess=Read'
+            line_readGeomGuessConstrain = 'Geom=(Checkpoint,ModRedundant) Guess=Read'
+            line_GeomConstrainSpec = gaussian_run.ConstrainInfo_line.get_IntCoorddata(self.geom_spec)
 
-        #ofile = open(GauInputName ,'w')
         with open(GauInputName, 'w') as ofile:
         # For reading geomerty and MO from checkpoint file
 
@@ -541,17 +547,23 @@ class GaussianDFTRun:
                 input_s += line_o_method+'\n'
                 input_s += 'Guess=Only Symmetry=loose\n'
                 #input_s += 'Guess=Only Symmetry=on\n'
-        # Reading Geometry and MO from Checkpoint file
-                if ReadFromchk == 1:
-                    input_s += line_readMOGeom + '\n'
+                if self.geom_spec != {}: 
+                    input_s += line_GeomConstrain + '\n' 
+                #Reading Geometry and MO from Checkpoint file
+                if ReadFromchk == True:
+                    input_s += line_readAllMOGeom + '\n'
                 input_s +=  '\n'
-                if ReadFromsdf == 1 or ReadFromxyz == 1:
+                if ReadFromsdf == True or ReadFromxyz == True:
                     input_s += line_comment+' symmetry\n'
                     input_s +='\n'
                     input_s += f'{TotalCharge: 5d}  {SpinMulti: 5d} \n'
                     for j in range(len(Mol_atom)):
                         input_s += f'{Mol_atom[j]:4s} {X[j]: 10.5f}  {Y[j]: 10.5f} {Z[j]: 10.5f}\n'
                 input_s += '\n'
+                if self.geom_spec != {}: 
+                    input_s += line_GeomConstrainSpec 
+                input_s += '\n'
+
                 # For adding other jobs when other options are required...
                 if scf_needed: 
                     input_s += '--Link1--\n'
@@ -571,12 +583,16 @@ class GaussianDFTRun:
                 input_s += SCRF
 
                 # Reading Geometry and MO from Checkpoint file
-                if ReadFromchk == 1:
-                    input_s += line_readMOGeom+'\n'
+                if ReadFromchk == True and self.geom_spec == {}: 
+                    input_s += line_readAllMOGeom+'\n'
+                if ReadFromchk == True and self.geom_spec != {}:
+                    input_s += line_readAllGeomGuessConstrain+'\n'
+                if ReadFromchk != True and self.geom_spec != {}:
+                    input_s += line_GeomConstrain+'\n'
                 input_s +='\n'
 
                 # Reading Geometry from sdf or xyz file
-                if ReadFromsdf == 1 or ReadFromxyz == 1:
+                if ReadFromsdf == True or ReadFromxyz == True:
                     input_s += line_comment+' ground state\n'
                     input_s += '\n'
                     input_s += f'{TotalCharge: 5d}  {SpinMulti: 5d} \n'
@@ -584,6 +600,10 @@ class GaussianDFTRun:
                         input_s += f'{Mol_atom[j]:4s} {X[j]: 10.5f}  {Y[j]: 10.5f} {Z[j]: 10.5f}\n'
                     input_s += '\n'
                     input_s += SCRF_read
+
+                if self.geom_spec != {}: 
+                    input_s += line_GeomConstrainSpec + '\n'
+
                 #
                 if 'nmr' in option_dict: # nmr == 1
                     input_s += '--Link1--\n'
@@ -593,7 +613,7 @@ class GaussianDFTRun:
                     input_s += 'NMR'
                     input_s += line_method_nmr+'\n'
                     input_s += SCRF
-                    input_s +=line_readMOGeom+'\n'
+                    input_s +=line_readAllMOGeom+'\n'
                     input_s += '\n'
                     input_s += SCRF_read
 
@@ -696,15 +716,15 @@ class GaussianDFTRun:
                     input_s += SCRF_read
 
                 if 'uv' in option_dict: #uv == 1 or fluor==1 or tadf == 1
-                    sTD = self.MakeLinkTD(line_chk, line_method, None, SCRF, SCRF_read, False, targetstate )
+                    sTD = self.MakeLinkTD(line_chk, line_method, None, SCRF, SCRF_read, False, targetstate)
                     input_s += sTD
 
                 if 'fluor' in option_dict:
-                    sTD = self.MakeLinkTD(line_chk, line_c_method, 'Singlet',  SCRF, SCRF_read, True, targetstate )
+                    sTD = self.MakeLinkTD(line_chk, line_c_method, 'Singlet',  SCRF, SCRF_read, True, targetstate)
                     input_s += sTD
 
                 if 'tadf' in option_dict:
-                    sTD = self.MakeLinkTD(line_chk, line_c_method, 'Triplet',  SCRF, SCRF_read, True, targetstate )
+                    sTD = self.MakeLinkTD(line_chk, line_c_method, 'Triplet',  SCRF, SCRF_read, True, targetstate)
                     input_s += sTD
                 input_s += '\n'
 
@@ -717,7 +737,7 @@ class GaussianDFTRun:
             shutil.rmtree(PreGauInput[0])
         os.mkdir(PreGauInput[0])
         shutil.move(GauInputName, PreGauInput[0])
-        if ReadFromchk == 1 :
+        if ReadFromchk == True :
             inchkfile = PreGauInput[0]+".chk"
             shutil.move(inchkfile, PreGauInput[0]) 
         os.chdir(PreGauInput[0])
@@ -801,7 +821,7 @@ class GaussianDFTRun:
                 exopt_input_s += line_system
                 exopt_input_s += line_chk+'\n'
                 exopt_input_s += line_o_method+'\n'
-                exopt_input_s += line_readMOGeom+'\n'
+                exopt_input_s += line_readAllMOGeom+'\n'
                 exopt_input_s += '\n'
 
                 sTD = self.MakeLinkTD(line_chk, line_o_method, None, SCRF, SCRF_read, True, compute_state)
