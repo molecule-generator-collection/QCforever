@@ -13,8 +13,7 @@ def main():
 
     #for stargint from gaussian calculation
     #option = "opt pka symm"
-    #option = "opt uv vip vea"
-    option = "opt deen vip vea homolumo dipole uv symm"
+    option = "opt homolumo dipole uv symm"
     #option = "symm opt freq nmr uv=/home/sumita/GaussianRun_2.2beta/Samples/UV_peak.dat" 
     #option = "opt homolumo energy dipole deen stable2o2 uv=/home/sumita/GaussianRun_2.2beta/Samples/UV_peak.dat vip vea aip aea" 
     #option = "opt homolumo energy dipole deen stable2o2 uv vip vea aip aea" 
@@ -24,10 +23,21 @@ def main():
 
     test = GaussianRunPack.GaussianDFTRun('B3LYP', 'STO-3G', 10, option, infilename, solvent='water', restart=False)
 
+    test.para_functional = [0.3]
     test.mem = '5GB'
     test.timexe = 60*60
-    #test.SpecSpinMulti = 3
-    #test.SpecTotalCharge = 3
+'''#for geometric constrain
+    test.geom_spec = {
+        '1 2 3 14': [180.0, 'F'],
+        '6 5 4 13': [180.0, 'F'],
+        '2 1 7 12': [180.0, 'F'],
+        '5 6 8 9' : [180.0, 'F']
+    }
+'''
+'''#Specify spin multiplicity and charge of the target
+    test.SpecSpinMulti = 3
+    test.SpecTotalCharge = 3
+'''
     outdic = test.run_gaussian()
     print (outdic)
 
