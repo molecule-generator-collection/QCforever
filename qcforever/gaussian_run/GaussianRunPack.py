@@ -428,9 +428,13 @@ class GaussianDFTRun:
             print("Invalid input file")
 
         # Setting electronic structure
+        Is_ChargeSpec = False
+        Is_SpinMultiSpec = False
         if np.isnan(self.SpecTotalCharge) !=  True:
+            Is_ChargeSpec = True
             TotalCharge = self.SpecTotalCharge
         if np.isnan(self.SpecSpinMulti) != True:
+            Is_SpinMultiSpec = True
             SpinMulti = self.SpecSpinMulti
 
         # Setting options
@@ -526,14 +530,16 @@ class GaussianDFTRun:
         line_c_method = f'#r{self.functional}/{self.basis} test {line_iop_functional} '
         line_comment = infilename
 
+        Is_geom_spec = False
         line_readAllMOGeom = 'Geom=AllCheck Guess=Read'
-        line_readOnlyMOGeom = 'Geom=CheckPoint Guess=Read'
+        line_readMOGeom = 'Geom=CheckPoint Guess=Read'
         line_readGeom = 'Geom=Checkpoint'
         if self.geom_spec != {}: 
+            Is_geom_spec = True
             line_GeomConstrain = 'Geom=ModRedundant'
             line_readGeomConstrain = 'Geom=(Checkpoint,ModRedundant)'
-            line_readAllGeomGuessConstrain = 'Geom=(AllCheckpoint,ModRedundant) Guess=Read'
-            line_readGeomGuessConstrain = 'Geom=(Checkpoint,ModRedundant) Guess=Read'
+            line_readAllMOGeomConstrain = 'Geom=(AllCheckpoint,ModRedundant) Guess=Read'
+            line_readMOGeomConstrain = 'Geom=(Checkpoint,ModRedundant) Guess=Read'
             line_GeomConstrainSpec = gaussian_run.ConstrainInfo_line.get_IntCoorddata(self.geom_spec)
 
         with open(GauInputName, 'w') as ofile:
@@ -547,22 +553,28 @@ class GaussianDFTRun:
                 input_s += line_o_method+'\n'
                 input_s += 'Guess=Only Symmetry=loose\n'
                 #input_s += 'Guess=Only Symmetry=on\n'
-                if self.geom_spec != {}: 
-                    input_s += line_GeomConstrain + '\n' 
                 #Reading Geometry and MO from Checkpoint file
-                if ReadFromchk == True:
-                    input_s += line_readAllMOGeom + '\n'
+                if ReadFromchk:
+                    if Is_geom_spec: 
+                        input_s += line_readAllMOGeomConstrain + '\n'
+                    else:
+                        input_s += line_readAllMOGeom + '\n'
+                else:
+                    if Is_geom_spec: 
+                        input_s += line_GeomConstrain + '\n' 
+                    else:
+                        pass
                 input_s +=  '\n'
-                if ReadFromsdf == True or ReadFromxyz == True:
+                if ReadFromsdf or ReadFromxyz:
                     input_s += line_comment+' symmetry\n'
                     input_s +='\n'
                     input_s += f'{TotalCharge: 5d}  {SpinMulti: 5d} \n'
                     for j in range(len(Mol_atom)):
                         input_s += f'{Mol_atom[j]:4s} {X[j]: 10.5f}  {Y[j]: 10.5f} {Z[j]: 10.5f}\n'
-                input_s += '\n'
-                if self.geom_spec != {}: 
+                    input_s += '\n'
+                if Is_geom_spec:
                     input_s += line_GeomConstrainSpec 
-                input_s += '\n'
+                    input_s += '\n'
 
                 # For adding other jobs when other options are required...
                 if scf_needed: 
@@ -583,25 +595,36 @@ class GaussianDFTRun:
                 input_s += SCRF
 
                 # Reading Geometry and MO from Checkpoint file
-                if ReadFromchk == True and self.geom_spec == {}: 
-                    input_s += line_readAllMOGeom+'\n'
-                if ReadFromchk == True and self.geom_spec != {}:
-                    input_s += line_readAllGeomGuessConstrain+'\n'
-                if ReadFromchk != True and self.geom_spec != {}:
-                    input_s += line_GeomConstrain+'\n'
+                if ReadFromchk: 
+                    if Is_ChargeSpec == False and Is_SpinMultiSpec == False:
+                        if Is_geom_spec:
+                            input_s += line_readAllMOGeomConstrain+'\n'
+                        else:
+                            input_s += line_readAllMOGeom+'\n'
+                    elif Is_ChargeSpec or Is_SpinMultiSpece:
+                        if  Is_geom_spec:
+                            input_s += line_readMOGeomConstrain+'\n'
+                        else:
+                            input_s += line_readMOGeom+'\n'
+
+                else:
+                    if Is_geom_spec:
+                        input_s += line_GeomConstrain+'\n'
+                    else:
+                        pass
                 input_s +='\n'
 
                 # Reading Geometry from sdf or xyz file
-                if ReadFromsdf == True or ReadFromxyz == True:
+                if ReadFromsdf or ReadFromxyz or Is_ChargeSpec or Is_SpinMultiSpec:
                     input_s += line_comment+' ground state\n'
                     input_s += '\n'
                     input_s += f'{TotalCharge: 5d}  {SpinMulti: 5d} \n'
-                    for j in range(len(Mol_atom)):
-                        input_s += f'{Mol_atom[j]:4s} {X[j]: 10.5f}  {Y[j]: 10.5f} {Z[j]: 10.5f}\n'
+                    if ReadFromsdf or ReadFromxyz:
+                        for j in range(len(Mol_atom)):
+                            input_s += f'{Mol_atom[j]:4s} {X[j]: 10.5f}  {Y[j]: 10.5f} {Z[j]: 10.5f}\n'
                     input_s += '\n'
                     input_s += SCRF_read
-
-                if self.geom_spec != {}: 
+                if Is_geom_spec:
                     input_s += line_GeomConstrainSpec + '\n'
 
                 #
@@ -624,7 +647,7 @@ class GaussianDFTRun:
                     input_s += line_oldchk+'\n'
                     input_s += line_o_method+'\n'
                     input_s += SCRF
-                    input_s += line_readOnlyMOGeom+'\n'
+                    input_s += line_readMOGeom+'\n'
                     input_s += '\n'
                     input_s += 'Ionization potential calculation\n'
                     input_s += '\n'
@@ -642,7 +665,7 @@ class GaussianDFTRun:
                     input_s += line_chk+'_EA\n'
                     input_s += line_o_method+'\n'
                     input_s += SCRF
-                    input_s += line_readOnlyMOGeom+'\n'
+                    input_s += line_readMOGeom+'\n'
                     input_s += '\n'
                     input_s += 'Electronic affinity calculation\n'
                     input_s += '\n'
@@ -660,7 +683,7 @@ class GaussianDFTRun:
                     input_s += line_oldchk+'_IP\n'
                     input_s += line_o_method+' Opt'+'\n'
                     input_s += SCRF
-                    input_s += line_readOnlyMOGeom+'\n'
+                    input_s += line_readMOGeom+'\n'
                     input_s += '\n'
                     input_s += 'Adiabatic ionization potential calculation\n'
                     input_s += '\n'
@@ -691,7 +714,7 @@ class GaussianDFTRun:
                     input_s += line_chk+'_NC\n'
                     input_s += line_o_method+' Opt'+'\n'
                     input_s += SCRF
-                    input_s += line_readOnlyMOGeom+'\n'
+                    input_s += line_readMOGeom+'\n'
                     input_s += '\n'
                     input_s += 'neutrization energy calculation from an anion\n'
                     input_s += '\n'
