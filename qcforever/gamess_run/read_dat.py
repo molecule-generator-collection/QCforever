@@ -10,18 +10,31 @@ def read_dat(datfile):
 
     return lines
 
+#def count_orbital(lines):
+#    count = 1
+#    for i in range(len(lines)):
+#        if i > 0:
+#            if lines[i-1][:2] != lines[i][:2] :
+#                count += 1
+#            if count > 1 and lines[i][:2] == ' 1':
+#                Nalpha_orbital = count
+#                count = 1
+#        Nbeta_orbital = count
+#    
+#    return count
+
 def count_orbital(lines):
-    count = 1
-    for i in range(len(lines)):
-        if i > 0:
-            if lines[i-1][:2] != lines[i][:2] :
-                count += 1
-            if count > 1 and lines[i][:2] == ' 1':
-                Nalpha_orbital = count
-                count = 1
-        Nbeta_orbital = count
-    
-    return count
+    last_number = None
+    block_count = 0
+    for l in lines:
+        columns = l.strip().split()
+#        print(columns)
+        current_number = columns[0]
+        if current_number != last_number:
+            block_count += 1
+        last_number = current_number
+
+    return block_count/2
 
 
 def getMolBlock(lines, label):
