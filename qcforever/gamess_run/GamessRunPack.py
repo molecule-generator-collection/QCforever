@@ -58,6 +58,7 @@ class GamessDFTRun:
         is_vea_specified = option_dict['vea'] if 'vea' in option_dict else False 
         is_aip_specified = option_dict['aip'] if 'aip' in option_dict else False 
         is_aea_specified = option_dict['aea'] if 'aea' in option_dict else False 
+        is_freq_specified = option_dict['freq'] if 'freq' in option_dict else False 
 
         infilename = f"{jobname}.log"
 
@@ -150,7 +151,20 @@ class GamessDFTRun:
             else:
                 output['aea'] = ''
                 output['log'] = vea_scfstate
-        
+
+        if is_freq_specified:
+            freqjobname = jobname + '_freq'
+            infilename_freq = f"{freqjobname}.log"
+            parse_freqlog = gamess_run.parse_log.parse_log(infilename_freq)
+            freq_scfstate = parse_freqlog.Check_VIB()
+            if freq_scfstate == True:
+                ff = parse_freqlog.getBlock("NORMAL COORDINATE ANALYSIS IN THE HARMONIC APPROXIMATION")
+                output['freq'], output['IR'] = parse_freqlog.getFreq(ff[0])
+            else:
+                output['freq'] = []
+                output['IR'] = []
+                output['log'] = freq_scfstate
+
         lines = [] 
         exlines = []
 
@@ -194,18 +208,24 @@ class GamessDFTRun:
                 line_input += ' TDDFT=SPNFLP \n' 
             else: 
                 line_input += '\n'
-            line_input += f'  COORD=UNIQUE NZVAR=0 ICHARG={TotalCharge} MULT={SpinMulti} $END\n'
+            line_input += f'  COORD=UNIQUE NZVAR=0 NOSYM=1 ICHARG={TotalCharge} MULT={SpinMulti} $END\n'
             if TDDFT:
                 line_input += f' $TDDFT NSTATE=10 IROOT={target[0]}'
-            if scftype == "RHF":
-                line_input += f' MULT={target[1]} $END\n' 
+                if scftype == "RHF":
+                    line_input += f' MULT={target[1]} $END\n' 
+                else:
+                    line_input += f' $END\n' 
+            line_input += ' $SCF damp=.TRUE.'
+            if run_type == 'HESSIAN':
+                line_input += ' DIRSCF=.TRUE. $END\n'
             else:
-                line_input += f' $END\n' 
-            line_input += ' $SCF damp=.TRUE. $END\n'
+                line_input += ' $END\n'
             time_limit = self.timeexe/60
             line_input += f' $SYSTEM TIMLIM={time_limit} MWORDS={mem_words} $END\n'
             if run_type == 'OPTIMIZE':
                 line_input += ' $STATPT OPTTOL=1.0E-5 NSTEP=100 $END\n'
+            if run_type == 'HESSIAN':
+                line_input +=' $FORCE METHOD=ANALYTIC $END\n' 
             line_input += f' $BASIS GBASIS={GBASIS} NGAUSS={NGAUSS} NDFUNC={NDFUNC} $END\n'
             if datfile == None:
                 line_input += ' $GUESS GUESS=HUCKEL $END\n' 
@@ -295,6 +315,8 @@ class GamessDFTRun:
                 option_dict['energy'] = True
                 option_dict['vea'] = True
                 option_dict['aea'] = True
+            elif option.lower() == 'freq':
+                option_dict['freq'] = True
             else:
                 print('invalid option: ', option)
 
@@ -388,6 +410,17 @@ class GamessDFTRun:
 
             self.make_input(run_type, EATotalCharge, EASpinMulti, GamInputName, datfile=VEAdatfile)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(aeajobname, self.gamessversion, self.nproc)
+
+        if 'freq' in  option_dict:
+            run_type = 'HESSIAN'
+        
+            GSdatfile = jobname + '.dat'
+            freqjobname = jobname + '_freq'
+            GamInputName = freqjobname +'.inp'    
+
+            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=GSdatfile)
+            job_state = gamess_run.Exe_Gamess.exe_Gamess(freqjobname, self.gamessversion, self.nproc)
+
 
         try:
             output_dic = self.Extract_values(jobname, option_dict)

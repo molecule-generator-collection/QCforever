@@ -20,6 +20,18 @@ class parse_log:
                 scf_state = "scf error"
 
         return scf_state
+
+    def Check_VIB(self):
+
+        vib_state = True
+
+        for ii in range(len(self.lines)):
+            ll = self.lines[ii]
+            if (re.search("\s*THE VIBRATIONAL ANALYSIS IS NOT VALID !!!",ll)):
+                vib_state = "Not SP"
+
+        return vib_state
+
         
     def getNumberElectron(self):
 
@@ -212,6 +224,28 @@ class parse_log:
     
         return ret
 
+    def getFreq(sef, block):
+        ii = 0 
+        Frequency = []
+        IR = []
+
+        while(ii < len(block)-1):
+            ll = block[ii]
+            if(re.search("\s* FREQUENCY:",ll)):
+                iFreq = re.split("[\s]+",re.sub("[\s]+$","",re.sub("^[\s]+","",ll)))
+                #print(iFreq[1:])
+                for pp in range(1, len(iFreq)):
+                    Frequency.append(float(iFreq[pp]))
+
+            if(re.search("\s* IR INTENSITY:",ll)):
+                iIR = re.split("[\s]+",re.sub("[\s]+$","",re.sub("^[\s]+","",ll)))
+                #print(iInt[2:])
+                for pp in range(2, len(iIR)):
+                    IR.append(float(iIR[pp]))
+
+            ii += 1
+
+        return Frequency, IR
 
 if __name__ == '__main__':
     usage ='Usage; %s infile' % sys.argv[0]
@@ -223,6 +257,8 @@ if __name__ == '__main__':
 
     parselog = parse_log(infilename)
     print(parselog.Check_SCF())
+
+    print(parselog.Check_VIB())
 
     flag_homolumo = False
     flag_dipole = False
@@ -252,3 +288,6 @@ if __name__ == '__main__':
     print("HOMO - LUMO gap:\t"+str(beta_gap))
     print("DIPOLEMOMENT:\t"+str(dval))
 
+    ff = parselog.getBlock("NORMAL COORDINATE ANALYSIS IN THE HARMONIC APPROXIMATION")    
+    print(parselog.getFreq(ff[0]))
+    #print (ff)
