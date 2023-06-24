@@ -131,10 +131,16 @@ if __name__ == '__main__':
         MOvec_line += bb[i]
     MOvec_line += ' $END\n'
 
+    hh = get_dataBlock(llines,"HESS")
+    HESS_line = ' $HESS\n'
+    for i in range(len(hh)):
+        HESS_line += hh[i]
+    HESS_line += ' $END\n'
 
     with open('mol_test.txt', 'w') as ofile:
         ofile.write(dat_line)
         ofile.write(MOvec_line)
+        ofile.write(HESS_line)
 
 
 

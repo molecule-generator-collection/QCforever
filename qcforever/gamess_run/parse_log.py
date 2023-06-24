@@ -228,6 +228,7 @@ class parse_log:
         ii = 0 
         Frequency = []
         IR = []
+        Raman = []
 
         while(ii < len(block)-1):
             ll = block[ii]
@@ -243,9 +244,16 @@ class parse_log:
                 for pp in range(2, len(iIR)):
                     IR.append(float(iIR[pp]))
 
+            if(re.search("\s* RAMAN ACTIVITY:",ll)):
+                iRaman = re.split("[\s]+",re.sub("[\s]+$","",re.sub("^[\s]+","",ll)))
+                #print(iInt[2:])
+                for pp in range(2, len(iRaman)):
+                    Raman.append(float(iRaman[pp]))
+
+
             ii += 1
 
-        return Frequency, IR
+        return Frequency, IR, Raman
 
 if __name__ == '__main__':
     usage ='Usage; %s infile' % sys.argv[0]
@@ -289,5 +297,7 @@ if __name__ == '__main__':
     print("DIPOLEMOMENT:\t"+str(dval))
 
     ff = parselog.getBlock("NORMAL COORDINATE ANALYSIS IN THE HARMONIC APPROXIMATION")    
-    print(parselog.getFreq(ff[0]))
-    #print (ff)
+    Freq, IR, Raman = parselog.getFreq(ff[0])
+    print (f'Freq: {Freq}')
+    print (f'IR: {IR}')
+    print (f'Raman: {Raman}')

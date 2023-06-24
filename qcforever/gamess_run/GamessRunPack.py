@@ -153,16 +153,17 @@ class GamessDFTRun:
                 output['log'] = vea_scfstate
 
         if is_freq_specified:
-            freqjobname = jobname + '_freq'
+            freqjobname = jobname + '_raman'
             infilename_freq = f"{freqjobname}.log"
             parse_freqlog = gamess_run.parse_log.parse_log(infilename_freq)
             freq_scfstate = parse_freqlog.Check_VIB()
             if freq_scfstate == True:
                 ff = parse_freqlog.getBlock("NORMAL COORDINATE ANALYSIS IN THE HARMONIC APPROXIMATION")
-                output['freq'], output['IR'] = parse_freqlog.getFreq(ff[0])
+                output['freq'], output['IR'], output['Raman'] = parse_freqlog.getFreq(ff[0])
             else:
                 output['freq'] = []
                 output['IR'] = []
+                output['Raman'] = []
                 output['log'] = freq_scfstate
 
         lines = [] 
@@ -194,6 +195,9 @@ class GamessDFTRun:
             orb_bb = gamess_run.read_dat.get_dataBlock(datlines, "VEC")
             Norb = gamess_run.read_dat.count_orbital(orb_bb)
 
+        if run_type == 'RAMAN':
+            hess_bb = gamess_run.read_dat.get_dataBlock(datlines, "HESS")
+
         if TDDFT and run_type=='OPTIMIZE' and target[1]==1:
             scftype = "RHF"
         else:
@@ -216,7 +220,7 @@ class GamessDFTRun:
                 else:
                     line_input += f' $END\n' 
             line_input += ' $SCF damp=.TRUE.'
-            if run_type == 'HESSIAN':
+            if run_type == 'HESSIAN' or run_type == 'RAMAN':
                 line_input += ' DIRSCF=.TRUE. $END\n'
             else:
                 line_input += ' $END\n'
@@ -224,7 +228,7 @@ class GamessDFTRun:
             line_input += f' $SYSTEM TIMLIM={time_limit} MWORDS={mem_words} $END\n'
             if run_type == 'OPTIMIZE':
                 line_input += ' $STATPT OPTTOL=1.0E-5 NSTEP=100 $END\n'
-            if run_type == 'HESSIAN':
+            if run_type == 'HESSIAN' or run_type == 'RAMAN':
                 line_input +=' $FORCE METHOD=ANALYTIC $END\n' 
             line_input += f' $BASIS GBASIS={GBASIS} NGAUSS={NGAUSS} NDFUNC={NDFUNC} $END\n'
             if datfile == None:
@@ -248,6 +252,11 @@ class GamessDFTRun:
                 for i in range(len(orb_bb)):
                     line_input += orb_bb[i]
                 line_input += ' $END\n'
+                if run_type == 'RAMAN':
+                    line_input += ' $HESS\n'
+                    for i in range(len(hess_bb)):
+                        line_input += hess_bb[i]
+                    line_input += ' $END\n'
 
             ofile.write(line_input)
 
@@ -421,6 +430,14 @@ class GamessDFTRun:
             self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=GSdatfile)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(freqjobname, self.gamessversion, self.nproc)
 
+            run_type= 'RAMAN'
+
+            freqdatfile = jobname + '_freq.dat'
+            ramanjobname = jobname + '_raman'
+            GamInputName = ramanjobname + '.inp'
+
+            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=freqdatfile)
+            job_state = gamess_run.Exe_Gamess.exe_Gamess(ramanjobname, self.gamessversion, self.nproc)
 
         try:
             output_dic = self.Extract_values(jobname, option_dict)
