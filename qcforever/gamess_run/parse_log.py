@@ -224,7 +224,7 @@ class parse_log:
     
         return ret
 
-    def getFreq(sef, block):
+    def getFreq(self, block):
         ii = 0 
         Frequency = []
         IR = []
@@ -249,11 +249,69 @@ class parse_log:
                 #print(iInt[2:])
                 for pp in range(2, len(iRaman)):
                     Raman.append(float(iRaman[pp]))
-
-
             ii += 1
 
         return Frequency, IR, Raman
+
+    def getThermo(self, block):
+        ii = 0
+        E_0 = []
+        U = []
+        H = []
+        G = []
+        Cv = []
+        Cp = []
+        S = []
+
+        flag = 0
+
+        while(ii < len(block)-1):
+            ll = block[ii]
+            if(flag == 0 and re.search("\s* THE HARMONIC ZERO POINT ENERGY IS",ll)):
+                flag = 1
+                print (ll)
+                pass
+            if (flag == 1 and re.match("\s+[0-9]",ll) and not re.search('WORDS', ll)):
+                print (ll)
+                sline = ll.split()
+                if len(sline) > 2: 
+                    E_0.append(float(sline[0]))
+                    E_0.append(float(sline[2]))
+                print (E_0)
+
+            if(flag == 1 and re.search(r"\bKJ/MOL\b\s+\bKJ/MOL\b\s+\bKJ/MOL\b\s+\bJ/MOL-K\b\s+\bJ/MOL-K\b\s+\bJ/MOL-K\b",ll)):
+                flag = 2
+                print (ll)
+
+            if (flag == 2 and re.match("\s+TOTAL",ll)):
+                print (ll)
+                sline = ll.split()
+                if len(sline) > 4: 
+                    U.append(float(sline[1]))
+                    H.append(float(sline[2]))
+                    G.append(float(sline[3]))
+                    Cv.append(float(sline[4]))
+                    Cp.append(float(sline[5]))
+                    S.append(float(sline[6]))
+
+            if(flag == 2 and re.search(r"\bKCAL/MOL\b\s+\bKCAL/MOL\b\s+\bKCAL/MOL\b\s+\bCAL/MOL-K\b\s+\bCAL/MOL-K\b\s+\bCAL/MOL-K\b" ,ll)):
+                flag = 3
+                print (ll)
+
+            if (flag == 3 and re.match("\s* TOTAL",ll) and not re.search('WALL', ll)):
+                print (ll)
+                sline = ll.split()
+                if len(sline) > 4: 
+                    U.append(float(sline[1]))
+                    H.append(float(sline[2]))
+                    G.append(float(sline[3]))
+                    Cv.append(float(sline[4]))
+                    Cp.append(float(sline[5]))
+                    S.append(float(sline[6]))
+
+            ii += 1
+
+        return E_0, U, H, G, Cv, Cp, S
 
 if __name__ == '__main__':
     usage ='Usage; %s infile' % sys.argv[0]
@@ -301,3 +359,7 @@ if __name__ == '__main__':
     print (f'Freq: {Freq}')
     print (f'IR: {IR}')
     print (f'Raman: {Raman}')
+
+    tt = parselog.getBlock("THERMOCHEMISTRY AT ")    
+    print(parselog.getThermo(tt[0]))
+
