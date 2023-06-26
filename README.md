@@ -9,8 +9,9 @@ Multi step computation is demanded. QCforever automates this process and calcula
 ## Requirements
 
 1. [Gaussian](https://gaussian.com)==16
-2. [Python](https://www.anaconda.com/download/)==3.7
-3. [rdkit-pypi](https://anaconda.org/rdkit/rdkit)==2021.03.5
+2. [GAMESS(sockets)](https://www.msg.chem.iastate.edu/gamess/)==30 SEP 2022 (R2)
+3. [Python](https://www.anaconda.com/download/)==3.7
+4. [rdkit-pypi](https://anaconda.org/rdkit/rdkit)==2021.03.5
 
 ## How to use
 
@@ -22,10 +23,15 @@ pip install --upgrade git+https://github.com/molecule-generator-collection/QCfor
 
 ### Example
 
-Example code for QCforever (gaussian_main.py) is prepared.
+Example codes for QCforever (gaussian_main.py and gamess_main.py) are prepared.
 
+For Gaussian
 ```bash
 python gaussian_main.py input_file
+```
+For GAMESS
+```bash
+python gamess_main.py input_file
 ```
 
 ### Usage
