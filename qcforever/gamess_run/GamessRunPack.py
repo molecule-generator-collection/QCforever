@@ -160,6 +160,12 @@ class GamessDFTRun:
             if freq_scfstate == True:
                 ff = parse_freqlog.getBlock("NORMAL COORDINATE ANALYSIS IN THE HARMONIC APPROXIMATION")
                 output['freq'], output['IR'], output['Raman'] = parse_freqlog.getFreq(ff[0])
+                tt = parse_freqlog.getBlock("THERMOCHEMISTRY AT ")
+                E_0, U, H, G, Cv, Cp, S =  parse_freqlog.getThermo(tt[0])
+                output['Ei'] = U[1]
+                output['Cv'] = Cv[1]
+                output['Cp'] = Cp[1]
+                output['Si'] = S[1]
             else:
                 output['freq'] = []
                 output['IR'] = []

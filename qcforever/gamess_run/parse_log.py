@@ -269,22 +269,22 @@ class parse_log:
             ll = block[ii]
             if(flag == 0 and re.search("\s* THE HARMONIC ZERO POINT ENERGY IS",ll)):
                 flag = 1
-                print (ll)
+                #print (ll)
                 pass
             if (flag == 1 and re.match("\s+[0-9]",ll) and not re.search('WORDS', ll)):
-                print (ll)
+                #print (ll)
                 sline = ll.split()
                 if len(sline) > 2: 
                     E_0.append(float(sline[0]))
                     E_0.append(float(sline[2]))
-                print (E_0)
+                #print (E_0)
 
             if(flag == 1 and re.search(r"\bKJ/MOL\b\s+\bKJ/MOL\b\s+\bKJ/MOL\b\s+\bJ/MOL-K\b\s+\bJ/MOL-K\b\s+\bJ/MOL-K\b",ll)):
                 flag = 2
-                print (ll)
+                #print (ll)
 
             if (flag == 2 and re.match("\s+TOTAL",ll)):
-                print (ll)
+                #print (ll)
                 sline = ll.split()
                 if len(sline) > 4: 
                     U.append(float(sline[1]))
@@ -296,10 +296,10 @@ class parse_log:
 
             if(flag == 2 and re.search(r"\bKCAL/MOL\b\s+\bKCAL/MOL\b\s+\bKCAL/MOL\b\s+\bCAL/MOL-K\b\s+\bCAL/MOL-K\b\s+\bCAL/MOL-K\b" ,ll)):
                 flag = 3
-                print (ll)
+                #print (ll)
 
             if (flag == 3 and re.match("\s* TOTAL",ll) and not re.search('WALL', ll)):
-                print (ll)
+                #print (ll)
                 sline = ll.split()
                 if len(sline) > 4: 
                     U.append(float(sline[1]))
