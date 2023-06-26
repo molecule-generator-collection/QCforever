@@ -251,7 +251,7 @@ class parse_log:
                     Raman.append(float(iRaman[pp]))
             ii += 1
 
-        return Frequency, IR, Raman
+        return Frequency[6:], IR[6:], Raman[6:]
 
     def getThermo(self, block):
         ii = 0
