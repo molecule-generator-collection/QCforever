@@ -13,6 +13,7 @@ from qcforever.util import read_mol_file
 byte2words = 1/8
 Eh2kJmol = 2625.5
 Eh2eV = 27.211
+kcalmol2Eh = 1.593601E-3
 
 
 class GamessDFTRun:
@@ -66,7 +67,7 @@ class GamessDFTRun:
         parselog = gamess_run.parse_log.parse_log(infilename)
         job_scfstate = parselog.Check_SCF()
 
-        if is_energy_specified:
+        if is_energy_specified or is_freq_specified:
             if job_scfstate == True:
                 output['energy'] = parselog.getEnergy()
             else:
@@ -162,6 +163,10 @@ class GamessDFTRun:
                 output['freq'], output['IR'], output['Raman'] = parse_freqlog.getFreq(ff[0])
                 tt = parse_freqlog.getBlock("THERMOCHEMISTRY AT ")
                 E_0, U, H, G, Cv, Cp, S =  parse_freqlog.getThermo(tt[0])
+                output['Ezp'] = output['energy'] + E_0[0]
+                output['Et'] = output['energy'] + U[1]*kcalmol2Eh
+                output['E_enth'] = output['energy'] + H[1]*kcalmol2Eh
+                output['E_free'] = output['energy'] + G[1]*kcalmol2Eh
                 output['Ei'] = U[1]
                 output['Cv'] = Cv[1]
                 output['Cp'] = Cp[1]
