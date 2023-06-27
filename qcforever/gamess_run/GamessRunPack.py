@@ -53,6 +53,7 @@ class GamessDFTRun:
         is_energy_specified = option_dict['energy'] if 'energy' in option_dict else False
         is_homolumo_specified = option_dict['homolumo'] if 'homolumo' in option_dict else False
         is_dipole_specified = option_dict['dipole'] if 'dipole' in option_dict else False 
+        is_cden_specified = option_dict['cden'] if 'cden' in option_dict else False 
         is_uv_specified = option_dict['uv'] if 'uv' in option_dict else False 
         is_fluor_specified = option_dict['fluor'] if 'fluor' in option_dict else False 
         is_vip_specified = option_dict['vip'] if 'vip' in option_dict else False 
@@ -90,6 +91,9 @@ class GamessDFTRun:
             dd = parselog.getBlock("ELECTROSTATIC MOMENTS")    
             dval = parselog.getDipoleMoment(dd[-1])
             output['dipole'] = dval
+
+        if is_dipole_specified:
+            output['cden'] = parselog.getChargeSpin()
 
         if is_uv_specified:
             exjobname = jobname + '_TD'
@@ -313,6 +317,8 @@ class GamessDFTRun:
                 option_dict['homolumo'] = True
             elif option.lower() == 'dipole':
                 option_dict['dipole'] = True
+            elif option.lower() == 'cden':
+                option_dict['cden'] = True
             elif option.lower() == 'uv':
                 option_dict['uv'] = True
             elif option.lower() == 'fluor':

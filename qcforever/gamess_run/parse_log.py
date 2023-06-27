@@ -86,6 +86,45 @@ class parse_log:
         
         return Wavel, OS
 
+    def getChargeSpin(self):
+
+        Element = []
+        Mulliken_charge = []
+        Lowdin_charge = []
+        Spin = []
+        flag = 0 
+        ii = 0
+        while(ii < len(self.lines)):
+            ll = self.lines[ii]
+            if (flag == 0 and re.search("TOTAL MULLIKEN AND LOWDIN ATOMIC POPULATIONS", ll)):
+                flag = 1
+                Element = []
+                Mulliken_charge = []
+                Lowdin_charge = []
+                ii += 1
+            if (flag == 1 and re.match("\s+[0-9]",ll) and not re.search('HARTREE', ll)):
+                sline = ll.split()
+                if len(sline) > 4: 
+                    Element.append(sline[1])
+                    Mulliken_charge.append(float(sline[3]))
+                    Lowdin_charge.append(float(sline[5]))
+            if (flag == 1 and re.match("\s*\n", ll)):
+                flag = 0
+            if (flag == 0 and re.search("ATOMIC SPIN DENSITY AT THE NUCLEUS", ll)):
+                flag = 2
+                Spin = []
+                ii += 1
+            if (flag == 2 and re.match("\s+[0-9]",ll) and not re.search('HARTREE', ll)):
+                sline = ll.split()
+                if len(sline) > 4: 
+                    Spin.append(float(sline[3]))
+            if (flag == 2 and re.match("\s*\n", ll)):
+                flag = 0
+
+            ii += 1
+        
+        return Element, Mulliken_charge, Spin
+
     def getBlock(self, label):
         flag = 0
         ret = []
@@ -338,6 +377,10 @@ if __name__ == '__main__':
     print ("Wave length:", Wavel)
     print ("OS:", OS)
 
+    Element, MullCharge, Spin = parselog.getChargeSpin()
+
+    print(Element, MullCharge, Spin)
+
     bb = parselog.getBlock("EIGENVECTORS")
     #print(bb[-2])
     #print(bb[-1])
@@ -362,4 +405,6 @@ if __name__ == '__main__':
 
     tt = parselog.getBlock("THERMOCHEMISTRY AT ")    
     print(parselog.getThermo(tt[0]))
+
+
 
