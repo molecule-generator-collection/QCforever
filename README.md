@@ -85,7 +85,7 @@ Following options are currently available:
 |nmr| NMR chemical shift (ppm to TMS) of each atom is computed.|:white_check_mark:||
 |uv| absorption wavelengths (nm) (for spin allowed states) are computed. If you add an absolute path of text file that specify peak positions and their peak like (uv=/ab/path2uv.dat), it is possible to the similarity and dissimilarity between the target and reference. |:white_check_mark:|:white_check_mark:|
 |energy| SCF energy (in Eh) is printed.|:white_check_mark:|:white_check_mark:|
-|cden| charge and spin densities on each atom are computed.|:white_check_mark:||
+|cden| charge and spin densities on each atom are computed.|:white_check_mark:|:white_check_mark:|
 |homolumo| HOMO/LUMO gap (Eh) calculation|:white_check_mark:|:white_check_mark:|
 |dipole| dipole moment of a molecule|:white_check_mark:|:white_check_mark:|
 |deen| decomposition energy (in eV) of a molecule|:white_check_mark:||
