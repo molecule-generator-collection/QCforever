@@ -58,6 +58,7 @@ class GaussianDFTRun:
         MEMO: Bondpair1 and Bondpair2 are not used
         """
         is_opt = option_dict['opt'] if 'opt' in option_dict else False
+        is_polar = option_dict['polar'] if 'polar' in option_dict else False
         is_freq = option_dict['freq'] if 'freq' in option_dict else False
         is_nmr = option_dict['nmr'] if  'nmr' in option_dict else False
         is_uv = option_dict['uv'] if 'uv' in option_dict else False
@@ -193,23 +194,32 @@ class GaussianDFTRun:
         """ Index of Links
         Index = 0 : (always blank)
         Index = 1+symm : symmetry 
-        Index = 1+symm+freq : Ground state [if opt==1]
-        Index = 1+symm+frea+nmr : NMR chemical shift of S0 [if nmr==1]
-        Index = 1+symm+freq+nmr+vip : Ionization potential [if vip==1]
-        Index = 1+symm+freq+nmr+vip+vea : Electronic affinity [if vea==1]
-        Index = 1+symm+freq+nmr+vip+vea+aip : adiabatic ionization potential [if aip==1]
-        Index = 1+symm+freq+nmr+vip+vea+aip+aea : adiabatic electronic affinity [if aea==1]
-        Index = 1+symm+freq+nmr+vip+vea+aip+aea+1 : Virtical excitation (S0 -> S1) [uv]
-        Index = 2+symm+freq+nmr+vip+vea+aip+aea+1 : Optimization of S1 [fluor or tadf] 
-        Index = 3+symm+freq+nmr+vip+vea+aip+aea+1 : Optimization of T1 [tadf]
+        Index = 1+symm+polar+freq : Ground state [if opt==1]
+        Index = 1+symm+polar+frea+nmr : NMR chemical shift of S0 [if nmr==1]
+        Index = 1+symm+polar+freq+nmr+vip : Ionization potential [if vip==1]
+        Index = 1+symm+polar+freq+nmr+vip+vea : Electronic affinity [if vea==1]
+        Index = 1+symm+polar+freq+nmr+vip+vea+aip : adiabatic ionization potential [if aip==1]
+        Index = 1+symm+polar+freq+nmr+vip+vea+aip+aea : adiabatic electronic affinity [if aea==1]
+        Index = 1+symm+polar+freq+nmr+vip+vea+aip+aea+1 : Virtical excitation (S0 -> S1) [uv]
+        Index = 2+symm+polar+freq+nmr+vip+vea+aip+aea+1 : Optimization of S1 [fluor or tadf] 
+        Index = 3+symm+polar+freq+nmr+vip+vea+aip+aea+1 : Optimization of T1 [tadf]
         """
 
+        if is_polar:
+            Index = 1 + is_symm + is_polar
+            polar_lines = Links[Index].splitlines()
+            Links[Index] = ''
+            Polar_iso, Polar_aniso = gaussian_run.Get_FreqPro.Extract_polar(polar_lines) 
+            output["polar_iso"] = Polar_iso[1]
+            output["polar_aniso"] = Polar_aniso[1]
+
         if is_freq:
-            Index = 1 + is_symm + is_freq
+            Index = 1 + is_symm + is_polar + is_freq
             freq_lines = Links[Index].splitlines()
             Links[Index] = ''
             print("For getting frequency")
             Freq, IR, Raman, E_zp,  E_t, E_enth, E_free, Ei, Cv, St = gaussian_run.Get_FreqPro.Extract_Freq(freq_lines) 
+            Polar_iso, Polar_aniso = gaussian_run.Get_FreqPro.Extract_polar(freq_lines) 
             output["freq"] = Freq 
             output["IR"] = IR
             output["Raman"] = Raman
@@ -220,11 +230,14 @@ class GaussianDFTRun:
             output["Ei"] = Ei
             output["Cv"] = Cv
             output["Si"] = St
+            if is_polar != True:
+                output["polar_iso"] = Polar_iso[1]
+                output["polar_aniso"] = Polar_aniso[1]
 
         if is_nmr:
             Element = []
             ppm = []
-            Index = 1 + is_symm + is_freq + is_nmr
+            Index = 1 + is_symm + is_polar + is_freq + is_nmr
             nmr_lines = Links[Index].splitlines()
             Links[Index] = ""
             for line in nmr_lines:
@@ -247,7 +260,7 @@ class GaussianDFTRun:
                 GS_Energy = output["Energy"][0] 
            # print (GS_Energy)
             if is_vip:
-                Index = 1 + is_symm + is_freq + is_nmr + is_vip
+                Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip
                 IP_lines = Links[Index].splitlines()
                 Links[Index] = ""
                 IP_Energy_SS = self.Extract_SCFEnergy(IP_lines)
@@ -255,7 +268,7 @@ class GaussianDFTRun:
                 # Normal ionization potential calculation
                 output["vip"] = [Eh2eV*(IP_Energy_SS[0]-GS_Energy), IP_Energy_SS[1]]
             if is_vea:
-                Index = 1 + is_symm + is_freq + is_nmr + is_vip + is_vea
+                Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip + is_vea
                 EA_lines = Links[Index].splitlines()
                 Links[Index] = ""
                 EA_Energy_SS =  self.Extract_SCFEnergy(EA_lines)
@@ -270,7 +283,7 @@ class GaussianDFTRun:
                 output["Energy"] = self.Extract_SCFEnergy(GS_lines)
                 GS_Energy = output["Energy"][0] 
             if is_aip:
-                Index = 1 + is_symm + is_freq + is_nmr + is_vip + is_vea + is_aip
+                Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip
                 PC_lines = Links[Index].splitlines()
                 Links[Index] = ""
                 VNP_lines = Links[Index+1].splitlines()
@@ -285,7 +298,7 @@ class GaussianDFTRun:
                 output["relaxedIP_MaxDisplace"] = MaxDisplace
                 output["aip"] = [Eh2eV*(PC_Energy_SS[0]-GS_Energy), Eh2eV*(PC_Energy_SS[0]-VNP_Energy_SS[0]), PC_Energy_SS[1], VNP_Energy_SS[1]]
             if is_aea:
-                Index = 1 + is_symm + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea 
+                Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea 
                 NC_lines = Links[Index].splitlines()
                 Links[Index] = ""
                 VNN_lines = Links[Index+1].splitlines()
@@ -313,7 +326,7 @@ class GaussianDFTRun:
             output["satkoopmans"] = [Delta_vip, Delta_vea]
   
         if is_uv:
-            Index = 1 + is_symm + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea + is_uv
+            Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea + is_uv
             lines = "" if Index >= n else Links[Index].splitlines()
             _, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                 CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
@@ -328,7 +341,7 @@ class GaussianDFTRun:
                 output["Similality/Disdimilarity"] = [S, D]
   
         if is_fluor or is_tadf:
-            Index = 1 + is_symm + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea + is_uv + is_fluor 
+            Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea + is_uv + is_fluor 
             lines = "" if Index >= n else Links[Index].splitlines()
             S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                 CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
@@ -340,7 +353,7 @@ class GaussianDFTRun:
             Links[Index] = ""
   
         if is_tadf:
-            Index = 1 + is_symm + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea  + is_uv + is_fluor + is_tadf
+            Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea  + is_uv + is_fluor + is_tadf
             print(f'Index for tadf is {Index}.')
             lines = "" if Index >= n else Links[Index].splitlines()
             T_Found, _, T_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
@@ -483,15 +496,15 @@ class GaussianDFTRun:
                     input_s += 'Opt=(Maxcycles=60)\n'
                 else:
                     input_s += 'Opt=(MaxCycles=100)\n'
+
+            if run_type == 'polar':
+                input_s += 'polar CPHF=Static\n'
             
             if run_type == 'freq':
                 input_s += 'Freq=(Raman)\n' 
             
             if run_type == 'nmr':
                 input_s += 'NMR\n'
-
-            if run_type == 'polar':
-                input_s += 'polar=Static\n'
 
             if solvent != '0':
                 input_s += SCRF
@@ -595,6 +608,8 @@ class GaussianDFTRun:
                 option_dict['opt'] = True
             elif option.lower() == 'freq':
                 option_dict['freq'] = True
+            elif option.lower() == 'polar':
+                option_dict['polar'] = True
             elif option.lower() == 'nmr':
                 option_dict['nmr'] = True
             elif 'uv' in option.lower():
@@ -687,6 +702,9 @@ class GaussianDFTRun:
                 self.make_input(JobName, TotalCharge, SpinMulti, run_type='', Newinput=False, Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, geom_spec=Is_geom_spec, solvent=self.solvent) 
 
         #The post job after getting wavefunction
+        if 'polar' in option_dict: # polar == 1
+            self.make_input(JobName, TotalCharge, SpinMulti, run_type='polar', Newinput=False, readchk='all', solvent=self.solvent) 
+
         if 'freq' in option_dict: # freq == 1
             self.make_input(JobName, TotalCharge, SpinMulti, run_type='freq', Newinput=False, readchk='all', solvent=self.solvent) 
 
@@ -833,7 +851,6 @@ class GaussianDFTRun:
         os.chdir("..")
 
         return(output_dic)
-
 
 
 if __name__ == '__main__':

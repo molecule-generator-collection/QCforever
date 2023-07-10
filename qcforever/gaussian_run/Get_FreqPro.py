@@ -1,3 +1,4 @@
+import re
 import sys
 
 
@@ -42,7 +43,30 @@ def Extract_Freq(lines):
             Cv = line_ECvS[2]
             St= line_ECvS[3]
             count = 0
+
     return  Freq, IR_int, Raman_int, E_ZP,  E_t, E_enth, E_free, Ei, Cv, St
+
+
+def Extract_polar(lines):
+
+    activate_extraction = False
+    iso_values = []
+    aniso_values = []
+
+    for line in lines:
+        if line.strip() == "Dipole polarizability, Alpha (dipole orientation).":
+            activate_extraction = True
+        elif activate_extraction:
+            if line.strip().startswith("iso"):
+                values = re.findall(r"\d+\.\d+[Dd][\+\-]?\d+", line)
+                #iso_values.extend(values)
+                iso_values.extend([float(val.replace('D', 'E')) for val in values])
+            elif line.strip().startswith("aniso"):
+                values = re.findall(r"\d+\.\d+[Dd][\+\-]?\d+", line)
+                #aniso_values.extend(values)
+                aniso_values.extend([float(val.replace('D', 'E')) for val in values])
+
+    return iso_values, aniso_values
 
 
 if __name__ == '__main__':
@@ -54,3 +78,6 @@ if __name__ == '__main__':
     with open(infilename, 'r') as ifile:
         lines = ifile.readlines()
     print (Extract_Freq(lines))
+
+    print (Extract_polar(lines))
+
