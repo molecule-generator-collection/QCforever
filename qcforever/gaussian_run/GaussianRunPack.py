@@ -1,4 +1,5 @@
 import os
+import sys
 import shutil
 
 import numpy as np
@@ -28,6 +29,19 @@ class GaussianDFTRun:
         self.ref_uv_path = ''
         self.geom_spec = {}
         self.para_functional = []
+
+    def SplitLinks(self, logfile):
+        with open(logfile, 'r') as f:
+            lines = f.readlines()
+        Links = []
+        Link = ""
+        for line in lines:
+            if line.find("Initial command:")>0:
+                Links.append(Link)
+                Link = ""
+            Link = Link + line
+        Links.append(Link)
+        return Links
 
     def Extract_SCFEnergy(self, lines):
         Energy = []
@@ -100,20 +114,6 @@ class GaussianDFTRun:
             print ("Optimization was performed...Check geometry...")
             MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(GS_lines)
             output["GS_MaxDisplace"] = MaxDisplace
-
-        if is_freq:
-            print("For getting frequency")
-            Freq, IR, Raman, E_zp,  E_t, E_enth, E_free, Ei, Cv, St = gaussian_run.Get_FreqPro.Extract_Freq(GS_lines) 
-            output["freq"] = Freq 
-            output["IR"] = IR
-            output["Raman"] = Raman
-            output["Ezp"] = E_zp
-            output["Et"] = E_t
-            output["E_enth"] = E_enth
-            output["E_free"] = E_free
-            output["Ei"] = Ei
-            output["Cv"] = Cv
-            output["Si"] = St
 
         if is_homolumo:
             with open(fchkname, 'r') as ifile:
@@ -192,20 +192,39 @@ class GaussianDFTRun:
 
         """ Index of Links
         Index = 0 : (always blank)
-        Index = 1+symm : Ground state [if opt==1]
-        Index = 1+symm+nmr : NMR chemical shift of S0 [if nmr==1]
-        Index = 1+symm+nmr+vip : Ionization potential [if vip==1]
-        Index = 1+symm+nmr+vip+vea : Electronic affinity [if vea==1]
-        Index = 1+symm+nmr+vip+vea+aip : adiabatic ionization potential [if aip==1]
-        Index = 1+symm+nmr+vip+vea+aip+aea : adiabatic electronic affinity [if aea==1]
-        Index = 1+symm+nmr+vip+vea+aip+aea+1 : Virtical excitation (S0 -> S1) [uv]
-        Index = 2+symm+nmr+vip+vea+aip+aea+1 : Optimization of S1 [fluor or tadf] 
-        Index = 3+symm+nmr+vip+vea+aip+aea+1 : Optimization of T1 [tadf]
+        Index = 1+symm : symmetry 
+        Index = 1+symm+freq : Ground state [if opt==1]
+        Index = 1+symm+frea+nmr : NMR chemical shift of S0 [if nmr==1]
+        Index = 1+symm+freq+nmr+vip : Ionization potential [if vip==1]
+        Index = 1+symm+freq+nmr+vip+vea : Electronic affinity [if vea==1]
+        Index = 1+symm+freq+nmr+vip+vea+aip : adiabatic ionization potential [if aip==1]
+        Index = 1+symm+freq+nmr+vip+vea+aip+aea : adiabatic electronic affinity [if aea==1]
+        Index = 1+symm+freq+nmr+vip+vea+aip+aea+1 : Virtical excitation (S0 -> S1) [uv]
+        Index = 2+symm+freq+nmr+vip+vea+aip+aea+1 : Optimization of S1 [fluor or tadf] 
+        Index = 3+symm+freq+nmr+vip+vea+aip+aea+1 : Optimization of T1 [tadf]
         """
+
+        if is_freq:
+            Index = 1 + is_symm + is_freq
+            freq_lines = Links[Index].splitlines()
+            Links[Index] = ''
+            print("For getting frequency")
+            Freq, IR, Raman, E_zp,  E_t, E_enth, E_free, Ei, Cv, St = gaussian_run.Get_FreqPro.Extract_Freq(freq_lines) 
+            output["freq"] = Freq 
+            output["IR"] = IR
+            output["Raman"] = Raman
+            output["Ezp"] = E_zp
+            output["Et"] = E_t
+            output["E_enth"] = E_enth
+            output["E_free"] = E_free
+            output["Ei"] = Ei
+            output["Cv"] = Cv
+            output["Si"] = St
+
         if is_nmr:
             Element = []
             ppm = []
-            Index = 1 + is_symm + is_nmr
+            Index = 1 + is_symm + is_freq + is_nmr
             nmr_lines = Links[Index].splitlines()
             Links[Index] = ""
             for line in nmr_lines:
@@ -228,7 +247,7 @@ class GaussianDFTRun:
                 GS_Energy = output["Energy"][0] 
            # print (GS_Energy)
             if is_vip:
-                Index = 1 + is_symm + is_nmr + is_vip
+                Index = 1 + is_symm + is_freq + is_nmr + is_vip
                 IP_lines = Links[Index].splitlines()
                 Links[Index] = ""
                 IP_Energy_SS = self.Extract_SCFEnergy(IP_lines)
@@ -236,7 +255,7 @@ class GaussianDFTRun:
                 # Normal ionization potential calculation
                 output["vip"] = [Eh2eV*(IP_Energy_SS[0]-GS_Energy), IP_Energy_SS[1]]
             if is_vea:
-                Index = 1 + is_symm + is_nmr + is_vip + is_vea
+                Index = 1 + is_symm + is_freq + is_nmr + is_vip + is_vea
                 EA_lines = Links[Index].splitlines()
                 Links[Index] = ""
                 EA_Energy_SS =  self.Extract_SCFEnergy(EA_lines)
@@ -251,7 +270,7 @@ class GaussianDFTRun:
                 output["Energy"] = self.Extract_SCFEnergy(GS_lines)
                 GS_Energy = output["Energy"][0] 
             if is_aip:
-                Index = 1 + is_symm + is_nmr + is_vip + is_vea + is_aip
+                Index = 1 + is_symm + is_freq + is_nmr + is_vip + is_vea + is_aip
                 PC_lines = Links[Index].splitlines()
                 Links[Index] = ""
                 VNP_lines = Links[Index+1].splitlines()
@@ -266,7 +285,7 @@ class GaussianDFTRun:
                 output["relaxedIP_MaxDisplace"] = MaxDisplace
                 output["aip"] = [Eh2eV*(PC_Energy_SS[0]-GS_Energy), Eh2eV*(PC_Energy_SS[0]-VNP_Energy_SS[0]), PC_Energy_SS[1], VNP_Energy_SS[1]]
             if is_aea:
-                Index = 1 + is_symm + is_nmr + is_vip + is_vea + is_aip + is_aea 
+                Index = 1 + is_symm + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea 
                 NC_lines = Links[Index].splitlines()
                 Links[Index] = ""
                 VNN_lines = Links[Index+1].splitlines()
@@ -294,7 +313,7 @@ class GaussianDFTRun:
             output["satkoopmans"] = [Delta_vip, Delta_vea]
   
         if is_uv:
-            Index = 1 + is_symm + is_nmr + is_vip + is_vea + is_aip + is_aea + 1 
+            Index = 1 + is_symm + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea + is_uv
             lines = "" if Index >= n else Links[Index].splitlines()
             _, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                 CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
@@ -309,7 +328,7 @@ class GaussianDFTRun:
                 output["Similality/Disdimilarity"] = [S, D]
   
         if is_fluor or is_tadf:
-            Index = 1 + is_symm + is_uv + is_nmr + is_vip + is_vea + is_aip + is_aea + is_fluor 
+            Index = 1 + is_symm + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea + is_uv + is_fluor 
             lines = "" if Index >= n else Links[Index].splitlines()
             S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                 CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
@@ -321,7 +340,8 @@ class GaussianDFTRun:
             Links[Index] = ""
   
         if is_tadf:
-            Index = 1 + is_symm + is_uv + is_nmr + is_vip + is_vea + is_aip + is_aea + is_fluor + is_tadf
+            Index = 1 + is_symm + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea  + is_uv + is_fluor + is_tadf
+            print(f'Index for tadf is {Index}.')
             lines = "" if Index >= n else Links[Index].splitlines()
             T_Found, _, T_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                 CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden  = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
@@ -357,41 +377,171 @@ class GaussianDFTRun:
                 s_solvent += f'Radii=UA0\n\n'
         return s, s_solvent
 
-    def MakeLinkTD(self, line_chk, line_method, State, SCRF, SCRF_read, Opt, targetstate=1):
-        self.MakeSolventLine()
-        Jobname_line =line_chk.split('=')
-        Jobname = Jobname_line[-1]
-        # Setting NState######
-        NState = targetstate+4 if Opt == True else 20
-        line_oldchk = f'%Oldchk={Jobname}'
-        # Potaintially cause a bug because '==' is used instead of 'is' to check 'None'. Need to check
-        line_newchk = f"%chk={Jobname}_ExOptState{targetstate}" if State == None else f"%chk={Jobname}_ExOptState{State}"
-        # Potaintially cause a bug because '==' is used instead of 'is' to check 'None'. Need to check
-        line_method_TD = f"TD(Nstate={NState}, root={targetstate})" if State == None else f"TD(Nstate={NState}, {State}, root={targetstate})"
-        line_readAllMOGeom = 'Geom=AllCheck Guess=Read'
-        s = ''
-        s += '--Link1--\n'
-        if self.mem != '':
-            line_mem = f'%mem={self.mem}'
-            s += f"{line_mem}\n"
-        if self.nproc > 1:
-            line_proc = f'%nproc={self.nproc}'
-            s += f"{line_proc}\n"
-        if Opt == True:
-            s += f"{line_oldchk}\n"
-            s += f"{line_newchk}\n"
+    def make_input(
+        self, JobName, TotalCharge, SpinMulti, 
+        scf='open', run_type=None, Newinput=False, 
+        Mol_atom=[], X=[], Y=[], Z=[], geom_spec=False,
+        TDDFT=False, TDstate=None, target=1,
+        readchk=False, oldchk=None, newchk=None, solvent='0'):
+
+        #Section for system control 
+        line_system = ''
+        if self.mem !='' or self.nproc > 1:
+            if self.mem != '':
+                line_mem = f'%mem={self.mem}\n'
+                line_system += line_mem
+            if self.nproc > 1 :
+                line_proc = f'%nproc={self.nproc}\n'
+                line_system += line_proc
+
+        #Section for checkpoint files
+        if oldchk == None and newchk == None:
+            line_chk = f'%chk={JobName}\n'
+        elif oldchk == None and newchk != None:
+            line_chk = f'%chk={newchk}\n'
+            line_chk += f'%Oldchk={JobName}\n'
+        elif oldchk != None and newchk == None:
+            line_chk = f'%chk={oldchk}\n'
         else:
-            s += f"{line_chk}\n"
-        s += f"{line_method}\n"
-        s += f"{line_method_TD}\n"
-        s += f"{line_readAllMOGeom}\n"
-        s += SCRF
-        if Opt == True:
-            s += "Opt=(MaxCycles=50)\n"
-            # s = s + "Opt"
-        s += '\n' 
-        s += SCRF_read
-        return s
+            line_chk = f'%chk={newchk}\n'
+            line_chk += f'%Oldchk={oldchk}\n'
+
+        #Section for DFT functional parameter
+        line_iop_functional = ''
+        if self.para_functional == []:
+            pass
+        else:
+            pass
+            line_iop_functional += gaussian_run.Gen_IOPline_functional.functional_para(self.functional, self.para_functional)
+
+        #Section for method
+        if scf == 'open' or SpinMulti != 1:
+            line_method   = f'#u{self.functional}/{self.basis} test {line_iop_functional}\n'
+        elif scf == 'close' and SpinMulti == 1:
+            line_method = f'#r{self.functional}/{self.basis} test {line_iop_functional}\n' 
+        else:
+            line_method = f'#{self.functional}/{self.basis} test {line_iop_functional}\n' 
+
+        if TDDFT:
+            NState = target+4 if run_type == 'opt' else 20
+            line_method += f'TD(Nstate={NState}, root={target})\n'if TDstate == None else f'TD(Nstate={NState}, {TDstate}, root={target})\n'
+        
+        #Section for solvent
+        SCRF = ''
+        SCRF_read = ''
+        if solvent != '0':
+            self.solvent = solvent
+            SCRF, SCRF_read = self.MakeSolventLine()
+
+        #Geometry information
+        if geom_spec: 
+            line_GeomConstrain = 'Geom=ModRedundant\n'
+            line_readMOConstrain = 'Geom=ModRedundant Guess=Read\n'
+            line_readGeomConstrain = 'Geom=(Checkpoint,ModRedundant)\n'
+            line_readAllMOGeomConstrain = 'Geom=(AllCheckpoint,ModRedundant) Guess=Read\n'
+            line_readMOGeomConstrain = 'Geom=(Checkpoint,ModRedundant) Guess=Read\n'
+            line_GeomConstrainSpec = gaussian_run.ConstrainInfo_line.get_IntCoorddata(self.geom_spec)
+        else:
+            line_readAllMOGeom = 'Geom=AllCheck Guess=Read\n'
+            line_readMOGeom = 'Geom=CheckPoint Guess=Read\n'
+            line_readMO = 'Guess=Read\n'
+            line_readGeom = 'Geom=Checkpoint\n'
+
+        #Comment line
+        line_comment = f'\n {JobName} {run_type} \n \n'
+
+        GauInputName = JobName+'.com' 
+
+        if Newinput == True:
+            Input_mode = 'w'
+        else:
+            if not os.path.isfile(GauInputName):
+                Input_mode = 'w'
+            else:
+                Input_mode = 'a'
+
+        with open(GauInputName, Input_mode) as ofile:
+            if Input_mode == 'a':
+                input_s = '--Link1--\n'
+            else:
+                input_s = ''
+
+            input_s += line_system
+            input_s += line_chk
+            input_s += line_method
+
+            #For non SCF run_type
+            if run_type == 'symm' or run_type == 'volume':
+                input_s += 'Guess=Only'
+                if run_type == 'volume':
+                    input_s += ' volume\n'
+                if run_type == 'symm':
+                    input_s += ' Symmetry=loose\n'
+            
+            if run_type == 'opt':
+                if TDDFT:
+                    input_s += 'Opt=(Maxcycles=60)\n'
+                else:
+                    input_s += 'Opt=(MaxCycles=100)\n'
+            
+            if run_type == 'freq':
+                input_s += 'Freq=(Raman)\n' 
+            
+            if run_type == 'nmr':
+                input_s += 'NMR\n'
+
+            if run_type == 'polar':
+                input_s += 'polar=Static\n'
+
+            if solvent != '0':
+                input_s += SCRF
+            
+            #Get geometry and guess information
+            if  len(Mol_atom) == 0 and readchk != False:
+                if geom_spec:
+                    if readchk == 'all':
+                        input_s += line_readAllMOGeomConstrain
+                    elif readchk == 'geomguess':
+                        input_s += line_readMOGeomConstrain  
+                    elif readchk == 'geom':
+                        input_s += line_readGeomConstrain
+                else:
+                    if readchk == 'all':
+                        input_s += line_readAllMOGeom
+                    elif readchk == 'geomguess':
+                        input_s += line_readMOGeom
+                    elif readchk == 'geom':
+                        input_s += line_readGeom
+            elif len(Mol_atom) != 0:
+                if geom_spec:
+                    if readchk == False:
+                        input_s += line_GeomConstrain
+                    if readchk == 'guess':
+                        input_s += line_readMOConstrain
+                else:
+                    if readchk == 'guess':
+                        input_s +=  line_readMO
+            else:
+                print ('No information about a molecules!')
+                exit
+
+            if readchk != 'all':
+                input_s += line_comment
+            else:
+                input_s += '\n' 
+
+            if len(Mol_atom) != 0 or readchk != 'all':
+                input_s += f'{TotalCharge: 5d} {SpinMulti: 5d} \n'
+                for j in range(len(Mol_atom)):
+                    input_s += f'{Mol_atom[j]:4s} {X[j]: 10.5f}  {Y[j]: 10.5f} {Z[j]: 10.5f}\n'
+                input_s += '\n'
+            if solvent != '0':
+                input_s += SCRF_read
+            if geom_spec:
+                input_s += line_GeomConstrainSpec
+                input_s += '\n'
+
+            ofile.write(input_s)
 
     def run_gaussian(self):
         infilename = self.in_file
@@ -402,6 +552,7 @@ class GaussianDFTRun:
         option_dict_pka = {}
         targetstate = 1
         PreGauInput = infilename.split('.')
+        JobName = PreGauInput[0]
         GauInputName = PreGauInput[0]+'.com'    
         # File type of input?
         ReadFromchk = False 
@@ -409,10 +560,10 @@ class GaussianDFTRun:
         ReadFromxyz = False
         if PreGauInput[1] == "sdf":
             ReadFromsdf = True 
-            Mol_atom, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf(infilename)
+            element, atomX, atomY, atomZ, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf(infilename)
         elif PreGauInput[1] == "xyz":
             ReadFromxyz = True
-            Mol_atom, X, Y, Z, TotalCharge, SpinMulti = read_mol_file.read_xyz(infilename)
+            element, atomX, atomY, atomZ, TotalCharge, SpinMulti = read_mol_file.read_xyz(infilename)
             Bondpair1 = []
             Bondpair2 = []
         elif PreGauInput[1] == "chk":
@@ -505,275 +656,116 @@ class GaussianDFTRun:
             else:
                 print('invalid option: ', option)
 
-        if len(option_dict.keys()) == 1 and option_dict.keys() == 'symm': 
-            scf_needed = False 
-        else:
-            scf_needed = True
-
-        line_system = ''
-        if self.mem !='' or self.nproc > 1:
-            if self.mem != '':
-                line_mem = f'%mem={self.mem}\n'
-                line_system += line_mem
-            if self.nproc > 1 :
-                line_proc = f'%nproc={self.nproc}\n'
-                line_system += line_proc
-        line_chk = f'%chk={PreGauInput[0]}'
-        line_oldchk = f'%Oldchk={PreGauInput[0]}'
-        line_iop_functional = ''
-        if self.para_functional == []:
-            pass
-        else:
-            line_iop_functional += gaussian_run.Gen_IOPline_functional.functional_para(self.functional, self.para_functional)
-        line_method = f'#{self.functional}/{self.basis} test {line_iop_functional} '
-        line_o_method = f'#u{self.functional}/{self.basis} test {line_iop_functional} '
-        line_c_method = f'#r{self.functional}/{self.basis} test {line_iop_functional} '
-        line_comment = infilename
-
-        Is_geom_spec = False
-        line_readAllMOGeom = 'Geom=AllCheck Guess=Read'
-        line_readMOGeom = 'Geom=CheckPoint Guess=Read'
-        line_readGeom = 'Geom=Checkpoint'
         if self.geom_spec != {}: 
             Is_geom_spec = True
-            line_GeomConstrain = 'Geom=ModRedundant'
-            line_readGeomConstrain = 'Geom=(Checkpoint,ModRedundant)'
-            line_readAllMOGeomConstrain = 'Geom=(AllCheckpoint,ModRedundant) Guess=Read'
-            line_readMOGeomConstrain = 'Geom=(Checkpoint,ModRedundant) Guess=Read'
-            line_GeomConstrainSpec = gaussian_run.ConstrainInfo_line.get_IntCoorddata(self.geom_spec)
+        else:
+            Is_geom_spec = False
 
-        with open(GauInputName, 'w') as ofile:
-        # For reading geomerty and MO from checkpoint file
+        if 'symm' in option_dict:
+            if ReadFromchk:
+                self.make_input(JobName, TotalCharge, SpinMulti, run_type='symm', Newinput=True, geom_spec=Is_geom_spec, readchk='all') 
+            if ReadFromsdf or ReadFromxyz:
+                self.make_input(JobName, TotalCharge, SpinMulti, run_type='symm', Newinput=True, Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, geom_spec=Is_geom_spec,) 
 
-            input_s = ''
-
-            if 'symm' in option_dict:
-                input_s += line_system
-                input_s += line_chk+'\n'
-                input_s += line_o_method+'\n'
-                input_s += 'Guess=Only Symmetry=loose\n'
-                #input_s += 'Guess=Only Symmetry=on\n'
-                #Reading Geometry and MO from Checkpoint file
-                if ReadFromchk:
-                    if Is_geom_spec: 
-                        input_s += line_readAllMOGeomConstrain + '\n'
-                    else:
-                        input_s += line_readAllMOGeom + '\n'
+        #The first scf job
+        if 'opt' in option_dict: # opt == 1
+            if ReadFromchk:
+                if Is_ChargeSpec == False and Is_SpinMultiSpec == False:
+                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='opt', Newinput=False, geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
                 else:
-                    if Is_geom_spec: 
-                        input_s += line_GeomConstrain + '\n' 
-                    else:
-                        pass
-                input_s +=  '\n'
-                if ReadFromsdf or ReadFromxyz:
-                    input_s += line_comment+' symmetry\n'
-                    input_s +='\n'
-                    input_s += f'{TotalCharge: 5d}  {SpinMulti: 5d} \n'
-                    for j in range(len(Mol_atom)):
-                        input_s += f'{Mol_atom[j]:4s} {X[j]: 10.5f}  {Y[j]: 10.5f} {Z[j]: 10.5f}\n'
-                    input_s += '\n'
-                if Is_geom_spec:
-                    input_s += line_GeomConstrainSpec 
-                    input_s += '\n'
+                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='opt', Newinput=False, geom_spec=Is_geom_spec, readchk='geomguess', solvent=self.solvent) 
+            elif ReadFromsdf or ReadFromxyz:
+                self.make_input(JobName, TotalCharge, SpinMulti, run_type='opt', Newinput=False, Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, geom_spec=Is_geom_spec, solvent=self.solvent) 
 
-                # For adding other jobs when other options are required...
-                if scf_needed: 
-                    input_s += '--Link1--\n'
-
-            if scf_needed:
-                input_s += line_system
-                input_s += line_chk+'\n'
-                input_s += line_o_method+'\n'
-
-                if 'opt' in option_dict: # opt == 1
-                    input_s += 'Opt=(MaxCycles=100)\n'
-
-                if 'freq' in option_dict: # freq == 1
-                    input_s += 'Freq=(Raman)\n'
-                # Solvent effect
-                SCRF, SCRF_read = self.MakeSolventLine()
-                input_s += SCRF
-
-                # Reading Geometry and MO from Checkpoint file
-                if ReadFromchk: 
-                    if Is_ChargeSpec == False and Is_SpinMultiSpec == False:
-                        if Is_geom_spec:
-                            input_s += line_readAllMOGeomConstrain+'\n'
-                        else:
-                            input_s += line_readAllMOGeom+'\n'
-                    elif Is_ChargeSpec or Is_SpinMultiSpece:
-                        if  Is_geom_spec:
-                            input_s += line_readMOGeomConstrain+'\n'
-                        else:
-                            input_s += line_readMOGeom+'\n'
-
+        else:
+            if ReadFromchk:
+                if Is_ChargeSpec == False and Is_SpinMultiSpec == False:
+                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='', Newinput=False, geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
                 else:
-                    if Is_geom_spec:
-                        input_s += line_GeomConstrain+'\n'
-                    else:
-                        pass
-                input_s +='\n'
+                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='', Newinput=False, geom_spec=Is_geom_spec, readchk='geomguess', solvent=self.solvent) 
+            elif ReadFromsdf or ReadFromxyz:
+                self.make_input(JobName, TotalCharge, SpinMulti, run_type='', Newinput=False, Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, geom_spec=Is_geom_spec, solvent=self.solvent) 
 
-                # Reading Geometry from sdf or xyz file
-                if ReadFromsdf or ReadFromxyz or Is_ChargeSpec or Is_SpinMultiSpec:
-                    input_s += line_comment+' ground state\n'
-                    input_s += '\n'
-                    input_s += f'{TotalCharge: 5d}  {SpinMulti: 5d} \n'
-                    if ReadFromsdf or ReadFromxyz:
-                        for j in range(len(Mol_atom)):
-                            input_s += f'{Mol_atom[j]:4s} {X[j]: 10.5f}  {Y[j]: 10.5f} {Z[j]: 10.5f}\n'
-                    input_s += '\n'
-                    input_s += SCRF_read
-                if Is_geom_spec:
-                    input_s += line_GeomConstrainSpec + '\n'
+        #The post job after getting wavefunction
+        if 'freq' in option_dict: # freq == 1
+            self.make_input(JobName, TotalCharge, SpinMulti, run_type='freq', Newinput=False, readchk='all', solvent=self.solvent) 
 
-                #
-                if 'nmr' in option_dict: # nmr == 1
-                    input_s += '--Link1--\n'
-                    input_s += line_system
-                    input_s += line_chk+'\n'
-                    input_s += line_method+'\n'
-                    input_s += 'NMR'
-                    input_s += line_method_nmr+'\n'
-                    input_s += SCRF
-                    input_s +=line_readAllMOGeom+'\n'
-                    input_s += '\n'
-                    input_s += SCRF_read
+        if 'nmr' in option_dict: # nmr == 1
+            self.make_input(JobName, TotalCharge, SpinMulti, run_type='nmr', Newinput=False, readchk='all', solvent=self.solvent) 
 
-                if 'vip' in option_dict: # vip == 1
-                    input_s += '--Link1--\n'
-                    input_s += line_system
-                    input_s += line_chk+'_IP\n'
-                    input_s += line_oldchk+'\n'
-                    input_s += line_o_method+'\n'
-                    input_s += SCRF
-                    input_s += line_readMOGeom+'\n'
-                    input_s += '\n'
-                    input_s += 'Ionization potential calculation\n'
-                    input_s += '\n'
-                    if SpinMulti == 1:
-                        input_s += f'{TotalCharge+1: 5d}  {SpinMulti+1: 5d} \n'
-                    else:
-                        input_s += f'{TotalCharge+1: 5d}  {SpinMulti-1: 5d} \n'
-                    input_s += '\n'
-                    input_s += SCRF_read
+        if 'vip' in option_dict: # vip == 1
+            IP_chk = JobName+'_IP'
 
-                if 'vea' in option_dict: # vea == 1
-                    input_s += '--Link1--\n'
-                    input_s += line_system
-                    input_s += line_oldchk+'\n'
-                    input_s += line_chk+'_EA\n'
-                    input_s += line_o_method+'\n'
-                    input_s += SCRF
-                    input_s += line_readMOGeom+'\n'
-                    input_s += '\n'
-                    input_s += 'Electronic affinity calculation\n'
-                    input_s += '\n'
-                    if SpinMulti == 1:
-                        input_s += f'{TotalCharge-1: 5d}  {SpinMulti+1: 5d} \n'
-                    else:
-                        input_s += f'{TotalCharge-1: 5d}  {SpinMulti-1: 5d} \n'
-                    input_s += '\n'
-                    input_s += SCRF_read
+            if SpinMulti == 1:
+                IP_TotalCharge = TotalCharge + 1
+                IP_SpinMulti = SpinMulti + 1
+            else:
+                IP_TotalCharge = TotalCharge + 1
+                IP_SpinMulti = SpinMulti - 1
 
-                if 'aip' in option_dict: # aip == 1
-                    input_s += '--Link1--\n'
-                    input_s += line_system
-                    input_s += line_chk+'_PC\n'
-                    input_s += line_oldchk+'_IP\n'
-                    input_s += line_o_method+' Opt'+'\n'
-                    input_s += SCRF
-                    input_s += line_readMOGeom+'\n'
-                    input_s += '\n'
-                    input_s += 'Adiabatic ionization potential calculation\n'
-                    input_s += '\n'
-                    if SpinMulti == 1:
-                        input_s += f'{TotalCharge+1: 5d}  {SpinMulti+1: 5d} \n'
-                    else:
-                        input_s += f'{TotalCharge+1: 5d}  {SpinMulti-1: 5d} \n'
-                    input_s += '\n'
-                    input_s += SCRF_read
-                    input_s += '--Link1--\n'
-                    input_s += line_system
-                    input_s += line_chk+'_PC\n'
-                    #input_s += line_oldchk+'\n'
-                    input_s += line_o_method+'\n'
-                    input_s += SCRF
-                    input_s += line_readGeom+'\n'
-                    input_s += '\n'
-                    input_s += 'neutrization energy calculation from a cation\n'
-                    input_s += '\n'
-                    input_s += f'{TotalCharge: 5d}  {SpinMulti: 5d} \n'
-                    input_s += '\n'
-                    input_s += SCRF_read
+            self.make_input(JobName, IP_TotalCharge, IP_SpinMulti, run_type='', Newinput=False, readchk='geomguess', newchk=IP_chk, solvent=self.solvent) 
 
-                if 'aea' in  option_dict: #aea == 1
-                    input_s += '--Link1--\n'
-                    input_s += line_system
-                    input_s += line_oldchk+'_EA\n'
-                    input_s += line_chk+'_NC\n'
-                    input_s += line_o_method+' Opt'+'\n'
-                    input_s += SCRF
-                    input_s += line_readMOGeom+'\n'
-                    input_s += '\n'
-                    input_s += 'neutrization energy calculation from an anion\n'
-                    input_s += '\n'
-                    if SpinMulti == 1:
-                        input_s += f'{TotalCharge-1: 5d}  {SpinMulti+1: 5d} \n'
-                    else:
-                        input_s += f'{TotalCharge-1: 5d}  {SpinMulti-1: 5d} \n'
-                    input_s += '\n'
-                    input_s += SCRF_read
-                    input_s += '--Link1--\n'
-                    input_s += line_system
-                    #input_s += line_oldchk+'\n'
-                    input_s += line_chk+'_NC\n'
-                    input_s += line_o_method+'\n'
-                    input_s += SCRF
-                    input_s += line_readGeom+'\n'
-                    input_s += '\n'
-                    input_s += 'neutrization energy calculation from an anion\n'
-                    input_s += '\n'
-                    input_s += f'{TotalCharge: 5d}  {SpinMulti: 5d} \n'
-                    input_s += '\n'
-                    input_s += SCRF_read
+        if 'vea' in option_dict: # vea == 1
+            EA_chk = JobName+'_EA'
 
-                if 'uv' in option_dict: #uv == 1 or fluor==1 or tadf == 1
-                    sTD = self.MakeLinkTD(line_chk, line_method, None, SCRF, SCRF_read, False, targetstate)
-                    input_s += sTD
+            if SpinMulti == 1:
+                EA_TotalCharge = TotalCharge - 1
+                EA_SpinMulti = SpinMulti + 1
+            else:
+                EA_TotalCharge = TotalCharge - 1
+                EA_SpinMulti = SpinMulti - 1
 
-                if 'fluor' in option_dict:
-                    sTD = self.MakeLinkTD(line_chk, line_c_method, 'Singlet',  SCRF, SCRF_read, True, targetstate)
-                    input_s += sTD
+            self.make_input(JobName, EA_TotalCharge, EA_SpinMulti, run_type='', Newinput=False, readchk='geomguess', newchk=EA_chk, solvent=self.solvent) 
 
-                if 'tadf' in option_dict:
-                    sTD = self.MakeLinkTD(line_chk, line_c_method, 'Triplet',  SCRF, SCRF_read, True, targetstate)
-                    input_s += sTD
-                input_s += '\n'
+        if 'aip' in option_dict: # aip == 1
+            AIP_chk = JobName+'_AIP'
+            #AIP energy
+            self.make_input(JobName, IP_TotalCharge, IP_SpinMulti, run_type='opt', readchk='geomguess', oldchk=IP_chk, newchk=AIP_chk, solvent=self.solvent) 
+            OE_AIP_chk = JobName+'_AIP_OE'
+            #Neutrization energy
+            self.make_input(JobName, TotalCharge, SpinMulti, run_type='', readchk='geomguess', oldchk=AIP_chk, newchk=OE_AIP_chk, solvent=self.solvent) 
 
-            ofile.write(input_s)
+        if 'aea' in  option_dict: #aea == 1
+            AEA_chk = JobName+'_AEA'
+            #AEA energy
+            self.make_input(JobName, EA_TotalCharge, EA_SpinMulti, run_type='opt', readchk='geomguess', oldchk=EA_chk, newchk=AEA_chk, solvent=self.solvent) 
+            OE_AEA_chk = JobName+'_AEA_OE'
+            #Neutrization energy
+            self.make_input(JobName, TotalCharge, SpinMulti, run_type='', readchk='geomguess', oldchk=AEA_chk, newchk=OE_AEA_chk, solvent=self.solvent) 
+
+        if 'uv' in option_dict: #uv == 1 of fluor ==1 or tadf ==1
+            self.make_input(JobName, TotalCharge, SpinMulti, run_type='', TDDFT=True, readchk='all', solvent=self.solvent) 
+
+        if 'fluor' in option_dict:
+            TDOpt_chk = f'{JobName}_ExOptAState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateSinglet'
+            self.make_input(JobName, TotalCharge, SpinMulti, scf='close', run_type='opt', TDDFT=True, TDstate='Singlet', target=targetstate, readchk='all', newchk=TDOpt_chk, solvent=self.solvent) 
+
+        if 'tadf' in option_dict:
+            TTDOpt_chk = f'{JobName}_ExOptFState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateTriplet'
+            #self.make_input(JobName, TotalCharge, SpinMulti, scf='close', run_type='opt', TDDFT=True, TDstate='Triplet', target=targetstate, readchk='all', oldchk=TDOpt_chk, newchk=TTDOpt_chk, solvent=self.solvent) 
+            self.make_input(JobName, TotalCharge, SpinMulti, scf='close', run_type='opt', TDDFT=True, TDstate='Triplet', target=targetstate, readchk='all', newchk=TTDOpt_chk, solvent=self.solvent) 
 
         # Run Gaussian
         job_state = "normal"
         output_dic = {}
-        if os.path.isdir(PreGauInput[0]):
-            shutil.rmtree(PreGauInput[0])
-        os.mkdir(PreGauInput[0])
-        shutil.move(GauInputName, PreGauInput[0])
+        if os.path.isdir(JobName):
+            shutil.rmtree(JobName)
+        os.mkdir(JobName)
+        shutil.move(GauInputName, JobName)
         if ReadFromchk == True :
-            inchkfile = PreGauInput[0]+".chk"
-            shutil.move(inchkfile, PreGauInput[0]) 
-        os.chdir(PreGauInput[0])
-        job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(PreGauInput[0], self.timexe)
+            inchkfile = JobName + ".chk"
+            shutil.move(inchkfile, JobName) 
+        os.chdir(JobName)
+        job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName, self.timexe)
         gaussian_run.chk2fchk.Get_chklist()
         #output_dic = self.Extract_values(PreGauInput[0], option_dict, Bondpair1, Bondpair2)
         try:
-            output_dic = self.Extract_values(PreGauInput[0], option_dict, Bondpair1, Bondpair2)
+            output_dic = self.Extract_values(JobName, option_dict, Bondpair1, Bondpair2)
         except Exception as e:
             job_state = "error"
             print(e)
             pass
-        
+
         # for pka computation
         if 'pka' in option_dict:
             output_dic_pka = {}
@@ -782,7 +774,7 @@ class GaussianDFTRun:
             MullCharge = output_dic["cden"][1]
             Index_MaxProtic = gaussian_run.Get_ChargeSpin.find_MaxProtic(Atom, MullCharge)
             print(Index_MaxProtic)
-            GS_fchk = PreGauInput[0]+".fchk"
+            GS_fchk = JobName+".fchk"
             with open(GS_fchk,'r') as ifile:
                 GS_lines = ifile.readlines()
             TotalCharge, SpinMulti, Mol_atom, Mol_X, Mol_Y, Mol_Z = gaussian_run.Get_MolCoordinate_fchk.Extract_MolCoord(GS_lines)
@@ -790,33 +782,9 @@ class GaussianDFTRun:
             DeHMol_X = np.delete(Mol_X,Index_MaxProtic)
             DeHMol_Y = np.delete(Mol_Y,Index_MaxProtic)
             DeHMol_Z = np.delete(Mol_Z,Index_MaxProtic)
-            JobName_DeHMol = PreGauInput[0] + "_DeH"
-            GauInputName_DeHOpt = JobName_DeHMol + ".com"
-            GauchkName_DeHOpt = JobName_DeHMol + ".chk"
+            JobName_DeHMol = JobName + "_DeH"
 
-            with open(GauInputName_DeHOpt, 'w') as ofile_DeHMol:
-
-                DeH_input_s = ''
-
-                line_DeHchk = '%chk='+ JobName_DeHMol
-                # making input for a deprotonated molecule
-                DeH_input_s += line_system
-                DeH_input_s += line_DeHchk + '\n' 
-                DeH_input_s += line_o_method+'\n'
-
-                if 'opt' in option_dict: # opt == 1
-                    DeH_input_s += 'Opt=(MaxCycles=100)\n'
-                DeH_input_s += SCRF
-                DeH_input_s += '\n'
-                DeH_input_s += 'Deprotonated molecule \n'
-                DeH_input_s += '\n'
-                DeH_input_s += f'{TotalCharge-1: 5d} {SpinMulti: 5d}\n'
-                for j in range(len(DeHMol_atom)):
-                    DeH_input_s += f'{DeHMol_atom[j]:4s} {DeHMol_X[j]: 10.5f} {DeHMol_Y[j]: 10.5f} {DeHMol_Z[j]: 10.5f}\n'
-                DeH_input_s += SCRF_read
-                DeH_input_s += '\n'
-
-                ofile_DeHMol.write(DeH_input_s)
+            self.make_input(JobName_DeHMol, TotalCharge-1, SpinMulti, run_type='opt', Newinput=True, Mol_atom=DeHMol_atom, X=DeHMol_X, Y=DeHMol_Y, Z=DeHMol_Z, readchk=False, solvent=self.solvent) 
 
             job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_DeHMol, self.timexe)
             gaussian_run.chk2fchk.Get_chklist()
@@ -831,29 +799,19 @@ class GaussianDFTRun:
             E_dH = output_dic_pka["Energy"][0]
             output_dic["pka"] = (E_dH - E_pH)*Eh2kJmol
 
-        # for fluor == 1 or tadf == 1 for open shell
+         #for fluor == 1 or tadf == 1 for open shell
         if 'fluor' in option_dict_Ex or 'tadf' in option_dict_Ex: 
             TotalCharge, SpinMulti = gaussian_run.fchk2chk.Get_fchk(PreGauInput[0])
             output_dic_Ex = {}
             compute_state = output_dic["state_index"][0][int(targetstate)-1] 
-            JobName_ExOpt = PreGauInput[0] + "_ExOpt"
-            GauInputName_ExOpt = JobName_ExOpt + ".com"
+            JobName_ExOpt = JobName + '_ExOptAState'+f'{targetstate}'
 
-            with open(GauInputName_ExOpt ,'w') as ofile_ExOpt:
-                exopt_input_s = ''
-                exopt_input_s += line_system
-                exopt_input_s += line_chk+'\n'
-                exopt_input_s += line_o_method+'\n'
-                exopt_input_s += line_readAllMOGeom+'\n'
-                exopt_input_s += '\n'
+            self.make_input(JobName_ExOpt, TotalCharge, SpinMulti, run_type='opt', Newinput=True, TDDFT=True, target=compute_state, readchk='all', oldchk=JobName, newchk=JobName_ExOpt, solvent=self.solvent) 
 
-                sTD = self.MakeLinkTD(line_chk, line_o_method, None, SCRF, SCRF_read, True, compute_state)
-                exopt_input_s += sTD
-                if 'tadf' in option_dict_Ex: #tadf == 1
-                    compute_state = output_dic["state_index"][1][int(targetstate)-1] 
-                    sTD = self.MakeLinkTD(line_chk, line_o_method, None, SCRF, SCRF_read, True, compute_state)
-                    exopt_iput_s += sTD
-                ofile_ExOpt.write(exopt_input_s) 
+            if 'tadf' in option_dict_Ex: #tadf == 1
+                ExOptFState_chk=  JobName + '_ExOptFState'+f'{targetstate}'
+                compute_state = output_dic["state_index"][1][int(targetstate)-1] 
+                self.make_input(JobName_ExOpt, TotalCharge, SpinMulti, run_type='opt', TDDFT=True, target=compute_state, readchk='all', oldchk=JobName_ExOpt, newchk=ExOptFState_chk,  solvent=self.solvent) 
 
             job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_ExOpt, self.timexe)
             gaussian_run.chk2fchk.Get_chklist()
@@ -865,23 +823,45 @@ class GaussianDFTRun:
                 print (e)
                 pass
             output_dic.update(output_dic_Ex)
+
         output_dic["log"] = job_state
 
         # Convert fchk to xyz 
         if self.restart == False:
             gaussian_run.Get_MolCoordinate_fchk.Get_fchklist2xyz()
+
         os.chdir("..")
+
         return(output_dic)
 
-    def SplitLinks(self, logfile):
-        with open(logfile, 'r') as f:
-            lines = f.readlines()
-        Links = []
-        Link = ""
-        for line in lines:
-            if line.find("Initial command:")>0:
-                Links.append(Link)
-                Link = ""
-            Link = Link + line
-        Links.append(Link)
-        return Links
+
+
+if __name__ == '__main__':
+    usage ='Usage; %s infile' % sys.argv[0]
+
+    try:
+        infilename = sys.argv[1]
+    except:
+        print (usage); sys.exit()
+
+    test_sdf = GaussianDFTRun('B3LYP', '3-21g*',8, 'opt',infilename)
+
+    Mol = ['C', 'H', 'O', 'H']
+    Molx = [0.54867, 1.16419, -0.70255, 1.16421]
+    Moly = [0.00000, -0.94126, 0.00000, 0.94124]
+    Molz = [0.00008, 0.00004, -0.00007, 0.00004]
+
+    JobName = infilename
+    test_sdf.make_input(JobName, 0, 1,  run_type='opt', Newinput=True,  Mol_atom=Mol, X=Molx, Y=Moly, Z=Molz,  newchk=None)
+
+    test_sdf.make_input(JobName, 0, 1, run_type='freq', Newinput=False, readchk='all', newchk=None, solvent='0.52')
+
+    newchk = JobName+'_IP'
+    test_sdf.make_input(JobName, 1, 2, run_type='opt', Newinput=False, readchk='gomeguess', newchk=newchk, solvent='0')
+
+    test_sdf.make_input(JobName, 0, 1, run_type='symm', Newinput=False, readchk='gome', newchk=None, solvent='0')
+
+    newchk = JobName+'_exopt'
+    test_sdf.make_input(JobName, 0, 1, run_type='opt', Newinput=False, TDDFT=True, TDstate=None, target=3, readchk='all', newchk=newchk)
+
+

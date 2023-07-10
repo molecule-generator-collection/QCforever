@@ -19,6 +19,11 @@ def Extract_InterMol(lines, outfile=None):
             count_Station += 1
 
     Total_NumStation = count_Station
+
+    BL = []
+    BA = []
+    DA = []
+
     if Total_NumStation > 0:
         print ("Total number of stationary points: ", Total_NumStation)
         for line in lines:
