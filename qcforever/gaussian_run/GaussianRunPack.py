@@ -1,4 +1,5 @@
 import os
+import glob
 import sys
 import shutil
 
@@ -51,7 +52,38 @@ class GaussianDFTRun:
                 Energy.append(float(line_StateInfo[4]))
         Comp_SS, Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(lines)
         Energy_Spin = [Energy[-1], Comp_SS-Ideal_SS]
+
         return Energy_Spin
+
+    def Extract_symm(self, lines):
+        pGroup = "C1"
+        for line in lines:
+            if line.find("Full point group  ") >= 0:
+                line_symmInfo = line.split()
+                pGroup = line_symmInfo[3]
+
+        return pGroup
+
+    def Extract_volume(self, lines):
+        Mvolume =  0.0
+        for line in lines:
+            if line.find("Molar volume ") >= 0:
+                line = line.replace('(', '').replace(')', '')
+                line_volumeInfo = line.split()
+        Mvolume = float(line_volumeInfo[-2])
+
+        return  Mvolume
+
+
+    def check_scf_need(self, option):
+        all_keys = set(option.keys())
+        nonSCF_keys = ['symm', 'volume']
+        if len(all_keys - set(nonSCF_keys)) >= 1:
+            scf_need = True
+        else:
+            scf_need = False
+
+        return scf_need
 
     def Extract_values(self, jobname, option_dict, Bondpair1, Bondpair2):
         """
@@ -77,6 +109,7 @@ class GaussianDFTRun:
         is_pka = option_dict['pka']  if 'pka' in option_dict else False # not used
         is_satkoopmans = option_dict['satkoopmans'] if 'satkoopmans' in option_dict else False
         is_symm = option_dict['symm'] if 'symm' in option_dict else False
+        is_volume = option_dict['volume'] if 'volume' in option_dict else False
         infilename = f"{jobname}.log"
         fchkname = f"{jobname}.fchk"
 
@@ -91,285 +124,295 @@ class GaussianDFTRun:
         # Clean lines
         lines = ""
 
-        if len(option_dict.keys()) == 1 and option_dict.keys() == 'symm': 
-            scf_done = False 
+        scf_done = self.check_scf_need(option_dict)
+
+        # For extracting properties of molecule without SCF
+        if scf_done == False:
+            if is_symm:
+                Symm_lines = Links[is_symm].splitlines()
+                output["symm"] = self.Extract_symm(Symm_lines)
+
+            if is_volume:
+                Index = is_symm + is_volume
+                Volume_lines = Links[Index].splitlines()
+                output["volume"] = self.Extract_volume(Volume_lines)
+
         else:
-            scf_done = True
-
-        # For extracting symmetry of molecule without SCF
-        if is_symm:
-            Symm_lines = Links[is_symm].splitlines()
-            pGroup = "C1"
-            for line in Symm_lines:
-                if line.find("Full point group  ") >= 0:
-                    line_symmInfo = line.split()
-                    pGroup = line_symmInfo[3]
-            output["symm"] = pGroup
-
         # For extracting properties of molecule after SCF        
-        if scf_done: 
-            GS_lines = Links[1+is_symm].splitlines()
-            Links[1+is_symm] = ""
-
-        if is_opt:
-            print ("Optimization was performed...Check geometry...")
-            MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(GS_lines)
-            output["GS_MaxDisplace"] = MaxDisplace
-
-        if is_homolumo:
-            with open(fchkname, 'r') as ifile:
-                fchk_lines = ifile.readlines()
-            NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy_fchk.Extract_MO(fchk_lines)
-            # NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy.Extract_MO(GS_lines)
-            if BetaEigenVal == []:
-                Alpha_gap = Eh2eV * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
-                output["homolumo"] = Alpha_gap
-                # return Alpha_gap
-            else:
-                Alpha_gap = Eh2eV * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
-                Beta_gap = Eh2eV * (BetaEigenVal[NumBetaElec]-BetaEigenVal[NumBetaElec-1])
-                output["homolumo"] = [Alpha_gap, Beta_gap]
-                # return Alpha_gap, Beta_gap
-
-        if is_dipole:
-            Dipole_X = []
-            Dipole_Y = []
-            Dipole_Z = []
-            Dipole_Total = []
-            for line in GS_lines:
-                if line.find(" X= ") >= 0:
-                    line_StateInfo = line.split()
-                    Dipole_X.append(float(line_StateInfo[1]))
-                    Dipole_Y.append(float(line_StateInfo[3]))
-                    Dipole_Z.append(float(line_StateInfo[5]))
-                    Dipole_Total.append(float(line_StateInfo[7]))
-            output["dipole"] = [Dipole_X[-1], Dipole_Y[-1], Dipole_Z[-1], Dipole_Total[-1]]
-            # return Dipole_X[-1], Dipole_Y[-1], Dipole_Z[-1], Dipole_Total[-1]
-
-        if is_energy:
-            output["Energy"] = self.Extract_SCFEnergy(GS_lines)
-
-        if is_deen:
-            try:
-                GS_Energy = output["Energy"][0]
-            except KeyError:
-                output["Energy"] = self.Extract_SCFEnergy(GS_lines)
-                GS_Energy = output["Energy"][0] 
-            Mol_atom, _, _, _ = gaussian_run.Get_MolCoordinate.Extract_Coordinate(GS_lines)
-            # Calculating Decomposed atoms total energy
-            decomposed_Energy = 0
-            for i in range(len(Mol_atom)):    
-                decomposed_Energy += gaussian_run.AtomInfo.One_Atom_Energy(Mol_atom[i], self.functional, self.basis)
-            print("Decomposed energy: ", decomposed_Energy)
-            # return deen 
-            output["deen"] = GS_Energy - (decomposed_Energy)
-
-        if is_stable2o2:
-            try:
-                NumAlphaElec
-            except:
-                with open(fchkname, 'r') as fchkfile:
-                    fchk_lines = fchkfile.readlines()
+            if scf_done: 
+                GS_lines = Links[1].splitlines()
+                Links[1] = ""
+            
+            if is_opt:
+                print ("Optimization was performed...Check geometry...")
+                MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(GS_lines)
+                output["GS_MaxDisplace"] = MaxDisplace
+            
+            if is_homolumo:
+                with open(fchkname, 'r') as ifile:
+                    fchk_lines = ifile.readlines()
                 NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy_fchk.Extract_MO(fchk_lines)
                 # NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy.Extract_MO(GS_lines)
-            O2_SOMO, O2_LUMO = gaussian_run.AtomInfo.O2_MO_refer(self.functional, self.basis)
-            if BetaEigenVal == []:
-                """
-                OxidizedbyO2  >  0 oxidation by O2 is hard to occure.
-                OxidizedbyO2 <=  0 oxidation by O2 is easy to occure.
-                ReducedbyO2  >  0 reduction by O2 is hard to occure.
-                ReducedbyO2 <=  0 reduction by O2 is easy to occure.
-                """
-                OxidizedbyO2 = O2_LUMO -AlphaEigenVal[NumAlphaElec-1]
-                ReducedbyO2 =  AlphaEigenVal[NumAlphaElec] - O2_SOMO
-                output["stable2o2"] = [OxidizedbyO2,ReducedbyO2]
-            else:
-                OxidizedbyO2 = O2_LUMO - BetaEigenVal[NumBetaElec-1] 
-                ReducedbyO2 = AlphaEigenVal[NumAlphaElec] - O2_SOMO
-                output["stable2o2"] = [OxidizedbyO2,ReducedbyO2]
+                if BetaEigenVal == []:
+                    Alpha_gap = Eh2eV * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
+                    output["homolumo"] = Alpha_gap
+                    # return Alpha_gap
+                else:
+                    Alpha_gap = Eh2eV * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
+                    Beta_gap = Eh2eV * (BetaEigenVal[NumBetaElec]-BetaEigenVal[NumBetaElec-1])
+                    output["homolumo"] = [Alpha_gap, Beta_gap]
+                    # return Alpha_gap, Beta_gap
+            
+            if is_dipole:
+                Dipole_X = []
+                Dipole_Y = []
+                Dipole_Z = []
+                Dipole_Total = []
+                for line in GS_lines:
+                    if line.find(" X= ") >= 0:
+                        line_StateInfo = line.split()
+                        Dipole_X.append(float(line_StateInfo[1]))
+                        Dipole_Y.append(float(line_StateInfo[3]))
+                        Dipole_Z.append(float(line_StateInfo[5]))
+                        Dipole_Total.append(float(line_StateInfo[7]))
+                output["dipole"] = [Dipole_X[-1], Dipole_Y[-1], Dipole_Z[-1], Dipole_Total[-1]]
+                # return Dipole_X[-1], Dipole_Y[-1], Dipole_Z[-1], Dipole_Total[-1]
+            
+            if is_energy:
+                output["Energy"] = self.Extract_SCFEnergy(GS_lines)
+            
+            if is_deen:
+                try:
+                    GS_Energy = output["Energy"][0]
+                except KeyError:
+                    output["Energy"] = self.Extract_SCFEnergy(GS_lines)
+                    GS_Energy = output["Energy"][0] 
+                Mol_atom, _, _, _ = gaussian_run.Get_MolCoordinate.Extract_Coordinate(GS_lines)
+                # Calculating Decomposed atoms total energy
+                decomposed_Energy = 0
+                for i in range(len(Mol_atom)):    
+                    decomposed_Energy += gaussian_run.AtomInfo.One_Atom_Energy(Mol_atom[i], self.functional, self.basis)
+                print("Decomposed energy: ", decomposed_Energy)
+                # return deen 
+                output["deen"] = GS_Energy - (decomposed_Energy)
+            
+            if is_stable2o2:
+                try:
+                    NumAlphaElec
+                except:
+                    with open(fchkname, 'r') as fchkfile:
+                        fchk_lines = fchkfile.readlines()
+                    NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy_fchk.Extract_MO(fchk_lines)
+                    # NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy.Extract_MO(GS_lines)
+                O2_SOMO, O2_LUMO = gaussian_run.AtomInfo.O2_MO_refer(self.functional, self.basis)
+                if BetaEigenVal == []:
+                    """
+                    OxidizedbyO2  >  0 oxidation by O2 is hard to occure.
+                    OxidizedbyO2 <=  0 oxidation by O2 is easy to occure.
+                    ReducedbyO2  >  0 reduction by O2 is hard to occure.
+                    ReducedbyO2 <=  0 reduction by O2 is easy to occure.
+                    """
+                    OxidizedbyO2 = O2_LUMO -AlphaEigenVal[NumAlphaElec-1]
+                    ReducedbyO2 =  AlphaEigenVal[NumAlphaElec] - O2_SOMO
+                    output["stable2o2"] = [OxidizedbyO2,ReducedbyO2]
+                else:
+                    OxidizedbyO2 = O2_LUMO - BetaEigenVal[NumBetaElec-1] 
+                    ReducedbyO2 = AlphaEigenVal[NumAlphaElec] - O2_SOMO
+                    output["stable2o2"] = [OxidizedbyO2,ReducedbyO2]
+            
+            if is_cden:
+                output["cden"] = gaussian_run.Get_ChargeSpin.Extract_ChargeSpin(GS_lines)
+            
+            """ Index of Links
+            Index = 0 : (always blank)
+            Index = 1+symm : symmetry 
+            Index = 1+symm+volume : volume
+            Index = 1+symm+volume+polar+freq : Ground state [if opt==1]
+            Index = 1+symm+volume+polar+frea+nmr : NMR chemical shift of S0 [if nmr==1]
+            Index = 1+symm+volume+polar+freq+nmr+vip : Ionization potential [if vip==1]
+            Index = 1+symm+volume+polar+freq+nmr+vip+vea : Electronic affinity [if vea==1]
+            Index = 1+symm+volume+polar+freq+nmr+vip+vea+aip : adiabatic ionization potential [if aip==1]
+            Index = 1+symm+volume+polar+freq+nmr+vip+vea+aip+aea : adiabatic electronic affinity [if aea==1]
+            Index = 1+symm+volume+polar+freq+nmr+vip+vea+aip+aea+1 : Virtical excitation (S0 -> S1) [uv]
+            Index = 2+symm+volume+polar+freq+nmr+vip+vea+aip+aea+1 : Optimization of S1 [fluor or tadf] 
+            Index = 3+symm+volume+polar+freq+nmr+vip+vea+aip+aea+1 : Optimization of T1 [tadf]
+            """
+            if is_symm:
+                Index = 1 + is_symm
+                Symm_lines = Links[Index].splitlines()
+                output["symm"] = self.Extract_symm(Symm_lines)
 
-        if is_cden:
-            output["cden"] = gaussian_run.Get_ChargeSpin.Extract_ChargeSpin(GS_lines)
+            if is_volume:
+                Index = 1 + is_symm + is_volume
+                Volume_lines = Links[Index].splitlines()
+                output["volume"] = self.Extract_volume(Volume_lines)
 
-        """ Index of Links
-        Index = 0 : (always blank)
-        Index = 1+symm : symmetry 
-        Index = 1+symm+polar+freq : Ground state [if opt==1]
-        Index = 1+symm+polar+frea+nmr : NMR chemical shift of S0 [if nmr==1]
-        Index = 1+symm+polar+freq+nmr+vip : Ionization potential [if vip==1]
-        Index = 1+symm+polar+freq+nmr+vip+vea : Electronic affinity [if vea==1]
-        Index = 1+symm+polar+freq+nmr+vip+vea+aip : adiabatic ionization potential [if aip==1]
-        Index = 1+symm+polar+freq+nmr+vip+vea+aip+aea : adiabatic electronic affinity [if aea==1]
-        Index = 1+symm+polar+freq+nmr+vip+vea+aip+aea+1 : Virtical excitation (S0 -> S1) [uv]
-        Index = 2+symm+polar+freq+nmr+vip+vea+aip+aea+1 : Optimization of S1 [fluor or tadf] 
-        Index = 3+symm+polar+freq+nmr+vip+vea+aip+aea+1 : Optimization of T1 [tadf]
-        """
-
-        if is_polar:
-            Index = 1 + is_symm + is_polar
-            polar_lines = Links[Index].splitlines()
-            Links[Index] = ''
-            Polar_iso, Polar_aniso = gaussian_run.Get_FreqPro.Extract_polar(polar_lines) 
-            output["polar_iso"] = Polar_iso[1]
-            output["polar_aniso"] = Polar_aniso[1]
-
-        if is_freq:
-            Index = 1 + is_symm + is_polar + is_freq
-            freq_lines = Links[Index].splitlines()
-            Links[Index] = ''
-            print("For getting frequency")
-            Freq, IR, Raman, E_zp,  E_t, E_enth, E_free, Ei, Cv, St = gaussian_run.Get_FreqPro.Extract_Freq(freq_lines) 
-            Polar_iso, Polar_aniso = gaussian_run.Get_FreqPro.Extract_polar(freq_lines) 
-            output["freq"] = Freq 
-            output["IR"] = IR
-            output["Raman"] = Raman
-            output["Ezp"] = E_zp
-            output["Et"] = E_t
-            output["E_enth"] = E_enth
-            output["E_free"] = E_free
-            output["Ei"] = Ei
-            output["Cv"] = Cv
-            output["Si"] = St
-            if is_polar != True:
+            if is_polar:
+                Index = 1 + is_symm + is_volume  + is_polar
+                polar_lines = Links[Index].splitlines()
+                Links[Index] = ''
+                Polar_iso, Polar_aniso = gaussian_run.Get_FreqPro.Extract_polar(polar_lines) 
                 output["polar_iso"] = Polar_iso[1]
                 output["polar_aniso"] = Polar_aniso[1]
-
-        if is_nmr:
-            Element = []
-            ppm = []
-            Index = 1 + is_symm + is_polar + is_freq + is_nmr
-            nmr_lines = Links[Index].splitlines()
-            Links[Index] = ""
-            for line in nmr_lines:
-                if line.find("Isotropic =  ") >= 0:
-                    line_Info = line.split()
-                    Element.append(line_Info[1])
-                    ppm.append(float(line_Info[4]))
-            # calculating chemical shift for H, C, or Si
-            for i in range(len(Element)):
-                if Element[i]=="H" or Element[i]=="C" or Element[i]=="Si":
-                    ppm[i] = gaussian_run.AtomInfo.One_TMS_refer(Element[i], self.functional, self.basis) - ppm[i]
-            # return Element, ppm 
-            output["nmr"] = [Element, ppm]
-
-        if is_vip or is_vea:
-            try:
-                GS_Energy = output["Energy"][0]
-            except KeyError:
-                output["Energy"] = self.Extract_SCFEnergy(GS_lines)
-                GS_Energy = output["Energy"][0] 
-           # print (GS_Energy)
-            if is_vip:
-                Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip
-                IP_lines = Links[Index].splitlines()
+            
+            if is_freq:
+                Index = 1 + is_symm + is_volume + is_polar + is_freq
+                freq_lines = Links[Index].splitlines()
+                Links[Index] = ''
+                print("For getting frequency")
+                Freq, IR, Raman, E_zp,  E_t, E_enth, E_free, Ei, Cv, St = gaussian_run.Get_FreqPro.Extract_Freq(freq_lines) 
+                Polar_iso, Polar_aniso = gaussian_run.Get_FreqPro.Extract_polar(freq_lines) 
+                output["freq"] = Freq 
+                output["IR"] = IR
+                output["Raman"] = Raman
+                output["Ezp"] = E_zp
+                output["Et"] = E_t
+                output["E_enth"] = E_enth
+                output["E_free"] = E_free
+                output["Ei"] = Ei
+                output["Cv"] = Cv
+                output["Si"] = St
+                if is_polar != True:
+                    output["polar_iso"] = Polar_iso[1]
+                    output["polar_aniso"] = Polar_aniso[1]
+            
+            if is_nmr:
+                Element = []
+                ppm = []
+                Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr
+                nmr_lines = Links[Index].splitlines()
                 Links[Index] = ""
-                IP_Energy_SS = self.Extract_SCFEnergy(IP_lines)
-                # IP_Comp_SS, IP_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(IP_lines)
-                # Normal ionization potential calculation
-                output["vip"] = [Eh2eV*(IP_Energy_SS[0]-GS_Energy), IP_Energy_SS[1]]
-            if is_vea:
-                Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip + is_vea
-                EA_lines = Links[Index].splitlines()
+                for line in nmr_lines:
+                    if line.find("Isotropic =  ") >= 0:
+                        line_Info = line.split()
+                        Element.append(line_Info[1])
+                        ppm.append(float(line_Info[4]))
+                # calculating chemical shift for H, C, or Si
+                for i in range(len(Element)):
+                    if Element[i]=="H" or Element[i]=="C" or Element[i]=="Si":
+                        ppm[i] = gaussian_run.AtomInfo.One_TMS_refer(Element[i], self.functional, self.basis) - ppm[i]
+                # return Element, ppm 
+                output["nmr"] = [Element, ppm]
+            
+            if is_vip or is_vea:
+                try:
+                    GS_Energy = output["Energy"][0]
+                except KeyError:
+                    output["Energy"] = self.Extract_SCFEnergy(GS_lines)
+                    GS_Energy = output["Energy"][0] 
+               # print (GS_Energy)
+                if is_vip:
+                    Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr + is_vip
+                    IP_lines = Links[Index].splitlines()
+                    Links[Index] = ""
+                    IP_Energy_SS = self.Extract_SCFEnergy(IP_lines)
+                    # IP_Comp_SS, IP_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(IP_lines)
+                    # Normal ionization potential calculation
+                    output["vip"] = [Eh2eV*(IP_Energy_SS[0]-GS_Energy), IP_Energy_SS[1]]
+                if is_vea:
+                    Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip + is_vea
+                    EA_lines = Links[Index].splitlines()
+                    Links[Index] = ""
+                    EA_Energy_SS =  self.Extract_SCFEnergy(EA_lines)
+                    # EA_Comp_SS, EA_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(EA_lines)
+                    # Normal electronic affinity calculation
+                    output["vea"] = [Eh2eV*(GS_Energy-EA_Energy_SS[0]), EA_Energy_SS[1]]
+            
+            if is_aip or is_aea:
+                try:
+                    GS_Energy = output["Energy"][0]
+                except KeyError:
+                    output["Energy"] = self.Extract_SCFEnergy(GS_lines)
+                    GS_Energy = output["Energy"][0] 
+                if is_aip:
+                    Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip
+                    PC_lines = Links[Index].splitlines()
+                    Links[Index] = ""
+                    VNP_lines = Links[Index+1].splitlines()
+                    Links[Index+1] = ""
+                    is_aip += 1
+                    PC_Energy_SS = self.Extract_SCFEnergy(PC_lines)
+                    # PC_Comp_SS, PC_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(PC_lines)
+                    VNP_Energy_SS = self.Extract_SCFEnergy(VNP_lines)
+                    # VNP_Comp_SS, VNP_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(VNP_lines)
+                    # For Check internal coordinate
+                    MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(PC_lines)
+                    output["relaxedIP_MaxDisplace"] = MaxDisplace
+                    output["aip"] = [Eh2eV*(PC_Energy_SS[0]-GS_Energy), Eh2eV*(PC_Energy_SS[0]-VNP_Energy_SS[0]), PC_Energy_SS[1], VNP_Energy_SS[1]]
+                if is_aea:
+                    Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea 
+                    NC_lines = Links[Index].splitlines()
+                    Links[Index] = ""
+                    VNN_lines = Links[Index+1].splitlines()
+                    Links[Index+1] = ""
+                    is_aea += 1
+                    NC_Energy_SS = self.Extract_SCFEnergy(NC_lines)
+                    # NC_Comp_SS, NC_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(NC_lines)
+                    VNN_Energy_SS = self.Extract_SCFEnergy(VNN_lines)
+                    # VNN_Comp_SS, NC_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(VNN_lines)
+                    # For Check internal coordinate
+                    MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(NC_lines)
+                    output["relaxedEA_MaxDisplace"] = MaxDisplace
+                    # Normal electronic affinity calculation
+                    output["aea"] = [Eh2eV*(GS_Energy-NC_Energy_SS[0]), Eh2eV*(VNN_Energy_SS[0]-NC_Energy_SS[0]), NC_Energy_SS[1], VNN_Energy_SS[1]]
+            
+            if is_satkoopmans:
+                dSCF_vip = output["vip"][0]
+                dSCF_vea = output["vea"][0]
+                Alpha_eHOMO = AlphaEigenVal[NumAlphaElec-1] 
+                Beta_eHOMO = BetaEigenVal[NumBetaElec-1]
+                Alpha_eLUMO = AlphaEigenVal[NumAlphaElec] 
+                Beta_eLUMO = BetaEigenVal[NumBetaElec]
+                Delta_vip = dSCF_vip + Eh2eV*max(Alpha_eHOMO, Beta_eHOMO)
+                Delta_vea = dSCF_vea + Eh2eV*min(Alpha_eLUMO, Beta_eLUMO)
+                output["satkoopmans"] = [Delta_vip, Delta_vea]
+            
+            if is_uv:
+                Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea + is_uv
+                lines = "" if Index >= n else Links[Index].splitlines()
+                _, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
+                    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
+                output["uv"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
+                output["state_index"] = [State_allowed, State_forbidden]
                 Links[Index] = ""
-                EA_Energy_SS =  self.Extract_SCFEnergy(EA_lines)
-                # EA_Comp_SS, EA_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(EA_lines)
-                # Normal electronic affinity calculation
-                output["vea"] = [Eh2eV*(GS_Energy-EA_Energy_SS[0]), EA_Energy_SS[1]]
-
-        if is_aip or is_aea:
-            try:
-                GS_Energy = output["Energy"][0]
-            except KeyError:
-                output["Energy"] = self.Extract_SCFEnergy(GS_lines)
-                GS_Energy = output["Energy"][0] 
-            if is_aip:
-                Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip
-                PC_lines = Links[Index].splitlines()
-                Links[Index] = ""
-                VNP_lines = Links[Index+1].splitlines()
-                Links[Index+1] = ""
-                is_aip += 1
-                PC_Energy_SS = self.Extract_SCFEnergy(PC_lines)
-                # PC_Comp_SS, PC_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(PC_lines)
-                VNP_Energy_SS = self.Extract_SCFEnergy(VNP_lines)
-                # VNP_Comp_SS, VNP_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(VNP_lines)
+                if self.ref_uv_path != '':
+                    ref_uv = {}
+                    print(f"Read the reference spectrum...{self.ref_uv_path}")
+                    ref_uv["uv"] = gaussian_run.UV_similarity.read_data(self.ref_uv_path)
+                    S, D = gaussian_run.UV_similarity.smililarity_dissimilarity(ref_uv["uv"][0], ref_uv["uv"][1], output["uv"][0], output["uv"][1])
+                    output["Similality/Disdimilarity"] = [S, D]
+            
+            if is_fluor or is_tadf:
+                Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea + is_uv + is_fluor 
+                lines = "" if Index >= n else Links[Index].splitlines()
+                S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
+                    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
                 # For Check internal coordinate
-                MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(PC_lines)
-                output["relaxedIP_MaxDisplace"] = MaxDisplace
-                output["aip"] = [Eh2eV*(PC_Energy_SS[0]-GS_Energy), Eh2eV*(PC_Energy_SS[0]-VNP_Energy_SS[0]), PC_Energy_SS[1], VNP_Energy_SS[1]]
-            if is_aea:
-                Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea 
-                NC_lines = Links[Index].splitlines()
+                MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
+                output["MinEtarget"] = S_Eext
+                output["Min_MaxDisplace"] = MaxDisplace
+                output["fluor"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
                 Links[Index] = ""
-                VNN_lines = Links[Index+1].splitlines()
-                Links[Index+1] = ""
-                is_aea += 1
-                NC_Energy_SS = self.Extract_SCFEnergy(NC_lines)
-                # NC_Comp_SS, NC_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(NC_lines)
-                VNN_Energy_SS = self.Extract_SCFEnergy(VNN_lines)
-                # VNN_Comp_SS, NC_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(VNN_lines)
+            
+            if is_tadf:
+                Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea  + is_uv + is_fluor + is_tadf
+                print(f'Index for tadf is {Index}.')
+                lines = "" if Index >= n else Links[Index].splitlines()
+                T_Found, _, T_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
+                    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden  = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
                 # For Check internal coordinate
-                MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(NC_lines)
-                output["relaxedEA_MaxDisplace"] = MaxDisplace
-                # Normal electronic affinity calculation
-                output["aea"] = [Eh2eV*(GS_Energy-NC_Energy_SS[0]), Eh2eV*(VNN_Energy_SS[0]-NC_Energy_SS[0]), NC_Energy_SS[1], VNN_Energy_SS[1]]
+                MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
+                output["T_Min"] = T_Eext
+                output["T_Min_MaxDisplace"] = MaxDisplace
+                output["T_Phos"] = [WL_forbidden, OS_forbidden, CD_L_forbidden, CD_OS_forbidden]
+                TADF_Eng = 0.0
+                if S_Found and T_Found:
+                   TADF_Eng = S_Eext - T_Eext
+                output["Delta(S-T)"] = TADF_Eng
+                Links[Index] = ""
+            del lines
+            del Links
 
-        if is_satkoopmans:
-            dSCF_vip = output["vip"][0]
-            dSCF_vea = output["vea"][0]
-            Alpha_eHOMO = AlphaEigenVal[NumAlphaElec-1] 
-            Beta_eHOMO = BetaEigenVal[NumBetaElec-1]
-            Alpha_eLUMO = AlphaEigenVal[NumAlphaElec] 
-            Beta_eLUMO = BetaEigenVal[NumBetaElec]
-            Delta_vip = dSCF_vip + Eh2eV*max(Alpha_eHOMO, Beta_eHOMO)
-            Delta_vea = dSCF_vea + Eh2eV*min(Alpha_eLUMO, Beta_eLUMO)
-            output["satkoopmans"] = [Delta_vip, Delta_vea]
-  
-        if is_uv:
-            Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea + is_uv
-            lines = "" if Index >= n else Links[Index].splitlines()
-            _, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
-            output["uv"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
-            output["state_index"] = [State_allowed, State_forbidden]
-            Links[Index] = ""
-            if self.ref_uv_path != '':
-                ref_uv = {}
-                print(f"Read the reference spectrum...{self.ref_uv_path}")
-                ref_uv["uv"] = gaussian_run.UV_similarity.read_data(self.ref_uv_path)
-                S, D = gaussian_run.UV_similarity.smililarity_dissimilarity(ref_uv["uv"][0], ref_uv["uv"][1], output["uv"][0], output["uv"][1])
-                output["Similality/Disdimilarity"] = [S, D]
-  
-        if is_fluor or is_tadf:
-            Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea + is_uv + is_fluor 
-            lines = "" if Index >= n else Links[Index].splitlines()
-            S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
-            # For Check internal coordinate
-            MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
-            output["MinEtarget"] = S_Eext
-            output["Min_MaxDisplace"] = MaxDisplace
-            output["fluor"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
-            Links[Index] = ""
-  
-        if is_tadf:
-            Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea  + is_uv + is_fluor + is_tadf
-            print(f'Index for tadf is {Index}.')
-            lines = "" if Index >= n else Links[Index].splitlines()
-            T_Found, _, T_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden  = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
-            # For Check internal coordinate
-            MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
-            output["T_Min"] = T_Eext
-            output["T_Min_MaxDisplace"] = MaxDisplace
-            output["T_Phos"] = [WL_forbidden, OS_forbidden, CD_L_forbidden, CD_OS_forbidden]
-            TADF_Eng = 0.0
-            if S_Found and T_Found:
-               TADF_Eng = S_Eext - T_Eext
-            output["Delta(S-T)"] = TADF_Eng
-            Links[Index] = ""
-        del lines
-        del Links
         return output
 
     def MakeSolventLine(self):
@@ -424,7 +467,6 @@ class GaussianDFTRun:
         if self.para_functional == []:
             pass
         else:
-            pass
             line_iop_functional += gaussian_run.Gen_IOPline_functional.functional_para(self.functional, self.para_functional)
 
         #Section for method
@@ -668,6 +710,8 @@ class GaussianDFTRun:
                 option_dict['satkoopmans'] = True
             elif option.lower() == 'symm':
                 option_dict['symm'] = True
+            elif option.lower() == 'volume':
+                option_dict['volume'] = True
             else:
                 print('invalid option: ', option)
 
@@ -676,92 +720,107 @@ class GaussianDFTRun:
         else:
             Is_geom_spec = False
 
-        if 'symm' in option_dict:
-            if ReadFromchk:
-                self.make_input(JobName, TotalCharge, SpinMulti, run_type='symm', Newinput=True, geom_spec=Is_geom_spec, readchk='all') 
-            if ReadFromsdf or ReadFromxyz:
-                self.make_input(JobName, TotalCharge, SpinMulti, run_type='symm', Newinput=True, Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, geom_spec=Is_geom_spec,) 
+        scf_need = self.check_scf_need(option_dict)
 
-        #The first scf job
-        if 'opt' in option_dict: # opt == 1
-            if ReadFromchk:
-                if Is_ChargeSpec == False and Is_SpinMultiSpec == False:
-                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='opt', Newinput=False, geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
-                else:
-                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='opt', Newinput=False, geom_spec=Is_geom_spec, readchk='geomguess', solvent=self.solvent) 
-            elif ReadFromsdf or ReadFromxyz:
-                self.make_input(JobName, TotalCharge, SpinMulti, run_type='opt', Newinput=False, Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, geom_spec=Is_geom_spec, solvent=self.solvent) 
-
+        if scf_need == False:
+        #Only no-scf jobs
+            if 'symm' in option_dict:
+                if ReadFromchk:
+                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='symm', Newinput=True, geom_spec=Is_geom_spec, readchk='all') 
+                if ReadFromsdf or ReadFromxyz:
+                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='symm', Newinput=True, Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, geom_spec=Is_geom_spec,) 
+            if 'volume' in option_dict:
+                if ReadFromchk:
+                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='volume', Newinput=False, geom_spec=Is_geom_spec, readchk='all') 
+                if ReadFromsdf or ReadFromxyz:
+                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='volume', Newinput=False, Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, geom_spec=Is_geom_spec,) 
         else:
-            if ReadFromchk:
-                if Is_ChargeSpec == False and Is_SpinMultiSpec == False:
-                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='', Newinput=False, geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
-                else:
-                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='', Newinput=False, geom_spec=Is_geom_spec, readchk='geomguess', solvent=self.solvent) 
-            elif ReadFromsdf or ReadFromxyz:
-                self.make_input(JobName, TotalCharge, SpinMulti, run_type='', Newinput=False, Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, geom_spec=Is_geom_spec, solvent=self.solvent) 
+        #The first scf job
+            if 'opt' in option_dict: # opt == 1
+                if ReadFromchk:
+                    if Is_ChargeSpec == False and Is_SpinMultiSpec == False:
+                        self.make_input(JobName, TotalCharge, SpinMulti, run_type='opt', Newinput=True, geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
+                    else:
+                        self.make_input(JobName, TotalCharge, SpinMulti, run_type='opt', Newinput=True, geom_spec=Is_geom_spec, readchk='geomguess', solvent=self.solvent) 
+                elif ReadFromsdf or ReadFromxyz:
+                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='opt', Newinput=True, Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, geom_spec=Is_geom_spec, solvent=self.solvent) 
+
+            else:
+                if ReadFromchk:
+                    if Is_ChargeSpec == False and Is_SpinMultiSpec == False:
+                        self.make_input(JobName, TotalCharge, SpinMulti, run_type='', Newinput=True, geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
+                    else:
+                        self.make_input(JobName, TotalCharge, SpinMulti, run_type='', Newinput=True, geom_spec=Is_geom_spec, readchk='geomguess', solvent=self.solvent) 
+                elif ReadFromsdf or ReadFromxyz:
+                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='', Newinput=True, Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, geom_spec=Is_geom_spec, solvent=self.solvent) 
 
         #The post job after getting wavefunction
-        if 'polar' in option_dict: # polar == 1
-            self.make_input(JobName, TotalCharge, SpinMulti, run_type='polar', Newinput=False, readchk='all', solvent=self.solvent) 
+            if 'symm' in option_dict:
+                self.make_input(JobName, TotalCharge, SpinMulti, run_type='symm', Newinput=False, readchk='all', solvent=self.solvent) 
 
-        if 'freq' in option_dict: # freq == 1
-            self.make_input(JobName, TotalCharge, SpinMulti, run_type='freq', Newinput=False, readchk='all', solvent=self.solvent) 
+            if 'volume' in option_dict:
+                self.make_input(JobName, TotalCharge, SpinMulti, run_type='volume', Newinput=False, readchk='all', solvent=self.solvent) 
 
-        if 'nmr' in option_dict: # nmr == 1
-            self.make_input(JobName, TotalCharge, SpinMulti, run_type='nmr', Newinput=False, readchk='all', solvent=self.solvent) 
+            if 'polar' in option_dict: # polar == 1
+                self.make_input(JobName, TotalCharge, SpinMulti, run_type='polar', Newinput=False, readchk='all', solvent=self.solvent) 
 
-        if 'vip' in option_dict: # vip == 1
-            IP_chk = JobName+'_IP'
+            if 'freq' in option_dict: # freq == 1
+                self.make_input(JobName, TotalCharge, SpinMulti, run_type='freq', Newinput=False, readchk='all', solvent=self.solvent) 
 
-            if SpinMulti == 1:
-                IP_TotalCharge = TotalCharge + 1
-                IP_SpinMulti = SpinMulti + 1
-            else:
-                IP_TotalCharge = TotalCharge + 1
-                IP_SpinMulti = SpinMulti - 1
+            if 'nmr' in option_dict: # nmr == 1
+                self.make_input(JobName, TotalCharge, SpinMulti, run_type='nmr', Newinput=False, readchk='all', solvent=self.solvent) 
 
-            self.make_input(JobName, IP_TotalCharge, IP_SpinMulti, run_type='', Newinput=False, readchk='geomguess', newchk=IP_chk, solvent=self.solvent) 
+            if 'vip' in option_dict: # vip == 1
+                IP_chk = JobName+'_IP'
 
-        if 'vea' in option_dict: # vea == 1
-            EA_chk = JobName+'_EA'
+                if SpinMulti == 1:
+                    IP_TotalCharge = TotalCharge + 1
+                    IP_SpinMulti = SpinMulti + 1
+                else:
+                    IP_TotalCharge = TotalCharge + 1
+                    IP_SpinMulti = SpinMulti - 1
 
-            if SpinMulti == 1:
-                EA_TotalCharge = TotalCharge - 1
-                EA_SpinMulti = SpinMulti + 1
-            else:
-                EA_TotalCharge = TotalCharge - 1
-                EA_SpinMulti = SpinMulti - 1
+                self.make_input(JobName, IP_TotalCharge, IP_SpinMulti, run_type='', Newinput=False, readchk='geomguess', newchk=IP_chk, solvent=self.solvent) 
 
-            self.make_input(JobName, EA_TotalCharge, EA_SpinMulti, run_type='', Newinput=False, readchk='geomguess', newchk=EA_chk, solvent=self.solvent) 
+            if 'vea' in option_dict: # vea == 1
+                EA_chk = JobName+'_EA'
 
-        if 'aip' in option_dict: # aip == 1
-            AIP_chk = JobName+'_AIP'
-            #AIP energy
-            self.make_input(JobName, IP_TotalCharge, IP_SpinMulti, run_type='opt', readchk='geomguess', oldchk=IP_chk, newchk=AIP_chk, solvent=self.solvent) 
-            OE_AIP_chk = JobName+'_AIP_OE'
-            #Neutrization energy
-            self.make_input(JobName, TotalCharge, SpinMulti, run_type='', readchk='geomguess', oldchk=AIP_chk, newchk=OE_AIP_chk, solvent=self.solvent) 
+                if SpinMulti == 1:
+                    EA_TotalCharge = TotalCharge - 1
+                    EA_SpinMulti = SpinMulti + 1
+                else:
+                    EA_TotalCharge = TotalCharge - 1
+                    EA_SpinMulti = SpinMulti - 1
 
-        if 'aea' in  option_dict: #aea == 1
-            AEA_chk = JobName+'_AEA'
-            #AEA energy
-            self.make_input(JobName, EA_TotalCharge, EA_SpinMulti, run_type='opt', readchk='geomguess', oldchk=EA_chk, newchk=AEA_chk, solvent=self.solvent) 
-            OE_AEA_chk = JobName+'_AEA_OE'
-            #Neutrization energy
-            self.make_input(JobName, TotalCharge, SpinMulti, run_type='', readchk='geomguess', oldchk=AEA_chk, newchk=OE_AEA_chk, solvent=self.solvent) 
+                self.make_input(JobName, EA_TotalCharge, EA_SpinMulti, run_type='', Newinput=False, readchk='geomguess', newchk=EA_chk, solvent=self.solvent) 
 
-        if 'uv' in option_dict: #uv == 1 of fluor ==1 or tadf ==1
-            self.make_input(JobName, TotalCharge, SpinMulti, run_type='', TDDFT=True, readchk='all', solvent=self.solvent) 
+            if 'aip' in option_dict: # aip == 1
+                AIP_chk = JobName+'_AIP'
+                #AIP energy
+                self.make_input(JobName, IP_TotalCharge, IP_SpinMulti, run_type='opt', readchk='geomguess', oldchk=IP_chk, newchk=AIP_chk, solvent=self.solvent) 
+                OE_AIP_chk = JobName+'_AIP_OE'
+                #Neutrization energy
+                self.make_input(JobName, TotalCharge, SpinMulti, run_type='', readchk='geomguess', oldchk=AIP_chk, newchk=OE_AIP_chk, solvent=self.solvent) 
 
-        if 'fluor' in option_dict:
-            TDOpt_chk = f'{JobName}_ExOptAState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateSinglet'
-            self.make_input(JobName, TotalCharge, SpinMulti, scf='close', run_type='opt', TDDFT=True, TDstate='Singlet', target=targetstate, readchk='all', newchk=TDOpt_chk, solvent=self.solvent) 
+            if 'aea' in  option_dict: #aea == 1
+                AEA_chk = JobName+'_AEA'
+                #AEA energy
+                self.make_input(JobName, EA_TotalCharge, EA_SpinMulti, run_type='opt', readchk='geomguess', oldchk=EA_chk, newchk=AEA_chk, solvent=self.solvent) 
+                OE_AEA_chk = JobName+'_AEA_OE'
+                #Neutrization energy
+                self.make_input(JobName, TotalCharge, SpinMulti, run_type='', readchk='geomguess', oldchk=AEA_chk, newchk=OE_AEA_chk, solvent=self.solvent) 
 
-        if 'tadf' in option_dict:
-            TTDOpt_chk = f'{JobName}_ExOptFState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateTriplet'
-            #self.make_input(JobName, TotalCharge, SpinMulti, scf='close', run_type='opt', TDDFT=True, TDstate='Triplet', target=targetstate, readchk='all', oldchk=TDOpt_chk, newchk=TTDOpt_chk, solvent=self.solvent) 
-            self.make_input(JobName, TotalCharge, SpinMulti, scf='close', run_type='opt', TDDFT=True, TDstate='Triplet', target=targetstate, readchk='all', newchk=TTDOpt_chk, solvent=self.solvent) 
+            if 'uv' in option_dict: #uv == 1 of fluor ==1 or tadf ==1
+                self.make_input(JobName, TotalCharge, SpinMulti, run_type='', TDDFT=True, readchk='all', solvent=self.solvent) 
+
+            if 'fluor' in option_dict:
+                TDOpt_chk = f'{JobName}_ExOptAState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateSinglet'
+                self.make_input(JobName, TotalCharge, SpinMulti, scf='close', run_type='opt', TDDFT=True, TDstate='Singlet', target=targetstate, readchk='all', newchk=TDOpt_chk, solvent=self.solvent) 
+
+            if 'tadf' in option_dict:
+                TTDOpt_chk = f'{JobName}_ExOptFState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateTriplet'
+                #self.make_input(JobName, TotalCharge, SpinMulti, scf='close', run_type='opt', TDDFT=True, TDstate='Triplet', target=targetstate, readchk='all', oldchk=TDOpt_chk, newchk=TTDOpt_chk, solvent=self.solvent) 
+                self.make_input(JobName, TotalCharge, SpinMulti, scf='close', run_type='opt', TDDFT=True, TDstate='Triplet', target=targetstate, readchk='all', newchk=TTDOpt_chk, solvent=self.solvent) 
 
         # Run Gaussian
         job_state = "normal"
@@ -770,12 +829,19 @@ class GaussianDFTRun:
             shutil.rmtree(JobName)
         os.mkdir(JobName)
         shutil.move(GauInputName, JobName)
-        if ReadFromchk == True :
+        if ReadFromchk:
             inchkfile = JobName + ".chk"
             shutil.move(inchkfile, JobName) 
         os.chdir(JobName)
         job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName, self.timexe)
-        gaussian_run.chk2fchk.Get_chklist()
+        # When the scf is performed, the obtained wavefunction is saved to chk file.
+        # But for 'symm' and 'volume' that information is emply except for when the input is chk or fchk files.
+        if scf_need or ReadFromchk:
+            gaussian_run.chk2fchk.Get_chklist()
+        elif scf_need != True and ReadFromchk != True:
+            for f in glob.glob('./*.chk'):
+                os.remove(os.path.join('.', f))
+
         #output_dic = self.Extract_values(PreGauInput[0], option_dict, Bondpair1, Bondpair2)
         try:
             output_dic = self.Extract_values(JobName, option_dict, Bondpair1, Bondpair2)
@@ -845,7 +911,7 @@ class GaussianDFTRun:
         output_dic["log"] = job_state
 
         # Convert fchk to xyz 
-        if self.restart == False:
+        if self.restart == False and scf_need == True:
             gaussian_run.Get_MolCoordinate_fchk.Get_fchklist2xyz()
 
         os.chdir("..")

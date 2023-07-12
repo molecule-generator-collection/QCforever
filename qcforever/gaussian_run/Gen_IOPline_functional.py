@@ -13,7 +13,7 @@ def rounding_num(num, digit='0.0000'):
 
 def functional_para(functional, para):
 
-    iop_line = '\n'
+    iop_line = ''
 
     if functional == 'lc-blyp':
         if len(para) != 1:
@@ -23,6 +23,7 @@ def functional_para(functional, para):
 
         omega_card = int(float(rpara)*(10**9))
         str_omega_card = str(omega_card).zfill(10)
+        iop_line += '\n'
         iop_line += 'iop(3/107=' + str_omega_card + ',3/108=' + str_omega_card + ')'
 
     elif functional =='cam-b3lyp':
@@ -39,12 +40,14 @@ def functional_para(functional, para):
         str_omega_card = str(omega_card).zfill(10)
         str_alpha_card = str(alpha_card).zfill(10)
         str_beta_card = str(beta_card).zfill(5)
+        iop_line += '\n'
         iop_line += 'iop(3/107=' + str_omega_card + ',3/108=' + str_omega_card + ')\n'
         iop_line += 'iop(3/119=' + str_alpha_card + ',3/120=' + str_alpha_card + ')\n'
         iop_line += 'iop(3/130=' + str_beta_card + ',3/131=' + str_beta_card + ')'
 
     else:
         print ('Invalid combination between functional and parameters!')
+        iop_line = ''
 
     return iop_line
 
