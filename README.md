@@ -81,6 +81,7 @@ Following options are currently available:
 | Option name | Description | Gaussian | Gamess |
 |---|---|---|---|
 |symm| just specify symmetry of a molecule.|:white_check_mark:||
+|volume| Compute the volume (in cm**3/mol) of a molecule.|:white_check_mark:||
 |opt| just perform geometry optimization of a molecule.|:white_check_mark:|:white_check_mark:|
 |nmr| NMR chemical shift (ppm to TMS) of each atom is computed.|:white_check_mark:||
 |uv| absorption wavelengths (nm) (for spin allowed states) are computed. If you add an absolute path of text file that specify peak positions and their peak like (uv=/ab/path2uv.dat), it is possible to the similarity and dissimilarity between the target and reference. |:white_check_mark:|:white_check_mark:|
@@ -88,6 +89,7 @@ Following options are currently available:
 |cden| charge and spin densities on each atom are computed.|:white_check_mark:|:white_check_mark:|
 |homolumo| HOMO/LUMO gap (Eh) calculation|:white_check_mark:|:white_check_mark:|
 |dipole| dipole moment of a molecule|:white_check_mark:|:white_check_mark:|
+|polar| Dipole polarizability (in ##) of a molecule|:white_check_mark:||
 |deen| decomposition energy (in eV) of a molecule|:white_check_mark:||
 |stable2o2| stability to oxygen molecule|:white_check_mark:||
 |vip| vertical ionization potential energy (in eV)|:white_check_mark:|:white_check_mark:|

@@ -74,7 +74,6 @@ class GaussianDFTRun:
 
         return  Mvolume
 
-
     def check_scf_need(self, option):
         all_keys = set(option.keys())
         nonSCF_keys = ['symm', 'volume']
