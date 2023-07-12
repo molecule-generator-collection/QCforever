@@ -26,17 +26,9 @@ def count_Njob(jobname):
     with open(Gau_infile,'r') as infile:
         lines = infile.readlines()
     count = 0
-    count_opt  = 0
-    count_freq  = 0
     for line in lines:
         if line.find("#") >= 0:
             count += 1
-        if line.find("Opt") >= 0:
-            count_opt += 1
-        if line.find("Freq") >=0:
-            count_freq += 1
-    if count_opt == 1 and count_freq ==1:
-        count += 1
     return count
 
 
