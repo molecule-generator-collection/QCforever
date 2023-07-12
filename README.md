@@ -89,7 +89,7 @@ Following options are currently available:
 |cden| charge and spin densities on each atom are computed.|:white_check_mark:|:white_check_mark:|
 |homolumo| HOMO/LUMO gap (Eh) calculation|:white_check_mark:|:white_check_mark:|
 |dipole| dipole moment of a molecule|:white_check_mark:|:white_check_mark:|
-|polar| Dipole polarizability (in ##) of a molecule|:white_check_mark:||
+|polar| Dipole polarizability (in 10**-24 cm**3) of a molecule|:white_check_mark:||
 |deen| decomposition energy (in eV) of a molecule|:white_check_mark:||
 |stable2o2| stability to oxygen molecule|:white_check_mark:||
 |vip| vertical ionization potential energy (in eV)|:white_check_mark:|:white_check_mark:|
