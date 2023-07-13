@@ -309,7 +309,7 @@ class GaussianDFTRun:
                     # Normal ionization potential calculation
                     output["vip"] = [Eh2eV*(IP_Energy_SS[0]-GS_Energy), IP_Energy_SS[1]]
                 if is_vea:
-                    Index = 1 + is_symm + is_polar + is_freq + is_nmr + is_vip + is_vea
+                    Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr + is_vip + is_vea
                     EA_lines = Links[Index].splitlines()
                     Links[Index] = ""
                     EA_Energy_SS =  self.Extract_SCFEnergy(EA_lines)
