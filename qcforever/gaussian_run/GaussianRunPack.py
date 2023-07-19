@@ -31,49 +31,6 @@ class GaussianDFTRun:
         self.geom_spec = {}
         self.para_functional = []
 
-    def SplitLinks(self, logfile):
-        with open(logfile, 'r') as f:
-            lines = f.readlines()
-        Links = []
-        Link = ""
-        for line in lines:
-            if line.find("Initial command:")>0:
-                Links.append(Link)
-                Link = ""
-            Link = Link + line
-        Links.append(Link)
-        return Links
-
-    def Extract_SCFEnergy(self, lines):
-        Energy = []
-        for line in lines:
-            if line.find("SCF Done:  ") >= 0:
-                line_StateInfo = line.split()
-                Energy.append(float(line_StateInfo[4]))
-        Comp_SS, Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(lines)
-        Energy_Spin = [Energy[-1], Comp_SS-Ideal_SS]
-
-        return Energy_Spin
-
-    def Extract_symm(self, lines):
-        pGroup = "C1"
-        for line in lines:
-            if line.find("Full point group  ") >= 0:
-                line_symmInfo = line.split()
-                pGroup = line_symmInfo[3]
-
-        return pGroup
-
-    def Extract_volume(self, lines):
-        Mvolume =  0.0
-        for line in lines:
-            if line.find("Molar volume ") >= 0:
-                line = line.replace('(', '').replace(')', '')
-                line_volumeInfo = line.split()
-        Mvolume = float(line_volumeInfo[-2])
-
-        return  Mvolume
-
     def check_scf_need(self, option):
         all_keys = set(option.keys())
         nonSCF_keys = ['symm', 'volume']
@@ -113,34 +70,26 @@ class GaussianDFTRun:
         fchkname = f"{jobname}.fchk"
 
         output = {}
-        with open(infilename, 'r') as ifile:
-            lines = ifile.readlines()
-        print("Spliting links....")
-        Links = self.SplitLinks(infilename)
-        n = len(Links)
-        print(f"The number of linkes = {n}")
 
-        # Clean lines
-        lines = ""
+        parse_log = gaussian_run.parse_log.parse_log(infilename)
+        job_index, Links_split = parse_log.Check_task()
 
         scf_done = self.check_scf_need(option_dict)
 
-        # For extracting properties of molecule without SCF
+       # For extracting properties of molecule without SCF
         if scf_done == False:
             if is_symm:
-                Symm_lines = Links[is_symm].splitlines()
-                output["symm"] = self.Extract_symm(Symm_lines)
+                Symm_lines = Links_split[job_index['symm']]
+                output["symm"] = parse_log.Extract_symm(Symm_lines)
 
             if is_volume:
-                Index = is_symm + is_volume
-                Volume_lines = Links[Index].splitlines()
-                output["volume"] = self.Extract_volume(Volume_lines)
+                Volume_lines = Links_split[job_index['volume']]  
+                output["volume"] = parse_log.Extract_volume(Volume_lines)
 
         else:
         # For extracting properties of molecule after SCF        
             if scf_done: 
-                GS_lines = Links[1].splitlines()
-                Links[1] = ""
+                GS_lines = Links_split[job_index['gs']]
             
             if is_opt:
                 print ("Optimization was performed...Check geometry...")
@@ -178,13 +127,13 @@ class GaussianDFTRun:
                 # return Dipole_X[-1], Dipole_Y[-1], Dipole_Z[-1], Dipole_Total[-1]
             
             if is_energy:
-                output["Energy"] = self.Extract_SCFEnergy(GS_lines)
+                output["Energy"] = parse_log.Extract_SCFEnergy(GS_lines)
             
             if is_deen:
                 try:
                     GS_Energy = output["Energy"][0]
                 except KeyError:
-                    output["Energy"] = self.Extract_SCFEnergy(GS_lines)
+                    output["Energy"] = parse_log.Extract_SCFEnergy(GS_lines)
                     GS_Energy = output["Energy"][0] 
                 Mol_atom, _, _, _ = gaussian_run.Get_MolCoordinate.Extract_Coordinate(GS_lines)
                 # Calculating Decomposed atoms total energy
@@ -222,43 +171,22 @@ class GaussianDFTRun:
             if is_cden:
                 output["cden"] = gaussian_run.Get_ChargeSpin.Extract_ChargeSpin(GS_lines)
             
-            """ Index of Links
-            Index = 0 : (always blank)
-            Index = 1+symm : symmetry 
-            Index = 1+symm+volume : volume
-            Index = 1+symm+volume+polar+freq : Ground state [if opt==1]
-            Index = 1+symm+volume+polar+frea+nmr : NMR chemical shift of S0 [if nmr==1]
-            Index = 1+symm+volume+polar+freq+nmr+vip : Ionization potential [if vip==1]
-            Index = 1+symm+volume+polar+freq+nmr+vip+vea : Electronic affinity [if vea==1]
-            Index = 1+symm+volume+polar+freq+nmr+vip+vea+aip : adiabatic ionization potential [if aip==1]
-            Index = 1+symm+volume+polar+freq+nmr+vip+vea+aip+aea : adiabatic electronic affinity [if aea==1]
-            Index = 1+symm+volume+polar+freq+nmr+vip+vea+aip+aea+1 : Virtical excitation (S0 -> S1) [uv]
-            Index = 2+symm+volume+polar+freq+nmr+vip+vea+aip+aea+1 : Optimization of S1 [fluor or tadf] 
-            Index = 3+symm+volume+polar+freq+nmr+vip+vea+aip+aea+1 : Optimization of T1 [tadf]
-            """
             if is_symm:
-                Index = 1 + is_symm
-                Symm_lines = Links[Index].splitlines()
-                output["symm"] = self.Extract_symm(Symm_lines)
+                Symm_lines = Links_split[job_index['symm']]
+                output["symm"] = parse_log.Extract_symm(Symm_lines)
 
             if is_volume:
-                Index = 1 + is_symm + is_volume
-                Volume_lines = Links[Index].splitlines()
-                output["volume"] = self.Extract_volume(Volume_lines)
+                Volume_lines = Links_split[job_index['volume']]
+                output["volume"] = parse_log.Extract_volume(Volume_lines)
 
             if is_polar:
-                Index = 1 + is_symm + is_volume  + is_polar
-                polar_lines = Links[Index].splitlines()
-                Links[Index] = ''
+                polar_lines = Links_split[job_index['polar_line']]
                 Polar_iso, Polar_aniso = gaussian_run.Get_FreqPro.Extract_polar(polar_lines) 
                 output["polar_iso"] = Polar_iso[1]
                 output["polar_aniso"] = Polar_aniso[1]
             
             if is_freq:
-                Index = 1 + is_symm + is_volume + is_polar + is_freq
-                freq_lines = Links[Index].splitlines()
-                Links[Index] = ''
-                print("For getting frequency")
+                freq_lines = Links_split[job_index['freq_line']]
                 Freq, IR, Raman, E_zp,  E_t, E_enth, E_free, Ei, Cv, St = gaussian_run.Get_FreqPro.Extract_Freq(freq_lines) 
                 Polar_iso, Polar_aniso = gaussian_run.Get_FreqPro.Extract_polar(freq_lines) 
                 output["freq"] = Freq 
@@ -278,9 +206,7 @@ class GaussianDFTRun:
             if is_nmr:
                 Element = []
                 ppm = []
-                Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr
-                nmr_lines = Links[Index].splitlines()
-                Links[Index] = ""
+                nmr_lines = Links_split[job_index['nmr_line']]
                 for line in nmr_lines:
                     if line.find("Isotropic =  ") >= 0:
                         line_Info = line.split()
@@ -297,23 +223,17 @@ class GaussianDFTRun:
                 try:
                     GS_Energy = output["Energy"][0]
                 except KeyError:
-                    output["Energy"] = self.Extract_SCFEnergy(GS_lines)
+                    output["Energy"] = parse_log.Extract_SCFEnergy(GS_lines)
                     GS_Energy = output["Energy"][0] 
                # print (GS_Energy)
                 if is_vip:
-                    Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr + is_vip
-                    IP_lines = Links[Index].splitlines()
-                    Links[Index] = ""
-                    IP_Energy_SS = self.Extract_SCFEnergy(IP_lines)
-                    # IP_Comp_SS, IP_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(IP_lines)
+                    IP_lines = Links_split[job_index['IP_line']]
+                    IP_Energy_SS = parse_log.Extract_SCFEnergy(IP_lines)
                     # Normal ionization potential calculation
                     output["vip"] = [Eh2eV*(IP_Energy_SS[0]-GS_Energy), IP_Energy_SS[1]]
                 if is_vea:
-                    Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr + is_vip + is_vea
-                    EA_lines = Links[Index].splitlines()
-                    Links[Index] = ""
-                    EA_Energy_SS =  self.Extract_SCFEnergy(EA_lines)
-                    # EA_Comp_SS, EA_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(EA_lines)
+                    EA_lines = Links_split[job_index['EA_line']]
+                    EA_Energy_SS =  parse_log.Extract_SCFEnergy(EA_lines)
                     # Normal electronic affinity calculation
                     output["vea"] = [Eh2eV*(GS_Energy-EA_Energy_SS[0]), EA_Energy_SS[1]]
             
@@ -321,34 +241,22 @@ class GaussianDFTRun:
                 try:
                     GS_Energy = output["Energy"][0]
                 except KeyError:
-                    output["Energy"] = self.Extract_SCFEnergy(GS_lines)
+                    output["Energy"] = parse_log.Extract_SCFEnergy(GS_lines)
                     GS_Energy = output["Energy"][0] 
                 if is_aip:
-                    Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip
-                    PC_lines = Links[Index].splitlines()
-                    Links[Index] = ""
-                    VNP_lines = Links[Index+1].splitlines()
-                    Links[Index+1] = ""
-                    is_aip += 1
-                    PC_Energy_SS = self.Extract_SCFEnergy(PC_lines)
-                    # PC_Comp_SS, PC_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(PC_lines)
-                    VNP_Energy_SS = self.Extract_SCFEnergy(VNP_lines)
-                    # VNP_Comp_SS, VNP_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(VNP_lines)
+                    PC_lines = Links_split[job_index['PC_line']]
+                    VNP_lines = Links_split[job_index['VNP_line']]
+                    PC_Energy_SS = parse_log.Extract_SCFEnergy(PC_lines)
+                    VNP_Energy_SS = parse_log.Extract_SCFEnergy(VNP_lines)
                     # For Check internal coordinate
                     MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(PC_lines)
                     output["relaxedIP_MaxDisplace"] = MaxDisplace
                     output["aip"] = [Eh2eV*(PC_Energy_SS[0]-GS_Energy), Eh2eV*(PC_Energy_SS[0]-VNP_Energy_SS[0]), PC_Energy_SS[1], VNP_Energy_SS[1]]
                 if is_aea:
-                    Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea 
-                    NC_lines = Links[Index].splitlines()
-                    Links[Index] = ""
-                    VNN_lines = Links[Index+1].splitlines()
-                    Links[Index+1] = ""
-                    is_aea += 1
-                    NC_Energy_SS = self.Extract_SCFEnergy(NC_lines)
-                    # NC_Comp_SS, NC_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(NC_lines)
-                    VNN_Energy_SS = self.Extract_SCFEnergy(VNN_lines)
-                    # VNN_Comp_SS, NC_Ideal_SS = gaussian_run.Estimate_SpinContami.Estimate_SpinDiff(VNN_lines)
+                    NC_lines = Links_split[job_index['NC_line']]
+                    VNN_lines = Links_split[job_index['VNN_line']]
+                    NC_Energy_SS = parse_log.Extract_SCFEnergy(NC_lines)
+                    VNN_Energy_SS = parse_log.Extract_SCFEnergy(VNN_lines)
                     # For Check internal coordinate
                     MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(NC_lines)
                     output["relaxedEA_MaxDisplace"] = MaxDisplace
@@ -367,13 +275,11 @@ class GaussianDFTRun:
                 output["satkoopmans"] = [Delta_vip, Delta_vea]
             
             if is_uv:
-                Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea + is_uv
-                lines = "" if Index >= n else Links[Index].splitlines()
+                lines = Links_split[job_index['uv_line']] 
                 _, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                     CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
                 output["uv"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
                 output["state_index"] = [State_allowed, State_forbidden]
-                Links[Index] = ""
                 if self.ref_uv_path != '':
                     ref_uv = {}
                     print(f"Read the reference spectrum...{self.ref_uv_path}")
@@ -382,8 +288,7 @@ class GaussianDFTRun:
                     output["Similality/Disdimilarity"] = [S, D]
             
             if is_fluor or is_tadf:
-                Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea + is_uv + is_fluor 
-                lines = "" if Index >= n else Links[Index].splitlines()
+                lines = Links_split[job_index['relaxAEstate']]
                 S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                     CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
                 # For Check internal coordinate
@@ -391,12 +296,9 @@ class GaussianDFTRun:
                 output["MinEtarget"] = S_Eext
                 output["Min_MaxDisplace"] = MaxDisplace
                 output["fluor"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
-                Links[Index] = ""
             
             if is_tadf:
-                Index = 1 + is_symm + is_volume + is_polar + is_freq + is_nmr + is_vip + is_vea + is_aip + is_aea  + is_uv + is_fluor + is_tadf
-                print(f'Index for tadf is {Index}.')
-                lines = "" if Index >= n else Links[Index].splitlines()
+                lines = Links_split[job_index['relaxFEstate']] 
                 T_Found, _, T_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                     CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden  = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
                 # For Check internal coordinate
@@ -408,9 +310,6 @@ class GaussianDFTRun:
                 if S_Found and T_Found:
                    TADF_Eng = S_Eext - T_Eext
                 output["Delta(S-T)"] = TADF_Eng
-                Links[Index] = ""
-            del lines
-            del Links
 
         return output
 

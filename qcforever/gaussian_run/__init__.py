@@ -7,6 +7,7 @@ from . import (
     fchk2chk,
     GaussianRunPack,
     Gen_IOPline_functional,
+    parse_log,
     Get_ChargeSpin,
     Get_ExcitedState,
     Get_FreqPro,
