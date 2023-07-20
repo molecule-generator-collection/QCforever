@@ -276,8 +276,10 @@ class GaussianDFTRun:
             
             if is_uv:
                 lines = Links_split[job_index['uv_line']] 
+                #_, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
+                #    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
                 _, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
+                    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = parse_log.Extract_ExcitedState(lines)
                 output["uv"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
                 output["state_index"] = [State_allowed, State_forbidden]
                 if self.ref_uv_path != '':
@@ -289,8 +291,10 @@ class GaussianDFTRun:
             
             if is_fluor or is_tadf:
                 lines = Links_split[job_index['relaxAEstate']]
+                #S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
+                #    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
                 S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
+                    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = parse_log.Extract_ExcitedState(lines)
                 # For Check internal coordinate
                 MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
                 output["MinEtarget"] = S_Eext
@@ -300,7 +304,7 @@ class GaussianDFTRun:
             if is_tadf:
                 lines = Links_split[job_index['relaxFEstate']] 
                 T_Found, _, T_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden  = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
+                    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden  = parse_log.Extract_ExcitedState(lines)
                 # For Check internal coordinate
                 MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
                 output["T_Min"] = T_Eext
