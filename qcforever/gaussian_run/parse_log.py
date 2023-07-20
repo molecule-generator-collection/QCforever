@@ -102,94 +102,199 @@ class parse_log:
 
         return charge, spinmulti
 
-    def classify_task(self, lines, charge, spinmulti):
-        count = 0
-        GScharge = 0
-        GSspin = 1
-
-        job_index = {}
-
-        for i in range(len(lines)):
-            print(lines[i])
-            if re.search('\sGuess=Only', lines[i]):
-                #print('SCF energy is not available')
-                if re.search('\sSymmetry', lines[i]):
-                    symm = True
-                    job_index['symm'] = i
-                if re.search('\svolume', lines[i]):
-                    is_volume = True
-                    job_index['volume'] = i
+    def classify_SpinStates(self, Ideal_SS, SS, WaveLength, OS, CD_L, CD_OS):
+        State_allowed = []
+        State_forbidden = []
+        WL_allowed = []
+        WL_forbidden = []
+        OS_allowed = []
+        OS_forbidden = []
+        CD_L_allowed = []
+        CD_L_forbidden = []
+        CD_OS_allowed = []
+        CD_OS_forbidden = []
+        for i in range(len(SS)):
+            if abs(SS[i]-Ideal_SS) <= 0.1:
+                State_allowed.append(i+1)
+                WL_allowed.append(WaveLength[i])                   
+                OS_allowed.append(OS[i])
+                CD_L_allowed.append(CD_L[i])
+                CD_OS_allowed.append(CD_OS[i])
             else:
-                count += 1
-                if count == 1:
-                    #print (f'GS electronic structure is charge {charge[i]} and spin multiplicity {spinmulti[i]}.')
-                    GScharge = charge[i]
-                    GSspin = spinmulti[i]
-                    if re.search('\sOpt', lines[i]):
-                        is_opt = True
-                    job_index['gs'] = i
-                if count > 1:
-                    if charge[i] == GScharge + 1:
-                        #print ('Ionization computation')
-                        if re.search('\sOpt', lines[i]):
-                            is_aip = True
-                            job_index['PC_line'] = i
-                            if i+1 <len(lines):
-                                job_index['VNP_line'] = i+1
-                        else:
-                            is_vip = True
-                            job_index['IP_line'] = i
-                    if charge[i] == GScharge - 1:
-                        #print ('Electronic affinity computation')
-                        if re.search('\sOpt', lines[i]):
-                            is_aea = True
-                            job_index['NC_line'] = i
-                            if i+1 <len(lines):
-                                job_index['VNN_line'] = i+1
-                        else:
-                            is_vea = True
-                            job_index['EA_line'] = i
-                if re.search('\spolar', lines[i]):
-                    is_polar = True
-                    job_index['polar_line'] = i
-                if re.search('\sFreq', lines[i]):
-                    is_freq = True
-                    is_polar = True
-                    job_index['freq_line'] = i
-                if re.search('\sNMR', lines[i]):
-                    is_nmr = True
-                    job_index['nmr_line'] = i
-                if re.search('\sTD', lines[i]) and re.search('\sOpt', lines[i]) == None:
-                    is_uv = True
-                    job_index['uv_line'] = i
-                if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) and re.search('Singlet', lines[i]):
-                    is_fluor = True
-                    match_root = re.search('\s+root=\d+', lines[i])
-                    if match_root:    
-                        root_line = match_root.group().split('=')
-                        #print(root_line)
-                        target = root_line[1]
-                    #job_index[f'relaxAEstate{target}_line'] = i
-                    job_index[f'relaxAEstate'] = i
-                if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) and re.search('Triplet', lines[i]):
-                    is_tadf = True
-                    match_root = re.search('\s+root=\d+', lines[i])
-                    if match_root:    
-                        root_line = match_root.group().split('=')
-                        target = root_line[1]
-                    #job_index[f'relaxFEstate{target}_line'] = i
-                    job_index[f'relaxFEstate'] = i
-                if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) and re.search('Singlet', lines[i]) == None and re.search('Triplet', lines[i]) == None: 
-                    is_fluor = True
-                    match_root = re.search('root=', lines[i])
-                    if match_root:    
-                        root_line = match_root.group().split('=')
-                        target = root_line[1]
-                    job_index[f'relaxAEstate{target}_line'] = i
+                State_forbidden.append(i+1)
+                WL_forbidden.append(WaveLength[i])                   
+                OS_forbidden.append(OS[i])
+                CD_L_forbidden.append(CD_L[i])
+                CD_OS_forbidden.append(CD_OS[i])
+        return State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
+                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden 
 
+    def extract_CD(self, lines):
         count = 0
+        CD_length = []
+        CD_Osc = []
+        for line in lines:
+            if line.find("1/2[<0|r|b>*<b|rxdel|0> + (<0|rxdel|b>*<b|r|0>)*]") >= 0: 
+                CD_length = []
+                CD_Osc = []
+                count += 1
+                continue
+            if count == 1:
+                count += 1
+                continue
+            if count == 2:
+                count += 1
+                continue
+            if count == 3:
+                if line.find(" 1/2[<0|del|b>*<b|r|0> + (<0|r|b>*<b|del|0>)*] (Au)") >= 0: 
+                    count += 1
+                    continue
+                else:
+                    info_R =  line.split()
+                    cd_value = float(info_R[-1])
+                    CD_length.append(cd_value)    
+                    continue
+            if count == 4:
+                count += 1 
+                continue
+            if count == 5:
+                if line == "": 
+                    count = 0
+                    continue
+                else:
+                    info_Osc =  line.split()
+                    osc_value = float(info_Osc[-1])
+                    CD_Osc.append(osc_value)    
+                    continue
+        return CD_length, CD_Osc
 
-        return job_index 
+    def Extract_ExcitedState(self, lines):
+        Egrd = 0.0
+        Eext = 0.0
+        Found = False
+        WaveLength = []
+        V_OS = []
+        SS = []
+        _, Ideal_SS = self.Estimate_SpinDiff(lines)
+        
+        print ("Get information about excited state")
+        for line in lines:
+            if line.find("SCF Done:  ") >=0:
+                line_SCFEnergy = re.split("\s+", line)
+                Egrd = float(line_SCFEnergy[5])
+            if line.find("Total Energy, E(TD-HF/TD-DFT)") >=0:
+                line_totalenergy = line.split('=')
+                Eext = float(line_totalenergy[1])
+            if line.find("Excitation energies and oscillator strengths:") >=0:
+                 WaveLength = []
+                 V_OS = []
+                 SS = []
+            if line.find("Excited State  ") >=0:
+                 line_StateInfo = line.split()
+                 WaveLength.append(float(line_StateInfo[6]))
+                 OS_info = line_StateInfo[8].split('=')
+                 V_OS.append(float(OS_info[1]))
+                 SS_info = line_StateInfo[9].split('=')
+                 SS.append(float(SS_info[1]))
+            if line.find("-- Stationary point found.") >=0:
+                Found = True
+        
+        CD_length, CD_OS = self.extract_CD(lines)
+        State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
+            CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = self.classify_SpinStates(Ideal_SS, SS, WaveLength, V_OS, CD_length, CD_OS)
+
+        return Found, Egrd, Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
+            CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden 
+        
+        def classify_task(self, lines, charge, spinmulti):
+            count = 0
+            GScharge = 0
+            GSspin = 1
+        
+            job_index = {}
+        
+            for i in range(len(lines)):
+                print(lines[i])
+                if re.search('\sGuess=Only', lines[i]):
+                    #print('SCF energy is not available')
+                    if re.search('\sSymmetry', lines[i]):
+                        symm = True
+                        job_index['symm'] = i
+                    if re.search('\svolume', lines[i]):
+                        is_volume = True
+                        job_index['volume'] = i
+                else:
+                    count += 1
+                    if count == 1:
+                        #print (f'GS electronic structure is charge {charge[i]} and spin multiplicity {spinmulti[i]}.')
+                        GScharge = charge[i]
+                        GSspin = spinmulti[i]
+                        if re.search('\sOpt', lines[i]):
+                            is_opt = True
+                        job_index['gs'] = i
+                    if count > 1:
+                        if charge[i] == GScharge + 1:
+                            #print ('Ionization computation')
+                            if re.search('\sOpt', lines[i]):
+                                is_aip = True
+                                job_index['PC_line'] = i
+                                if i+1 <len(lines):
+                                    job_index['VNP_line'] = i+1
+                            else:
+                                is_vip = True
+                                job_index['IP_line'] = i
+                        if charge[i] == GScharge - 1:
+                            #print ('Electronic affinity computation')
+                            if re.search('\sOpt', lines[i]):
+                                is_aea = True
+                                job_index['NC_line'] = i
+                                if i+1 <len(lines):
+                                    job_index['VNN_line'] = i+1
+                            else:
+                                is_vea = True
+                                job_index['EA_line'] = i
+                    if re.search('\spolar', lines[i]):
+                        is_polar = True
+                        job_index['polar_line'] = i
+                    if re.search('\sFreq', lines[i]):
+                        is_freq = True
+                        is_polar = True
+                        job_index['freq_line'] = i
+                    if re.search('\sNMR', lines[i]):
+                        is_nmr = True
+                        job_index['nmr_line'] = i
+                    if re.search('\sTD', lines[i]) and re.search('\sOpt', lines[i]) == None:
+                        is_uv = True
+                        job_index['uv_line'] = i
+                    if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) and re.search('Singlet', lines[i]):
+                        is_fluor = True
+                        match_root = re.search('\s+root=\d+', lines[i])
+                        #if match_root:    
+                        #    root_line = match_root.group().split('=')
+                        #    target = root_line[1]
+                        #job_index[f'relaxAEstate{target}_line'] = i
+                        job_index[f'relaxAEstate'] = i
+                    if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) and re.search('Triplet', lines[i]):
+                        is_tadf = True
+                        match_root = re.search('\s+root=\d+', lines[i])
+                        #if match_root:    
+                        #    root_line = match_root.group().split('=')
+                        #    target = root_line[1]
+                        #job_index[f'relaxFEstate{target}_line'] = i
+                        job_index[f'relaxFEstate'] = i
+                    if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) and re.search('Singlet', lines[i]) == None and re.search('Triplet', lines[i]) == None: 
+                        is_fluor = True
+                        match_root = re.search('root=', lines[i])
+                        #if match_root:    
+                        #    root_line = match_root.group().split('=')
+                        #    target = root_line[1]
+                        job_index[f'relaxAEstate'] = i
+                        if i+1 <len(lines):
+                            job_index[f'relaxFEstate'] = i+1
+        
+            count = 0
+        
+            return job_index 
 
     def Check_task(self):
         Links = self.SplitLinks()
