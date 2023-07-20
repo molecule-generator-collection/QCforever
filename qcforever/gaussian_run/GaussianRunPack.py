@@ -74,246 +74,233 @@ class GaussianDFTRun:
         parse_log = gaussian_run.parse_log.parse_log(infilename)
         job_index, Links_split = parse_log.Check_task()
 
-        scf_done = self.check_scf_need(option_dict)
-
-       # For extracting properties of molecule without SCF
-        if scf_done == False:
-            if is_symm:
-                Symm_lines = Links_split[job_index['symm']]
-                output["symm"] = parse_log.Extract_symm(Symm_lines)
-
-            if is_volume:
-                Volume_lines = Links_split[job_index['volume']]  
-                output["volume"] = parse_log.Extract_volume(Volume_lines)
-
-        else:
         # For extracting properties of molecule after SCF        
-            if scf_done: 
-                GS_lines = Links_split[job_index['gs']]
-            
-            if is_opt:
-                print ("Optimization was performed...Check geometry...")
-                MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(GS_lines)
-                output["GS_MaxDisplace"] = MaxDisplace
-            
-            if is_homolumo:
-                with open(fchkname, 'r') as ifile:
-                    fchk_lines = ifile.readlines()
+        if 'gs' in job_index:
+            GS_lines = Links_split[job_index['gs']]
+        
+        if is_opt:
+            print ("Optimization was performed...Check geometry...")
+            MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(GS_lines)
+            output["GS_MaxDisplace"] = MaxDisplace
+        
+        if is_homolumo:
+            with open(fchkname, 'r') as ifile:
+                fchk_lines = ifile.readlines()
+            NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy_fchk.Extract_MO(fchk_lines)
+            # NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy.Extract_MO(GS_lines)
+            if BetaEigenVal == []:
+                Alpha_gap = Eh2eV * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
+                output["homolumo"] = Alpha_gap
+                # return Alpha_gap
+            else:
+                Alpha_gap = Eh2eV * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
+                Beta_gap = Eh2eV * (BetaEigenVal[NumBetaElec]-BetaEigenVal[NumBetaElec-1])
+                output["homolumo"] = [Alpha_gap, Beta_gap]
+                # return Alpha_gap, Beta_gap
+        
+        if is_dipole:
+            Dipole_X = []
+            Dipole_Y = []
+            Dipole_Z = []
+            Dipole_Total = []
+            for line in GS_lines:
+                if line.find(" X= ") >= 0:
+                    line_StateInfo = line.split()
+                    Dipole_X.append(float(line_StateInfo[1]))
+                    Dipole_Y.append(float(line_StateInfo[3]))
+                    Dipole_Z.append(float(line_StateInfo[5]))
+                    Dipole_Total.append(float(line_StateInfo[7]))
+            output["dipole"] = [Dipole_X[-1], Dipole_Y[-1], Dipole_Z[-1], Dipole_Total[-1]]
+            # return Dipole_X[-1], Dipole_Y[-1], Dipole_Z[-1], Dipole_Total[-1]
+        
+        if is_energy:
+            output["Energy"] = parse_log.Extract_SCFEnergy(GS_lines)
+        
+        if is_deen:
+            try:
+                GS_Energy = output["Energy"][0]
+            except KeyError:
+                output["Energy"] = parse_log.Extract_SCFEnergy(GS_lines)
+                GS_Energy = output["Energy"][0] 
+            Mol_atom, _, _, _ = gaussian_run.Get_MolCoordinate.Extract_Coordinate(GS_lines)
+            # Calculating Decomposed atoms total energy
+            decomposed_Energy = 0
+            for i in range(len(Mol_atom)):    
+                decomposed_Energy += gaussian_run.AtomInfo.One_Atom_Energy(Mol_atom[i], self.functional, self.basis)
+            print("Decomposed energy: ", decomposed_Energy)
+            # return deen 
+            output["deen"] = GS_Energy - (decomposed_Energy)
+        
+        if is_stable2o2:
+            try:
+                NumAlphaElec
+            except:
+                with open(fchkname, 'r') as fchkfile:
+                    fchk_lines = fchkfile.readlines()
                 NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy_fchk.Extract_MO(fchk_lines)
                 # NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy.Extract_MO(GS_lines)
-                if BetaEigenVal == []:
-                    Alpha_gap = Eh2eV * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
-                    output["homolumo"] = Alpha_gap
-                    # return Alpha_gap
-                else:
-                    Alpha_gap = Eh2eV * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
-                    Beta_gap = Eh2eV * (BetaEigenVal[NumBetaElec]-BetaEigenVal[NumBetaElec-1])
-                    output["homolumo"] = [Alpha_gap, Beta_gap]
-                    # return Alpha_gap, Beta_gap
-            
-            if is_dipole:
-                Dipole_X = []
-                Dipole_Y = []
-                Dipole_Z = []
-                Dipole_Total = []
-                for line in GS_lines:
-                    if line.find(" X= ") >= 0:
-                        line_StateInfo = line.split()
-                        Dipole_X.append(float(line_StateInfo[1]))
-                        Dipole_Y.append(float(line_StateInfo[3]))
-                        Dipole_Z.append(float(line_StateInfo[5]))
-                        Dipole_Total.append(float(line_StateInfo[7]))
-                output["dipole"] = [Dipole_X[-1], Dipole_Y[-1], Dipole_Z[-1], Dipole_Total[-1]]
-                # return Dipole_X[-1], Dipole_Y[-1], Dipole_Z[-1], Dipole_Total[-1]
-            
-            if is_energy:
-                output["Energy"] = parse_log.Extract_SCFEnergy(GS_lines)
-            
-            if is_deen:
-                try:
-                    GS_Energy = output["Energy"][0]
-                except KeyError:
-                    output["Energy"] = parse_log.Extract_SCFEnergy(GS_lines)
-                    GS_Energy = output["Energy"][0] 
-                Mol_atom, _, _, _ = gaussian_run.Get_MolCoordinate.Extract_Coordinate(GS_lines)
-                # Calculating Decomposed atoms total energy
-                decomposed_Energy = 0
-                for i in range(len(Mol_atom)):    
-                    decomposed_Energy += gaussian_run.AtomInfo.One_Atom_Energy(Mol_atom[i], self.functional, self.basis)
-                print("Decomposed energy: ", decomposed_Energy)
-                # return deen 
-                output["deen"] = GS_Energy - (decomposed_Energy)
-            
-            if is_stable2o2:
-                try:
-                    NumAlphaElec
-                except:
-                    with open(fchkname, 'r') as fchkfile:
-                        fchk_lines = fchkfile.readlines()
-                    NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy_fchk.Extract_MO(fchk_lines)
-                    # NumAlphaElec, NumBetaElec, AlphaEigenVal, BetaEigenVal = gaussian_run.Get_MOEnergy.Extract_MO(GS_lines)
-                O2_SOMO, O2_LUMO = gaussian_run.AtomInfo.O2_MO_refer(self.functional, self.basis)
-                if BetaEigenVal == []:
-                    """
-                    OxidizedbyO2  >  0 oxidation by O2 is hard to occure.
-                    OxidizedbyO2 <=  0 oxidation by O2 is easy to occure.
-                    ReducedbyO2  >  0 reduction by O2 is hard to occure.
-                    ReducedbyO2 <=  0 reduction by O2 is easy to occure.
-                    """
-                    OxidizedbyO2 = O2_LUMO -AlphaEigenVal[NumAlphaElec-1]
-                    ReducedbyO2 =  AlphaEigenVal[NumAlphaElec] - O2_SOMO
-                    output["stable2o2"] = [OxidizedbyO2,ReducedbyO2]
-                else:
-                    OxidizedbyO2 = O2_LUMO - BetaEigenVal[NumBetaElec-1] 
-                    ReducedbyO2 = AlphaEigenVal[NumAlphaElec] - O2_SOMO
-                    output["stable2o2"] = [OxidizedbyO2,ReducedbyO2]
-            
-            if is_cden:
-                output["cden"] = gaussian_run.Get_ChargeSpin.Extract_ChargeSpin(GS_lines)
-            
-            if is_symm:
-                Symm_lines = Links_split[job_index['symm']]
-                output["symm"] = parse_log.Extract_symm(Symm_lines)
-
-            if is_volume:
-                Volume_lines = Links_split[job_index['volume']]
-                output["volume"] = parse_log.Extract_volume(Volume_lines)
-
-            if is_polar:
-                polar_lines = Links_split[job_index['polar_line']]
-                Polar_iso, Polar_aniso = gaussian_run.Get_FreqPro.Extract_polar(polar_lines) 
+            O2_SOMO, O2_LUMO = gaussian_run.AtomInfo.O2_MO_refer(self.functional, self.basis)
+            if BetaEigenVal == []:
+                """
+                OxidizedbyO2  >  0 oxidation by O2 is hard to occure.
+                OxidizedbyO2 <=  0 oxidation by O2 is easy to occure.
+                ReducedbyO2  >  0 reduction by O2 is hard to occure.
+                ReducedbyO2 <=  0 reduction by O2 is easy to occure.
+                """
+                OxidizedbyO2 = O2_LUMO -AlphaEigenVal[NumAlphaElec-1]
+                ReducedbyO2 =  AlphaEigenVal[NumAlphaElec] - O2_SOMO
+                output["stable2o2"] = [OxidizedbyO2,ReducedbyO2]
+            else:
+                OxidizedbyO2 = O2_LUMO - BetaEigenVal[NumBetaElec-1] 
+                ReducedbyO2 = AlphaEigenVal[NumAlphaElec] - O2_SOMO
+                output["stable2o2"] = [OxidizedbyO2,ReducedbyO2]
+        
+        if is_cden:
+            output["cden"] = gaussian_run.Get_ChargeSpin.Extract_ChargeSpin(GS_lines)
+        
+        if is_symm:
+            Symm_lines = Links_split[job_index['symm']]
+            output["symm"] = parse_log.Extract_symm(Symm_lines)
+        
+        if is_volume:
+            Volume_lines = Links_split[job_index['volume']]
+            output["volume"] = parse_log.Extract_volume(Volume_lines)
+        
+        if is_polar:
+            polar_lines = Links_split[job_index['polar_line']]
+            Polar_iso, Polar_aniso = gaussian_run.Get_FreqPro.Extract_polar(polar_lines) 
+            output["polar_iso"] = Polar_iso[1]
+            output["polar_aniso"] = Polar_aniso[1]
+        
+        if is_freq:
+            freq_lines = Links_split[job_index['freq_line']]
+            Freq, IR, Raman, E_zp,  E_t, E_enth, E_free, Ei, Cv, St = gaussian_run.Get_FreqPro.Extract_Freq(freq_lines) 
+            Polar_iso, Polar_aniso = gaussian_run.Get_FreqPro.Extract_polar(freq_lines) 
+            output["freq"] = Freq 
+            output["IR"] = IR
+            output["Raman"] = Raman
+            output["Ezp"] = E_zp
+            output["Et"] = E_t
+            output["E_enth"] = E_enth
+            output["E_free"] = E_free
+            output["Ei"] = Ei
+            output["Cv"] = Cv
+            output["Si"] = St
+            if is_polar != True:
                 output["polar_iso"] = Polar_iso[1]
                 output["polar_aniso"] = Polar_aniso[1]
-            
-            if is_freq:
-                freq_lines = Links_split[job_index['freq_line']]
-                Freq, IR, Raman, E_zp,  E_t, E_enth, E_free, Ei, Cv, St = gaussian_run.Get_FreqPro.Extract_Freq(freq_lines) 
-                Polar_iso, Polar_aniso = gaussian_run.Get_FreqPro.Extract_polar(freq_lines) 
-                output["freq"] = Freq 
-                output["IR"] = IR
-                output["Raman"] = Raman
-                output["Ezp"] = E_zp
-                output["Et"] = E_t
-                output["E_enth"] = E_enth
-                output["E_free"] = E_free
-                output["Ei"] = Ei
-                output["Cv"] = Cv
-                output["Si"] = St
-                if is_polar != True:
-                    output["polar_iso"] = Polar_iso[1]
-                    output["polar_aniso"] = Polar_aniso[1]
-            
-            if is_nmr:
-                Element = []
-                ppm = []
-                nmr_lines = Links_split[job_index['nmr_line']]
-                for line in nmr_lines:
-                    if line.find("Isotropic =  ") >= 0:
-                        line_Info = line.split()
-                        Element.append(line_Info[1])
-                        ppm.append(float(line_Info[4]))
-                # calculating chemical shift for H, C, or Si
-                for i in range(len(Element)):
-                    if Element[i]=="H" or Element[i]=="C" or Element[i]=="Si":
-                        ppm[i] = gaussian_run.AtomInfo.One_TMS_refer(Element[i], self.functional, self.basis) - ppm[i]
-                # return Element, ppm 
-                output["nmr"] = [Element, ppm]
-            
-            if is_vip or is_vea:
-                try:
-                    GS_Energy = output["Energy"][0]
-                except KeyError:
-                    output["Energy"] = parse_log.Extract_SCFEnergy(GS_lines)
-                    GS_Energy = output["Energy"][0] 
-               # print (GS_Energy)
-                if is_vip:
-                    IP_lines = Links_split[job_index['IP_line']]
-                    IP_Energy_SS = parse_log.Extract_SCFEnergy(IP_lines)
-                    # Normal ionization potential calculation
-                    output["vip"] = [Eh2eV*(IP_Energy_SS[0]-GS_Energy), IP_Energy_SS[1]]
-                if is_vea:
-                    EA_lines = Links_split[job_index['EA_line']]
-                    EA_Energy_SS =  parse_log.Extract_SCFEnergy(EA_lines)
-                    # Normal electronic affinity calculation
-                    output["vea"] = [Eh2eV*(GS_Energy-EA_Energy_SS[0]), EA_Energy_SS[1]]
-            
-            if is_aip or is_aea:
-                try:
-                    GS_Energy = output["Energy"][0]
-                except KeyError:
-                    output["Energy"] = parse_log.Extract_SCFEnergy(GS_lines)
-                    GS_Energy = output["Energy"][0] 
-                if is_aip:
-                    PC_lines = Links_split[job_index['PC_line']]
-                    VNP_lines = Links_split[job_index['VNP_line']]
-                    PC_Energy_SS = parse_log.Extract_SCFEnergy(PC_lines)
-                    VNP_Energy_SS = parse_log.Extract_SCFEnergy(VNP_lines)
-                    # For Check internal coordinate
-                    MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(PC_lines)
-                    output["relaxedIP_MaxDisplace"] = MaxDisplace
-                    output["aip"] = [Eh2eV*(PC_Energy_SS[0]-GS_Energy), Eh2eV*(PC_Energy_SS[0]-VNP_Energy_SS[0]), PC_Energy_SS[1], VNP_Energy_SS[1]]
-                if is_aea:
-                    NC_lines = Links_split[job_index['NC_line']]
-                    VNN_lines = Links_split[job_index['VNN_line']]
-                    NC_Energy_SS = parse_log.Extract_SCFEnergy(NC_lines)
-                    VNN_Energy_SS = parse_log.Extract_SCFEnergy(VNN_lines)
-                    # For Check internal coordinate
-                    MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(NC_lines)
-                    output["relaxedEA_MaxDisplace"] = MaxDisplace
-                    # Normal electronic affinity calculation
-                    output["aea"] = [Eh2eV*(GS_Energy-NC_Energy_SS[0]), Eh2eV*(VNN_Energy_SS[0]-NC_Energy_SS[0]), NC_Energy_SS[1], VNN_Energy_SS[1]]
-            
-            if is_satkoopmans:
-                dSCF_vip = output["vip"][0]
-                dSCF_vea = output["vea"][0]
-                Alpha_eHOMO = AlphaEigenVal[NumAlphaElec-1] 
-                Beta_eHOMO = BetaEigenVal[NumBetaElec-1]
-                Alpha_eLUMO = AlphaEigenVal[NumAlphaElec] 
-                Beta_eLUMO = BetaEigenVal[NumBetaElec]
-                Delta_vip = dSCF_vip + Eh2eV*max(Alpha_eHOMO, Beta_eHOMO)
-                Delta_vea = dSCF_vea + Eh2eV*min(Alpha_eLUMO, Beta_eLUMO)
-                output["satkoopmans"] = [Delta_vip, Delta_vea]
-            
-            if is_uv:
-                lines = Links_split[job_index['uv_line']] 
-                #_, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                #    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
-                _, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = parse_log.Extract_ExcitedState(lines)
-                output["uv"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
-                output["state_index"] = [State_allowed, State_forbidden]
-                if self.ref_uv_path != '':
-                    ref_uv = {}
-                    print(f"Read the reference spectrum...{self.ref_uv_path}")
-                    ref_uv["uv"] = gaussian_run.UV_similarity.read_data(self.ref_uv_path)
-                    S, D = gaussian_run.UV_similarity.smililarity_dissimilarity(ref_uv["uv"][0], ref_uv["uv"][1], output["uv"][0], output["uv"][1])
-                    output["Similality/Disdimilarity"] = [S, D]
-            
-            if is_fluor or is_tadf:
-                lines = Links_split[job_index['relaxAEstate']]
-                #S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                #    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
-                S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = parse_log.Extract_ExcitedState(lines)
+        
+        if is_nmr:
+            Element = []
+            ppm = []
+            nmr_lines = Links_split[job_index['nmr_line']]
+            for line in nmr_lines:
+                if line.find("Isotropic =  ") >= 0:
+                    line_Info = line.split()
+                    Element.append(line_Info[1])
+                    ppm.append(float(line_Info[4]))
+            # calculating chemical shift for H, C, or Si
+            for i in range(len(Element)):
+                if Element[i]=="H" or Element[i]=="C" or Element[i]=="Si":
+                    ppm[i] = gaussian_run.AtomInfo.One_TMS_refer(Element[i], self.functional, self.basis) - ppm[i]
+            # return Element, ppm 
+            output["nmr"] = [Element, ppm]
+        
+        if is_vip or is_vea:
+            try:
+                GS_Energy = output["Energy"][0]
+            except KeyError:
+                output["Energy"] = parse_log.Extract_SCFEnergy(GS_lines)
+                GS_Energy = output["Energy"][0] 
+           # print (GS_Energy)
+            if is_vip:
+                IP_lines = Links_split[job_index['IP_line']]
+                IP_Energy_SS = parse_log.Extract_SCFEnergy(IP_lines)
+                # Normal ionization potential calculation
+                output["vip"] = [Eh2eV*(IP_Energy_SS[0]-GS_Energy), IP_Energy_SS[1]]
+            if is_vea:
+                EA_lines = Links_split[job_index['EA_line']]
+                EA_Energy_SS =  parse_log.Extract_SCFEnergy(EA_lines)
+                # Normal electronic affinity calculation
+                output["vea"] = [Eh2eV*(GS_Energy-EA_Energy_SS[0]), EA_Energy_SS[1]]
+        
+        if is_aip or is_aea:
+            try:
+                GS_Energy = output["Energy"][0]
+            except KeyError:
+                output["Energy"] = parse_log.Extract_SCFEnergy(GS_lines)
+                GS_Energy = output["Energy"][0] 
+            if is_aip:
+                PC_lines = Links_split[job_index['PC_line']]
+                VNP_lines = Links_split[job_index['VNP_line']]
+                PC_Energy_SS = parse_log.Extract_SCFEnergy(PC_lines)
+                VNP_Energy_SS = parse_log.Extract_SCFEnergy(VNP_lines)
                 # For Check internal coordinate
-                MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
-                output["MinEtarget"] = S_Eext
-                output["Min_MaxDisplace"] = MaxDisplace
-                output["fluor"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
-            
-            if is_tadf:
-                lines = Links_split[job_index['relaxFEstate']] 
-                T_Found, _, T_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden  = parse_log.Extract_ExcitedState(lines)
+                MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(PC_lines)
+                output["relaxedIP_MaxDisplace"] = MaxDisplace
+                output["aip"] = [Eh2eV*(PC_Energy_SS[0]-GS_Energy), Eh2eV*(PC_Energy_SS[0]-VNP_Energy_SS[0]), PC_Energy_SS[1], VNP_Energy_SS[1]]
+            if is_aea:
+                NC_lines = Links_split[job_index['NC_line']]
+                VNN_lines = Links_split[job_index['VNN_line']]
+                NC_Energy_SS = parse_log.Extract_SCFEnergy(NC_lines)
+                VNN_Energy_SS = parse_log.Extract_SCFEnergy(VNN_lines)
                 # For Check internal coordinate
-                MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
-                output["T_Min"] = T_Eext
-                output["T_Min_MaxDisplace"] = MaxDisplace
-                output["T_Phos"] = [WL_forbidden, OS_forbidden, CD_L_forbidden, CD_OS_forbidden]
-                TADF_Eng = 0.0
-                if S_Found and T_Found:
-                   TADF_Eng = S_Eext - T_Eext
-                output["Delta(S-T)"] = TADF_Eng
+                MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(NC_lines)
+                output["relaxedEA_MaxDisplace"] = MaxDisplace
+                # Normal electronic affinity calculation
+                output["aea"] = [Eh2eV*(GS_Energy-NC_Energy_SS[0]), Eh2eV*(VNN_Energy_SS[0]-NC_Energy_SS[0]), NC_Energy_SS[1], VNN_Energy_SS[1]]
+        
+        if is_satkoopmans:
+            dSCF_vip = output["vip"][0]
+            dSCF_vea = output["vea"][0]
+            Alpha_eHOMO = AlphaEigenVal[NumAlphaElec-1] 
+            Beta_eHOMO = BetaEigenVal[NumBetaElec-1]
+            Alpha_eLUMO = AlphaEigenVal[NumAlphaElec] 
+            Beta_eLUMO = BetaEigenVal[NumBetaElec]
+            Delta_vip = dSCF_vip + Eh2eV*max(Alpha_eHOMO, Beta_eHOMO)
+            Delta_vea = dSCF_vea + Eh2eV*min(Alpha_eLUMO, Beta_eLUMO)
+            output["satkoopmans"] = [Delta_vip, Delta_vea]
+        
+        if is_uv:
+            lines = Links_split[job_index['uv_line']] 
+            #_, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
+            #    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
+            _, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
+                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = parse_log.Extract_ExcitedState(lines)
+            output["uv"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
+            output["state_index"] = [State_allowed, State_forbidden]
+            if self.ref_uv_path != '':
+                ref_uv = {}
+                print(f"Read the reference spectrum...{self.ref_uv_path}")
+                ref_uv["uv"] = gaussian_run.UV_similarity.read_data(self.ref_uv_path)
+                S, D = gaussian_run.UV_similarity.smililarity_dissimilarity(ref_uv["uv"][0], ref_uv["uv"][1], output["uv"][0], output["uv"][1])
+                output["Similality/Disdimilarity"] = [S, D]
+        
+        if is_fluor or is_tadf:
+            lines = Links_split[job_index['relaxAEstate']]
+            #S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
+            #    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
+            S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
+                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = parse_log.Extract_ExcitedState(lines)
+            # For Check internal coordinate
+            MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
+            output["MinEtarget"] = S_Eext
+            output["Min_MaxDisplace"] = MaxDisplace
+            output["fluor"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
+        
+        if is_tadf:
+            lines = Links_split[job_index['relaxFEstate']] 
+            T_Found, _, T_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
+                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden  = parse_log.Extract_ExcitedState(lines)
+            # For Check internal coordinate
+            MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
+            output["T_Min"] = T_Eext
+            output["T_Min_MaxDisplace"] = MaxDisplace
+            output["T_Phos"] = [WL_forbidden, OS_forbidden, CD_L_forbidden, CD_OS_forbidden]
+            TADF_Eng = 0.0
+            if S_Found and T_Found:
+               TADF_Eng = S_Eext - T_Eext
+            output["Delta(S-T)"] = TADF_Eng
 
         return output
 
