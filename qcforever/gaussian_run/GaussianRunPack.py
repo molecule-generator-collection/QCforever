@@ -91,12 +91,10 @@ class GaussianDFTRun:
             if BetaEigenVal == []:
                 Alpha_gap = Eh2eV * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
                 output["homolumo"] = Alpha_gap
-                # return Alpha_gap
             else:
                 Alpha_gap = Eh2eV * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
                 Beta_gap = Eh2eV * (BetaEigenVal[NumBetaElec]-BetaEigenVal[NumBetaElec-1])
                 output["homolumo"] = [Alpha_gap, Beta_gap]
-                # return Alpha_gap, Beta_gap
         
         if is_dipole:
             Dipole_X = []
@@ -111,7 +109,6 @@ class GaussianDFTRun:
                     Dipole_Z.append(float(line_StateInfo[5]))
                     Dipole_Total.append(float(line_StateInfo[7]))
             output["dipole"] = [Dipole_X[-1], Dipole_Y[-1], Dipole_Z[-1], Dipole_Total[-1]]
-            # return Dipole_X[-1], Dipole_Y[-1], Dipole_Z[-1], Dipole_Total[-1]
         
         if is_energy:
             output["Energy"] = parse_log.Extract_SCFEnergy(GS_lines)
@@ -127,8 +124,7 @@ class GaussianDFTRun:
             decomposed_Energy = 0
             for i in range(len(Mol_atom)):    
                 decomposed_Energy += gaussian_run.AtomInfo.One_Atom_Energy(Mol_atom[i], self.functional, self.basis)
-            print("Decomposed energy: ", decomposed_Energy)
-            # return deen 
+            #print("Decomposed energy: ", decomposed_Energy)
             output["deen"] = GS_Energy - (decomposed_Energy)
         
         if is_stable2o2:
@@ -327,7 +323,7 @@ class GaussianDFTRun:
         scf='open', run_type=None, Newinput=False, 
         Mol_atom=[], X=[], Y=[], Z=[], geom_spec=False,
         TDDFT=False, TDstate=None, target=1,
-        readchk=False, oldchk=None, newchk=None, solvent='0'):
+        readchk=None, oldchk=None, newchk=None, solvent='0'):
 
         #Section for system control 
         line_system = ''
@@ -441,7 +437,7 @@ class GaussianDFTRun:
                 input_s += SCRF
             
             #Get geometry and guess information
-            if  len(Mol_atom) == 0 and readchk != False:
+            if  len(Mol_atom) == 0 and readchk != None:
                 if geom_spec:
                     if readchk == 'all':
                         input_s += line_readAllMOGeomConstrain
@@ -458,7 +454,7 @@ class GaussianDFTRun:
                         input_s += line_readGeom
             elif len(Mol_atom) != 0:
                 if geom_spec:
-                    if readchk == False:
+                    if readchk == None:
                         input_s += line_GeomConstrain
                     if readchk == 'guess':
                         input_s += line_readMOConstrain
