@@ -20,11 +20,25 @@ class parse_log:
         Links.append(Link)
         return Links
 
-    def extract_enclosed_text(self, lines):
+    def extract_method_text(self, lines):
         text = '\n'.join(lines)
         pattern = r'\s#.*?(?=\s-{35,70})'  
         enclosed_text = re.findall(pattern, text, re.DOTALL)
-        return enclosed_text
+        method_text = ''
+        for line in enclosed_text:
+            method_text += re.sub(r'\n\s', '', line.strip())
+        return method_text
+
+    def extract_functionalbasis(self, line):
+        output = []
+        # Extract the part between '#' and the first space
+        part = line.split(" ")[0]
+        # Remove '#r' or '#u' if present
+        part = part.replace("#r", "").replace("#u", "")
+        split_method = part.split('/')
+        for i in range(len(split_method)):
+            output.append(split_method[i])
+        return output
 
     def extract_MolCoordlog(self, lines):
         text = '\n'.join(lines)
@@ -300,18 +314,22 @@ class parse_log:
         Links = self.SplitLinks()
         Links.pop(0)
         method = [] 
+        functional = []
+        basis = []
         charge = []
         spinmulti = []
         Links_split = []
         #MolCoord =  []
         for i in range(len(Links)):
             lines = Links[i].splitlines()
-            method_line = self.extract_enclosed_text(lines)
-            method_text = ''
-            for text in method_line:
-                method_text += re.sub(r'\n\s', '', text.strip())
+            #extract method line
+            method_text = self.extract_method_text(lines)
             method.append(method_text) 
-
+            #extract functional and basis set from method lines
+            afunctional, abasis = self.extract_functionalbasis(method_text)
+            functional.append(afunctional)
+            basis.append(abasis)
+            #extract charge and spin multiplicity
             charge_link, spinmulti_link = self.extract_inputChargeSpin(lines)
             charge.append(charge_link)           
             spinmulti.append(spinmulti_link)
@@ -319,6 +337,7 @@ class parse_log:
 
             #MolCoord.append(self.extract_MolCoordlog(lines))
 
+        #print (functional, basis)
         job_index = self.classify_task(method, charge, spinmulti)
 
 ###test...
