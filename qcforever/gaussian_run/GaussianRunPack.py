@@ -727,7 +727,7 @@ class GaussianDFTRun:
             for f in glob.glob('./*.chk'):
                 os.remove(os.path.join('.', f))
 
-        #output_dic = self.Extract_values(PreGauInput[0], option_dict, Bondpair1, Bondpair2)
+        #output_dic = self.Extract_values(JobName, option_dict, Bondpair1, Bondpair2)
         try:
             output_dic = self.Extract_values(JobName, option_dict, Bondpair1, Bondpair2)
         except Exception as e:

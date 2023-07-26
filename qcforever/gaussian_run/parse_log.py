@@ -3,6 +3,9 @@ import sys
 import os
 import numpy as np
 
+bohr2cm = 5.2918e-9
+Ac = 6.0221e+23
+
 class parse_log:
 
     def __init__(self, outfile):
@@ -22,7 +25,8 @@ class parse_log:
 
     def extract_method_text(self, lines):
         text = '\n'.join(lines)
-        pattern = r'\s#.*?(?=\s-{35,70})'  
+        #pattern = r'\s#.*?(?=\s-{35,70})'  
+        pattern = r'\s#.*?(?=\s-{4,71})'  
         enclosed_text = re.findall(pattern, text, re.DOTALL)
         method_text = ''
         for line in enclosed_text:
@@ -97,9 +101,16 @@ class parse_log:
         Mvolume =  0.0
         for line in lines:
             if line.find("Molar volume ") >= 0:
-                line = line.replace('(', '').replace(')', '')
+                line = line.replace('(', '').replace(')', '').replace('=','')
                 line_volumeInfo = line.split()
-        Mvolume = float(line_volumeInfo[-2])
+                print(line_volumeInfo)
+        try:
+            Mvolume = float(line_volumeInfo[-2])
+        except:
+            try:    
+                Mvolume = float(line_volumeInfo[2])*(bohr2cm**3)*Ac
+            except:
+                Mvolume = ''
 
         return  Mvolume
 
@@ -357,5 +368,6 @@ if __name__ == '__main__':
 
     parselog = parse_log(infilename)
     job_index, Links_split = parselog.Check_task()
+    print(parselog.Extract_volume(Links_split[job_index['volume']]))
     print(job_index)
 
