@@ -104,13 +104,10 @@ class parse_log:
                 line = line.replace('(', '').replace(')', '').replace('=','')
                 line_volumeInfo = line.split()
                 print(line_volumeInfo)
-        try:
-            Mvolume = float(line_volumeInfo[-2])
+        try:    
+            Mvolume = float(line_volumeInfo[2])*(bohr2cm**3)*Ac
         except:
-            try:    
-                Mvolume = float(line_volumeInfo[2])*(bohr2cm**3)*Ac
-            except:
-                Mvolume = ''
+            Mvolume = 0.0
 
         return  Mvolume
 
