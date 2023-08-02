@@ -1,5 +1,6 @@
 import sys
 import gc
+import numpy as np
 from numpy import *
 
 from qcforever import gaussian_run
@@ -138,27 +139,16 @@ def Extract_Coordinate(lines, outfile=None):
 
     # Translating  atomic number to element symbol
     Mol_atom = []
-    Mol_CartX = zeros(N)
-    Mol_CartY = zeros(N)
-    Mol_CartZ = zeros(N)
+    X = np.array(X)
+    Y = np.array(Y)
+    Z = np.array(Z)
     for i in range(N):
         Mol_atom.append(gaussian_run.AtomInfo.AtomicNumElec(NumElement[i]))
-        Mol_CartX[i] = X[i]
-        Mol_CartY[i] = Y[i]
-        Mol_CartZ[i] = Z[i]
-
-    del Atom_index[:]
-    del NumElement[:]
-    del AtomicType[:]
-    del X[:]
-    del Y[:]
-    del Z[:]
-    gc.collect()
 
     if outfile != None:
-        Make_xyzfile(Mol_atom, Mol_CartX, Mol_CartY, Mol_CartZ, outfile , given_Charge, given_SpinMulti)
+        Make_xyzfile(Mol_atom, X, Y, Z, outfile , given_Charge, given_SpinMulti)
 
-    return Mol_atom, Mol_CartX, Mol_CartY, Mol_CartZ
+    return Mol_atom, X, Y, Z
 
 
 if __name__ == '__main__':

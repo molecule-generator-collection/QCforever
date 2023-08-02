@@ -171,7 +171,7 @@ class GaussianDFTRun:
         if is_freq:
             freq_lines = Links_split[job_index['freq_line']]
             Freq, IR, Raman, E_zp,  E_t, E_enth, E_free, Ei, Cv, St = gaussian_run.Get_FreqPro.Extract_Freq(freq_lines) 
-            Polar_iso, Polar_aniso = gaussian_run.Get_FreqPro.Extract_polar(freq_lines) 
+            VibX, VibY, VibZ = gaussian_run.Get_FreqPro.Extract_vibvec(freq_lines) 
             output["freq"] = Freq 
             output["IR"] = IR
             output["Raman"] = Raman
@@ -182,9 +182,7 @@ class GaussianDFTRun:
             output["Ei"] = Ei
             output["Cv"] = Cv
             output["Si"] = St
-            if is_polar != True:
-                output["polar_iso"] = Polar_iso[1]
-                output["polar_aniso"] = Polar_aniso[1]
+            output["freqmode"] = [VibX, VibY, VibZ]
         
         if is_nmr:
             Element = []
@@ -259,8 +257,6 @@ class GaussianDFTRun:
         
         if is_uv:
             lines = Links_split[job_index['uv_line']] 
-            #_, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-            #    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
             _, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                 CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = parse_log.Extract_ExcitedState(lines)
             output["uv"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
@@ -274,8 +270,6 @@ class GaussianDFTRun:
         
         if is_fluor or is_tadf:
             lines = Links_split[job_index['relaxAEstate']]
-            #S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-            #    CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = gaussian_run.Get_ExcitedState.Extract_ExcitedState(lines)
             S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                 CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = parse_log.Extract_ExcitedState(lines)
             # For Check internal coordinate
@@ -320,7 +314,7 @@ class GaussianDFTRun:
 
     def make_input(
         self, JobName, TotalCharge, SpinMulti, 
-        scf='open', run_type=None, Newinput=False, 
+        scf='open', run_type=None, optoption='', Newinput=False, 
         Mol_atom=[], X=[], Y=[], Z=[], geom_spec=False,
         TDDFT=False, TDstate=None, target=1,
         readchk=None, oldchk=None, newchk=None, solvent='0'):
@@ -422,7 +416,10 @@ class GaussianDFTRun:
                 if TDDFT:
                     input_s += 'Opt=(Maxcycles=60)\n'
                 else:
-                    input_s += 'Opt=(MaxCycles=100)\n'
+                    if optoption == '':
+                        input_s += 'Opt=(MaxCycles=100)\n'
+                    else:
+                        input_s += f'Opt=({optoption}, MaxCycles=100)\n'
 
             if run_type == 'polar':
                 input_s += 'polar CPHF=Static\n'
@@ -483,6 +480,189 @@ class GaussianDFTRun:
 
             ofile.write(input_s)
 
+    def job_construction(self, JobName, scf_need, option_dict, TotalCharge, SpinMulti, targetstate,
+                        ReadFromchk, ReadFromsdf, ReadFromxyz,  
+                        element=[], atomX=[], atomY=[], atomZ=[], optoption=''):
+
+        Is_ChargeSpec = False
+        Is_SpinMultiSpec = False
+        if np.isnan(self.SpecTotalCharge) !=  True:
+            Is_ChargeSpec = True
+            TotalCharge = self.SpecTotalCharge
+        if np.isnan(self.SpecSpinMulti) != True:
+            Is_SpinMultiSpec = True
+            SpinMulti = self.SpecSpinMulti
+
+        # Setting  geometric constrain
+        if self.geom_spec != {}: 
+            Is_geom_spec = True
+        else:
+            Is_geom_spec = False
+
+        if scf_need == False:
+        #Only no-scf jobs
+            if 'symm' in option_dict:
+                if ReadFromchk:
+                    self.make_input(JobName, TotalCharge, SpinMulti, 
+                                    run_type='symm', Newinput=True, 
+                                    geom_spec=Is_geom_spec, readchk='all') 
+                if ReadFromsdf or ReadFromxyz:
+                    self.make_input(JobName, TotalCharge, SpinMulti, 
+                                    run_type='symm', Newinput=True, 
+                                    Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
+                                    geom_spec=Is_geom_spec) 
+            if 'volume' in option_dict:
+                if ReadFromchk:
+                    self.make_input(JobName, TotalCharge, SpinMulti, 
+                                    run_type='volume', Newinput=False, 
+                                    geom_spec=Is_geom_spec, readchk='all') 
+                if ReadFromsdf or ReadFromxyz:
+                    self.make_input(JobName, TotalCharge, SpinMulti, 
+                                    run_type='volume', Newinput=False, 
+                                    Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
+                                    geom_spec=Is_geom_spec) 
+        else:
+        #The first scf job
+            run_opt = 'opt' if 'opt' in option_dict else ''
+            if ReadFromchk and element == []:
+                if Is_ChargeSpec == False and Is_SpinMultiSpec == False:
+                    if optoption == '':
+                        self.make_input(JobName, TotalCharge, SpinMulti, 
+                                        run_type=run_opt, Newinput=True, 
+                                        geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
+                    else:
+                        self.make_input(JobName, TotalCharge, SpinMulti, 
+                                        run_type=run_opt, optoption=optoption, Newinput=True, 
+                                        geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
+                else:
+                    if optoption == '':
+                        self.make_input(JobName, TotalCharge, SpinMulti, 
+                                        run_type=run_opt, Newinput=True, 
+                                        geom_spec=Is_geom_spec, readchk='geomguess', solvent=self.solvent) 
+                    else:
+                        self.make_input(JobName, TotalCharge, SpinMulti, 
+                                        run_type=run_opt, optoption=optoption, Newinput=True, 
+                                        geom_spec=Is_geom_spec, readchk='geomguess', solvent=self.solvent) 
+            elif ReadFromchk and element != []:
+                if optoption == '':
+                    self.make_input(JobName, TotalCharge, SpinMulti, 
+                                    run_type=run_opt, Newinput=True, 
+                                    Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
+                                    geom_spec=Is_geom_spec, readchk='guess', solvent=self.solvent) 
+                else:
+                    self.make_input(JobName, TotalCharge, SpinMulti, 
+                                    run_type=run_opt, optoption=optoption, Newinput=True, 
+                                    Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
+                                    geom_spec=Is_geom_spec, readchk='guess', solvent=self.solvent) 
+            elif ReadFromsdf or ReadFromxyz:
+                if optoption == '':
+                    self.make_input(JobName, TotalCharge, SpinMulti, 
+                                    run_type=run_opt, Newinput=True, 
+                                    Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
+                                    geom_spec=Is_geom_spec, solvent=self.solvent) 
+                else:
+                    self.make_input(JobName, TotalCharge, SpinMulti, 
+                                    run_type=run_opt, optoption=optpotion, Newinput=True, 
+                                    Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
+                                    geom_spec=Is_geom_spec, solvent=self.solvent) 
+
+        #The post job after getting wavefunction
+            if 'symm' in option_dict:
+                self.make_input(JobName, TotalCharge, SpinMulti, 
+                                run_type='symm', Newinput=False, 
+                                readchk='all', solvent=self.solvent) 
+
+            if 'volume' in option_dict:
+                self.make_input(JobName, TotalCharge, SpinMulti, 
+                                run_type='volume', Newinput=False, 
+                                readchk='all', solvent=self.solvent) 
+
+            if 'freq' in option_dict: # freq == 1
+                self.make_input(JobName, TotalCharge, SpinMulti, 
+                                run_type='freq', Newinput=False, 
+                                readchk='all', solvent=self.solvent) 
+
+            if 'polar' in option_dict: # polar == 1
+                self.make_input(JobName, TotalCharge, SpinMulti, 
+                                run_type='polar', Newinput=False, 
+                                readchk='all', solvent=self.solvent) 
+
+            if 'nmr' in option_dict: # nmr == 1
+                self.make_input(JobName, TotalCharge, SpinMulti, 
+                                run_type='nmr', Newinput=False, 
+                                readchk='all', solvent=self.solvent) 
+
+            if 'vip' in option_dict: # vip == 1
+                IP_chk = JobName+'_IP'
+
+                if SpinMulti == 1:
+                    IP_TotalCharge = TotalCharge + 1
+                    IP_SpinMulti = SpinMulti + 1
+                else:
+                    IP_TotalCharge = TotalCharge + 1
+                    IP_SpinMulti = SpinMulti - 1
+
+                self.make_input(JobName, IP_TotalCharge, IP_SpinMulti, 
+                                run_type='', Newinput=False, 
+                                readchk='geomguess', newchk=IP_chk, solvent=self.solvent) 
+
+            if 'vea' in option_dict: # vea == 1
+                EA_chk = JobName+'_EA'
+
+                if SpinMulti == 1:
+                    EA_TotalCharge = TotalCharge - 1
+                    EA_SpinMulti = SpinMulti + 1
+                else:
+                    EA_TotalCharge = TotalCharge - 1
+                    EA_SpinMulti = SpinMulti - 1
+
+                self.make_input(JobName, EA_TotalCharge, EA_SpinMulti, 
+                                run_type='', Newinput=False, 
+                                readchk='geomguess', newchk=EA_chk, solvent=self.solvent) 
+
+            if 'aip' in option_dict: # aip == 1
+                AIP_chk = JobName+'_AIP'
+                #AIP energy
+                self.make_input(JobName, IP_TotalCharge, IP_SpinMulti, 
+                                run_type='opt', 
+                                readchk='geomguess', oldchk=IP_chk, newchk=AIP_chk, solvent=self.solvent) 
+
+                OE_AIP_chk = JobName+'_AIP_OE'
+                #Neutrization energy
+                self.make_input(JobName, TotalCharge, SpinMulti, 
+                                run_type='', 
+                                readchk='geomguess', oldchk=AIP_chk, newchk=OE_AIP_chk, solvent=self.solvent) 
+
+            if 'aea' in  option_dict: #aea == 1
+                AEA_chk = JobName+'_AEA'
+                #AEA energy
+                self.make_input(JobName, EA_TotalCharge, EA_SpinMulti, 
+                                run_type='opt', 
+                                readchk='geomguess', oldchk=EA_chk, newchk=AEA_chk, solvent=self.solvent) 
+
+                OE_AEA_chk = JobName+'_AEA_OE'
+                #Neutrization energy
+                self.make_input(JobName, TotalCharge, SpinMulti, 
+                                run_type='', readchk='geomguess', oldchk=AEA_chk, newchk=OE_AEA_chk, solvent=self.solvent) 
+
+            if 'uv' in option_dict: #uv == 1 of fluor ==1 or tadf ==1
+                self.make_input(JobName, TotalCharge, SpinMulti, 
+                                run_type='', TDDFT=True, 
+                                readchk='all', solvent=self.solvent) 
+
+            if 'fluor' in option_dict:
+                TDOpt_chk = f'{JobName}_ExOptAState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateSinglet'
+                self.make_input(JobName, TotalCharge, SpinMulti, 
+                                scf='close', run_type='opt', TDDFT=True, TDstate='Singlet', target=targetstate, 
+                                readchk='all', newchk=TDOpt_chk, solvent=self.solvent) 
+
+            if 'tadf' in option_dict:
+                TTDOpt_chk = f'{JobName}_ExOptFState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateTriplet'
+                #self.make_input(JobName, TotalCharge, SpinMulti, scf='close', run_type='opt', TDDFT=True, TDstate='Triplet', target=targetstate, readchk='all', oldchk=TDOpt_chk, newchk=TTDOpt_chk, solvent=self.solvent) 
+                self.make_input(JobName, TotalCharge, SpinMulti, 
+                                scf='close', run_type='opt', TDDFT=True, TDstate='Triplet', target=targetstate, 
+                                readchk='all', newchk=TTDOpt_chk, solvent=self.solvent) 
+
     def run_gaussian(self):
         infilename = self.in_file
         option_line = self.value    
@@ -493,50 +673,45 @@ class GaussianDFTRun:
         targetstate = 1
         PreGauInput = infilename.split('.')
         JobName = PreGauInput[0]
-        GauInputName = PreGauInput[0]+'.com'    
+        #GauInputName = PreGauInput[0]+'.com'    
         # File type of input?
         ReadFromchk = False 
         ReadFromsdf = False
         ReadFromxyz = False
+        # Initialization of molecular coordinate
+        atm = [] 
+        X = [] 
+        Y = [] 
+        Z = []
+        Bondpair1 = []
+        Bondpair2 = []
+        # Classify input
         if PreGauInput[1] == "sdf":
             ReadFromsdf = True 
-            element, atomX, atomY, atomZ, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf(infilename)
+            atm, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf(infilename)
         elif PreGauInput[1] == "xyz":
             ReadFromxyz = True
-            element, atomX, atomY, atomZ, TotalCharge, SpinMulti = read_mol_file.read_xyz(infilename)
-            Bondpair1 = []
-            Bondpair2 = []
+            atm, X, Y, Z, TotalCharge, SpinMulti = read_mol_file.read_xyz(infilename)
         elif PreGauInput[1] == "chk":
             ReadFromchk = True 
-            Bondpair1 = []
-            Bondpair2 = []
         elif PreGauInput[1] == "fchk":
             TotalCharge, SpinMulti = gaussian_run.fchk2chk.Get_fchk(PreGauInput[0])
             ReadFromchk = True 
-            Bondpair1 = []
-            Bondpair2 = []
         else:
             print("Invalid input file")
-
-        # Setting electronic structure
-        Is_ChargeSpec = False
-        Is_SpinMultiSpec = False
-        if np.isnan(self.SpecTotalCharge) !=  True:
-            Is_ChargeSpec = True
-            TotalCharge = self.SpecTotalCharge
-        if np.isnan(self.SpecSpinMulti) != True:
-            Is_SpinMultiSpec = True
-            SpinMulti = self.SpecSpinMulti
 
         # Setting options
         for i in range(len(options)):
             option = options[i]
             if option.lower() == 'opt':
                 option_dict['opt'] = True
+                if '=' in option:
+                    in_target = option.split("=")
+                    optoption = in_target[-1]
             elif option.lower() == 'freq':
                 option_dict['freq'] = True
             elif option.lower() == 'polar':
-                option_dict['polar'] = True
+                option_dict['polar'] =  True
             elif option.lower() == 'nmr':
                 option_dict['nmr'] = True
             elif 'uv' in option.lower():
@@ -600,198 +775,193 @@ class GaussianDFTRun:
             else:
                 print('invalid option: ', option)
 
-        if self.geom_spec != {}: 
-            Is_geom_spec = True
-        else:
-            Is_geom_spec = False
-
-        scf_need = self.check_scf_need(option_dict)
-
-        if scf_need == False:
-        #Only no-scf jobs
-            if 'symm' in option_dict:
-                if ReadFromchk:
-                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='symm', Newinput=True, geom_spec=Is_geom_spec, readchk='all') 
-                if ReadFromsdf or ReadFromxyz:
-                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='symm', Newinput=True, Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, geom_spec=Is_geom_spec,) 
-            if 'volume' in option_dict:
-                if ReadFromchk:
-                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='volume', Newinput=False, geom_spec=Is_geom_spec, readchk='all') 
-                if ReadFromsdf or ReadFromxyz:
-                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='volume', Newinput=False, Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, geom_spec=Is_geom_spec,) 
-        else:
-        #The first scf job
-            if 'opt' in option_dict: # opt == 1
-                if ReadFromchk:
-                    if Is_ChargeSpec == False and Is_SpinMultiSpec == False:
-                        self.make_input(JobName, TotalCharge, SpinMulti, run_type='opt', Newinput=True, geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
-                    else:
-                        self.make_input(JobName, TotalCharge, SpinMulti, run_type='opt', Newinput=True, geom_spec=Is_geom_spec, readchk='geomguess', solvent=self.solvent) 
-                elif ReadFromsdf or ReadFromxyz:
-                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='opt', Newinput=True, Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, geom_spec=Is_geom_spec, solvent=self.solvent) 
-
-            else:
-                if ReadFromchk:
-                    if Is_ChargeSpec == False and Is_SpinMultiSpec == False:
-                        self.make_input(JobName, TotalCharge, SpinMulti, run_type='', Newinput=True, geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
-                    else:
-                        self.make_input(JobName, TotalCharge, SpinMulti, run_type='', Newinput=True, geom_spec=Is_geom_spec, readchk='geomguess', solvent=self.solvent) 
-                elif ReadFromsdf or ReadFromxyz:
-                    self.make_input(JobName, TotalCharge, SpinMulti, run_type='', Newinput=True, Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, geom_spec=Is_geom_spec, solvent=self.solvent) 
-
-        #The post job after getting wavefunction
-            if 'symm' in option_dict:
-                self.make_input(JobName, TotalCharge, SpinMulti, run_type='symm', Newinput=False, readchk='all', solvent=self.solvent) 
-
-            if 'volume' in option_dict:
-                self.make_input(JobName, TotalCharge, SpinMulti, run_type='volume', Newinput=False, readchk='all', solvent=self.solvent) 
-
-            if 'polar' in option_dict: # polar == 1
-                self.make_input(JobName, TotalCharge, SpinMulti, run_type='polar', Newinput=False, readchk='all', solvent=self.solvent) 
-
-            if 'freq' in option_dict: # freq == 1
-                self.make_input(JobName, TotalCharge, SpinMulti, run_type='freq', Newinput=False, readchk='all', solvent=self.solvent) 
-
-            if 'nmr' in option_dict: # nmr == 1
-                self.make_input(JobName, TotalCharge, SpinMulti, run_type='nmr', Newinput=False, readchk='all', solvent=self.solvent) 
-
-            if 'vip' in option_dict: # vip == 1
-                IP_chk = JobName+'_IP'
-
-                if SpinMulti == 1:
-                    IP_TotalCharge = TotalCharge + 1
-                    IP_SpinMulti = SpinMulti + 1
-                else:
-                    IP_TotalCharge = TotalCharge + 1
-                    IP_SpinMulti = SpinMulti - 1
-
-                self.make_input(JobName, IP_TotalCharge, IP_SpinMulti, run_type='', Newinput=False, readchk='geomguess', newchk=IP_chk, solvent=self.solvent) 
-
-            if 'vea' in option_dict: # vea == 1
-                EA_chk = JobName+'_EA'
-
-                if SpinMulti == 1:
-                    EA_TotalCharge = TotalCharge - 1
-                    EA_SpinMulti = SpinMulti + 1
-                else:
-                    EA_TotalCharge = TotalCharge - 1
-                    EA_SpinMulti = SpinMulti - 1
-
-                self.make_input(JobName, EA_TotalCharge, EA_SpinMulti, run_type='', Newinput=False, readchk='geomguess', newchk=EA_chk, solvent=self.solvent) 
-
-            if 'aip' in option_dict: # aip == 1
-                AIP_chk = JobName+'_AIP'
-                #AIP energy
-                self.make_input(JobName, IP_TotalCharge, IP_SpinMulti, run_type='opt', readchk='geomguess', oldchk=IP_chk, newchk=AIP_chk, solvent=self.solvent) 
-                OE_AIP_chk = JobName+'_AIP_OE'
-                #Neutrization energy
-                self.make_input(JobName, TotalCharge, SpinMulti, run_type='', readchk='geomguess', oldchk=AIP_chk, newchk=OE_AIP_chk, solvent=self.solvent) 
-
-            if 'aea' in  option_dict: #aea == 1
-                AEA_chk = JobName+'_AEA'
-                #AEA energy
-                self.make_input(JobName, EA_TotalCharge, EA_SpinMulti, run_type='opt', readchk='geomguess', oldchk=EA_chk, newchk=AEA_chk, solvent=self.solvent) 
-                OE_AEA_chk = JobName+'_AEA_OE'
-                #Neutrization energy
-                self.make_input(JobName, TotalCharge, SpinMulti, run_type='', readchk='geomguess', oldchk=AEA_chk, newchk=OE_AEA_chk, solvent=self.solvent) 
-
-            if 'uv' in option_dict: #uv == 1 of fluor ==1 or tadf ==1
-                self.make_input(JobName, TotalCharge, SpinMulti, run_type='', TDDFT=True, readchk='all', solvent=self.solvent) 
-
-            if 'fluor' in option_dict:
-                TDOpt_chk = f'{JobName}_ExOptAState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateSinglet'
-                self.make_input(JobName, TotalCharge, SpinMulti, scf='close', run_type='opt', TDDFT=True, TDstate='Singlet', target=targetstate, readchk='all', newchk=TDOpt_chk, solvent=self.solvent) 
-
-            if 'tadf' in option_dict:
-                TTDOpt_chk = f'{JobName}_ExOptFState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateTriplet'
-                #self.make_input(JobName, TotalCharge, SpinMulti, scf='close', run_type='opt', TDDFT=True, TDstate='Triplet', target=targetstate, readchk='all', oldchk=TDOpt_chk, newchk=TTDOpt_chk, solvent=self.solvent) 
-                self.make_input(JobName, TotalCharge, SpinMulti, scf='close', run_type='opt', TDDFT=True, TDstate='Triplet', target=targetstate, readchk='all', newchk=TTDOpt_chk, solvent=self.solvent) 
-
-        # Run Gaussian
-        job_state = "normal"
-        output_dic = {}
+        # Make work directory and change to the directory
         if os.path.isdir(JobName):
             shutil.rmtree(JobName)
         os.mkdir(JobName)
-        shutil.move(GauInputName, JobName)
         if ReadFromchk:
             inchkfile = JobName + ".chk"
             shutil.move(inchkfile, JobName) 
         os.chdir(JobName)
-        job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName, self.timexe)
-        # When the scf is performed, the obtained wavefunction is saved to chk file.
-        # But for 'symm' and 'volume' that information is emply except for when the input is chk or fchk files.
-        if scf_need or ReadFromchk:
-            gaussian_run.chk2fchk.Get_chklist()
-        elif scf_need != True and ReadFromchk != True:
-            for f in glob.glob('./*.chk'):
-                os.remove(os.path.join('.', f))
 
-        #output_dic = self.Extract_values(JobName, option_dict, Bondpair1, Bondpair2)
-        try:
-            output_dic = self.Extract_values(JobName, option_dict, Bondpair1, Bondpair2)
-        except Exception as e:
-            job_state = "error"
-            print(e)
-            pass
+        # Initialization of otuput dictionary.
+        output_dic = {}
+
+        if self.error == 1:
+            check_logfile = JobName+'.log'
+            option_dict_optcheck = {'opt': True, 'freq': True}
+            scf_need=True
+            self.job_construction(JobName, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
+                                targetstate, ReadFromchk, ReadFromsdf, ReadFromxyz, 
+                                element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='')
+            job_state = "normal"
+            job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName, self.timexe)
+
+            try:
+                output_prop = self.Extract_values(JobName, option_dict_optcheck, Bondpair1, Bondpair2)
+            except Exception as e:
+                job_state = "error"
+                print(e)
+                pass
+
+            with open(check_logfile,'r') as ifile:
+                CKF_lines = ifile.readlines()
+            Mol_atom, Mol_X, Mol_Y, Mol_Z = gaussian_run.Get_MolCoordinate.Extract_Coordinate(CKF_lines)
+
+            print(output_prop)
+            Freq_CK = np.array(output_prop['freq'])
+            Freq_min = Freq_CK.min()
+            Freq_min_index = np.argmin(Freq_CK)
+
+            ReadFromchk=True 
+            ReadFromsdf=False 
+            ReadFromxyz=False
+        
+            if Freq_min > 0:
+                print (f'Mnimum frequency is positive...{Freq_min} cm^-1')
+                #Checking the remain task (option)
+                all_options = set(option_dict.keys())
+                remain_keys = all_options - set(option_dict_optcheck.keys())
+        
+                if len(remain_keys) >= 1:
+                    self.error -= 1
+                    output_dic.update(output_prop)
+                    if 'freq' in option_dict:
+                        del option_dict['freq']
+                    if 'opt' in option_dict:
+                        del option_dict['opt']
+                    #for the next computation
+                else:
+                    output_dic.update(output_prop)
+                    return(output_dic)
+            else:
+                print (f'Negative frequency is detected...{Freq_min} cm^-1')
+
+                ImFreq_modeX = output_prop['freqmode'][0][Freq_min_index]
+                ImFreq_modeY = output_prop['freqmode'][1][Freq_min_index]
+                ImFreq_modeZ = output_prop['freqmode'][2][Freq_min_index]
+
+                X = Mol_X+ 0.05* ImFreq_modeX
+                Y = Mol_Y+ 0.05* ImFreq_modeY
+                Z = Mol_Z+ 0.05* ImFreq_modeZ
+
+                self.job_construction(JobName, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
+                                    targetstate, ReadFromchk, ReadFromsdf, ReadFromxyz, 
+                                    element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='')
+                job_state = "normal"
+                job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName, self.timexe)
+
+                try:
+                    output_prop = self.Extract_values(JobName, option_dict_optcheck, Bondpair1, Bondpair2)
+                except Exception as e:
+                    job_state = "error"
+                    print(e)
+                    pass
+
+                output_dic.update(output_prop)
+
+                if 'freq' in option_dict:
+                    del option_dict['freq']
+                if 'opt' in option_dict:
+                    del option_dict['opt']
+
+                self.error -= 1
+
+        # Initialization of molecular coordinate
+            atm = [] 
+            X = [] 
+            Y = [] 
+            Z = []
+
+        if self.error == 0:
+            scf_need = self.check_scf_need(option_dict)
+            self.job_construction(JobName, scf_need, option_dict, TotalCharge, SpinMulti, 
+                                targetstate, ReadFromchk, ReadFromsdf, ReadFromxyz, 
+                                element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='')
+
+            job_state = "normal"
+            job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName, self.timexe)
+            # When the scf is performed, the obtained wavefunction is saved to chk file.
+            # But for 'symm' and 'volume' that information is emply except for when the input is chk or fchk files.
+            if scf_need or ReadFromchk:
+                gaussian_run.chk2fchk.Get_chklist()
+            elif scf_need != True and ReadFromchk != True:
+                for f in glob.glob('./*.chk'):
+                    os.remove(os.path.join('.', f))
+
+            #output_prop = self.Extract_values(JobName, option_dict, Bondpair1, Bondpair2)
+            #output_dic.update(output_prop)
+            try:
+                output_prop = self.Extract_values(JobName, option_dict, Bondpair1, Bondpair2)
+                output_dic.update(output_prop)
+            except Exception as e:
+                job_state = "error"
+                print(e)
+                pass
 
         # for pka computation
-        if 'pka' in option_dict:
-            output_dic_pka = {}
-            E_pH = output_dic["Energy"][0]
-            Atom = output_dic["cden"][0]
-            MullCharge = output_dic["cden"][1]
-            Index_MaxProtic = gaussian_run.Get_ChargeSpin.find_MaxProtic(Atom, MullCharge)
-            print(Index_MaxProtic)
-            GS_fchk = JobName+".fchk"
-            with open(GS_fchk,'r') as ifile:
-                GS_lines = ifile.readlines()
-            TotalCharge, SpinMulti, Mol_atom, Mol_X, Mol_Y, Mol_Z = gaussian_run.Get_MolCoordinate_fchk.Extract_MolCoord(GS_lines)
-            DeHMol_atom = np.delete(Mol_atom,Index_MaxProtic) 
-            DeHMol_X = np.delete(Mol_X,Index_MaxProtic)
-            DeHMol_Y = np.delete(Mol_Y,Index_MaxProtic)
-            DeHMol_Z = np.delete(Mol_Z,Index_MaxProtic)
-            JobName_DeHMol = JobName + "_DeH"
-
-            self.make_input(JobName_DeHMol, TotalCharge-1, SpinMulti, run_type='opt', Newinput=True, Mol_atom=DeHMol_atom, X=DeHMol_X, Y=DeHMol_Y, Z=DeHMol_Z, readchk=False, solvent=self.solvent) 
-
-            job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_DeHMol, self.timexe)
-            gaussian_run.chk2fchk.Get_chklist()
-            # output_dic_pka = self.Extract_values(JobName_DeHMol, option_dict_pka, Bondpair1, Bondpair2)
-            try:
-                output_dic_pka = self.Extract_values(JobName_DeHMol, option_dict_pka, Bondpair1, Bondpair2)
-            except Exception as e:
-                job_state = "error"
-                print (e)
-                pass
-            #print("pka: ", output_dic_pka)
-            E_dH = output_dic_pka["Energy"][0]
-            output_dic["pka"] = (E_dH - E_pH)*Eh2kJmol
-
-         #for fluor == 1 or tadf == 1 for open shell
-        if 'fluor' in option_dict_Ex or 'tadf' in option_dict_Ex: 
-            TotalCharge, SpinMulti = gaussian_run.fchk2chk.Get_fchk(PreGauInput[0])
-            output_dic_Ex = {}
-            compute_state = output_dic["state_index"][0][int(targetstate)-1] 
-            JobName_ExOpt = JobName + '_ExOptAState'+f'{targetstate}'
-
-            self.make_input(JobName_ExOpt, TotalCharge, SpinMulti, run_type='opt', Newinput=True, TDDFT=True, target=compute_state, readchk='all', oldchk=JobName, newchk=JobName_ExOpt, solvent=self.solvent) 
-
-            if 'tadf' in option_dict_Ex: #tadf == 1
-                ExOptFState_chk=  JobName + '_ExOptFState'+f'{targetstate}'
-                compute_state = output_dic["state_index"][1][int(targetstate)-1] 
-                self.make_input(JobName_ExOpt, TotalCharge, SpinMulti, run_type='opt', TDDFT=True, target=compute_state, readchk='all', oldchk=JobName_ExOpt, newchk=ExOptFState_chk,  solvent=self.solvent) 
-
-            job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_ExOpt, self.timexe)
-            gaussian_run.chk2fchk.Get_chklist()
-            # output_dic_Ex = self.Extract_values(JobName_ExOpt, option_dict_Ex, Bondpair1, Bondpair2)
-            try:
-                output_dic_Ex = self.Extract_values(JobName_ExOpt, option_dict_Ex, Bondpair1, Bondpair2)
-            except Exception as e:
-                job_state = "error"
-                print (e)
-                pass
-            output_dic.update(output_dic_Ex)
+            if 'pka' in option_dict:
+                output_dic_pka = {}
+                E_pH = output_dic["Energy"][0]
+                Atom = output_dic["cden"][0]
+                MullCharge = output_dic["cden"][1]
+                Index_MaxProtic = gaussian_run.Get_ChargeSpin.find_MaxProtic(Atom, MullCharge)
+                print(Index_MaxProtic)
+                GS_fchk = JobName+".fchk"
+                with open(GS_fchk,'r') as ifile:
+                    GS_lines = ifile.readlines()
+                TotalCharge, SpinMulti, Mol_atom, Mol_X, Mol_Y, Mol_Z = gaussian_run.Get_MolCoordinate_fchk.Extract_MolCoord(GS_lines)
+                DeHMol_atom = np.delete(Mol_atom,Index_MaxProtic) 
+                DeHMol_X = np.delete(Mol_X,Index_MaxProtic)
+                DeHMol_Y = np.delete(Mol_Y,Index_MaxProtic)
+                DeHMol_Z = np.delete(Mol_Z,Index_MaxProtic)
+                JobName_DeHMol = JobName + "_DeH"
+            
+                self.make_input(JobName_DeHMol, TotalCharge-1, SpinMulti, 
+                            run_type='opt', Newinput=True, 
+                            Mol_atom=DeHMol_atom, X=DeHMol_X, Y=DeHMol_Y, Z=DeHMol_Z, readchk=False, solvent=self.solvent) 
+            
+                job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_DeHMol, self.timexe)
+                gaussian_run.chk2fchk.Get_chklist()
+                # output_dic_pka = self.Extract_values(JobName_DeHMol, option_dict_pka, Bondpair1, Bondpair2)
+                try:
+                    output_dic_pka = self.Extract_values(JobName_DeHMol, option_dict_pka, Bondpair1, Bondpair2)
+                except Exception as e:
+                    job_state = "error"
+                    print (e)
+                    pass
+                #print("pka: ", output_dic_pka)
+                E_dH = output_dic_pka["Energy"][0]
+                output_dic["pka"] = (E_dH - E_pH)*Eh2kJmol
+            
+             #for fluor == 1 or tadf == 1 for open shell
+            if 'fluor' in option_dict_Ex or 'tadf' in option_dict_Ex: 
+                TotalCharge, SpinMulti = gaussian_run.fchk2chk.Get_fchk(PreGauInput[0])
+                output_dic_Ex = {}
+                compute_state = output_dic["state_index"][0][int(targetstate)-1] 
+                JobName_ExOpt = JobName + '_ExOptAState'+f'{targetstate}'
+            
+                self.make_input(JobName_ExOpt, TotalCharge, SpinMulti, 
+                                run_type='opt', Newinput=True, TDDFT=True, target=compute_state, 
+                                readchk='all', oldchk=JobName, newchk=JobName_ExOpt, solvent=self.solvent) 
+            
+                if 'tadf' in option_dict_Ex: #tadf == 1
+                    ExOptFState_chk=  JobName + '_ExOptFState'+f'{targetstate}'
+                    compute_state = output_dic["state_index"][1][int(targetstate)-1] 
+                    self.make_input(JobName_ExOpt, TotalCharge, SpinMulti, 
+                                    run_type='opt', TDDFT=True, target=compute_state, 
+                                    readchk='all', oldchk=JobName_ExOpt, newchk=ExOptFState_chk, solvent=self.solvent) 
+            
+                job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_ExOpt, self.timexe)
+                gaussian_run.chk2fchk.Get_chklist()
+                # output_dic_Ex = self.Extract_values(JobName_ExOpt, option_dict_Ex, Bondpair1, Bondpair2)
+                try:
+                    output_dic_Ex = self.Extract_values(JobName_ExOpt, option_dict_Ex, Bondpair1, Bondpair2)
+                except Exception as e:
+                    job_state = "error"
+                    print (e)
+                    pass
+                output_dic.update(output_dic_Ex)
 
         output_dic["log"] = job_state
 

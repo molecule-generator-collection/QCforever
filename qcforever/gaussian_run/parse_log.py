@@ -365,6 +365,5 @@ if __name__ == '__main__':
 
     parselog = parse_log(infilename)
     job_index, Links_split = parselog.Check_task()
-    print(parselog.Extract_volume(Links_split[job_index['volume']]))
     print(job_index)
 
