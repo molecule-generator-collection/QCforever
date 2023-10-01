@@ -17,6 +17,8 @@ def get_IntCoorddata(intcoord_dict):
         IntCoord_s += f' {IntCoord_value[i]:5s}' + '\n'
         if IntCoord_type[i] == 'F':
             IntCoord_s += IntCoord_change[i] + ' F\n'
+        if IntCoord_type[i] == 'A':
+            IntCoord_s += IntCoord_change[i] + ' A\n'
 
     return IntCoord_s
 
