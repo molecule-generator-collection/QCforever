@@ -79,12 +79,20 @@ class parse_log:
 
     def Extract_SCFEnergy(self, lines):
         Energy = []
+        Eext = []
         for line in lines:
             if line.find("SCF Done:  ") >= 0:
                 line_StateInfo = line.split()
                 Energy.append(float(line_StateInfo[4]))
+            if line.find("Total Energy, E(TD-HF/TD-DFT)") >=0:
+                line_totalenergy = line.split('=')
+                Eext.append(float(line_totalenergy[1]))
+
         Comp_SS, Ideal_SS = self.Estimate_SpinDiff(lines)
-        Energy_Spin = [Energy[-1], Comp_SS-Ideal_SS]
+        if Eext == []:
+            Energy_Spin = [Energy[-1], Comp_SS-Ideal_SS]
+        else:
+            Energy_Spin = [Eext[-1], Comp_SS-Ideal_SS]
 
         return Energy_Spin
 
@@ -251,9 +259,42 @@ class parse_log:
                     #print (f'GS electronic structure is charge {charge[i]} and spin multiplicity {spinmulti[i]}.')
                     GScharge = charge[i]
                     GSspin = spinmulti[i]
-                    if re.search('\sOpt', lines[i]):
+                    #if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) == None:
+                    if re.search('\sTD', lines[i]) == None:
                         is_opt = True
-                    job_index['gs'] = i
+                        job_index['ts'] = i
+                        job_index['state_0'] = i
+                    if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) and re.search('Singlet', lines[i]):
+                        is_fluor = True
+                        match_root = re.search('\s+root=\d+', lines[i])
+                        if match_root:    
+                            root_line = match_root.group().split('=')
+                            target = root_line[1]
+                        #job_index[f'relaxAEstate{target}_line'] = i
+                        job_index['ts'] = i
+                        job_index['relaxAEstate'] = i
+                        job_index[f'state_{target}'] = i
+                    if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) and re.search('Triplet', lines[i]):
+                        is_tadf = True
+                        match_root = re.search('\s+root=\d+', lines[i])
+                        if match_root:    
+                            root_line = match_root.group().split('=')
+                            target = root_line[1]
+                        #job_index[f'relaxFEstate{target}_line'] = i
+                        job_index['ts'] = i
+                        job_index['relaxFEstate'] = i
+                        job_index[f'state_{target}'] = i
+                    if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) and re.search('Singlet', lines[i]) == None and re.search('Triplet', lines[i]) == None: 
+                        is_fluor = True
+                        match_root = re.search('\s+root=', lines[i])
+                        if match_root:    
+                            root_line = match_root.group().split('=')
+                            target = root_line[1]
+                        job_index['ts'] = i
+                        job_index['relaxAEstate'] = i
+                        job_index[f'state_{target}'] = i
+                        #if i+1 < len(lines):
+                        #    job_index[f'relaxFEstate'] = i+1
                 if count > 1:
                     if charge[i] == GScharge + 1:
                         #print ('Ionization computation')
@@ -288,31 +329,6 @@ class parse_log:
                 if re.search('\sTD', lines[i]) and re.search('\sOpt', lines[i]) == None:
                     is_uv = True
                     job_index['uv_line'] = i
-                if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) and re.search('Singlet', lines[i]):
-                    is_fluor = True
-                    match_root = re.search('\s+root=\d+', lines[i])
-                    #if match_root:    
-                    #    root_line = match_root.group().split('=')
-                    #    target = root_line[1]
-                    #job_index[f'relaxAEstate{target}_line'] = i
-                    job_index[f'relaxAEstate'] = i
-                if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) and re.search('Triplet', lines[i]):
-                    is_tadf = True
-                    match_root = re.search('\s+root=\d+', lines[i])
-                    #if match_root:    
-                    #    root_line = match_root.group().split('=')
-                    #    target = root_line[1]
-                    #job_index[f'relaxFEstate{target}_line'] = i
-                    job_index[f'relaxFEstate'] = i
-                if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) and re.search('Singlet', lines[i]) == None and re.search('Triplet', lines[i]) == None: 
-                    is_fluor = True
-                    match_root = re.search('root=', lines[i])
-                    #if match_root:    
-                    #    root_line = match_root.group().split('=')
-                    #    target = root_line[1]
-                    job_index[f'relaxAEstate'] = i
-                    if i+1 <len(lines):
-                        job_index[f'relaxFEstate'] = i+1
     
         count = 0
     

@@ -1,6 +1,7 @@
 import os
 import glob
 import sys
+import copy
 import shutil
 
 import numpy as np
@@ -69,14 +70,16 @@ class GaussianDFTRun:
         infilename = f"{jobname}.log"
         fchkname = f"{jobname}.fchk"
 
+        print (option_dict)
+        
         output = {}
 
         parse_log = gaussian_run.parse_log.parse_log(infilename)
         job_index, Links_split = parse_log.Check_task()
 
         # For extracting properties of molecule after SCF        
-        if 'gs' in job_index:
-            GS_lines = Links_split[job_index['gs']]
+        if 'ts' in job_index:
+            GS_lines = Links_split[job_index['ts']]
         
         if is_opt:
             print ("Optimization was performed...Check geometry...")
@@ -268,7 +271,7 @@ class GaussianDFTRun:
                 S, D = gaussian_run.UV_similarity.smililarity_dissimilarity(ref_uv["uv"][0], ref_uv["uv"][1], output["uv"][0], output["uv"][1])
                 output["Similality/Disdimilarity"] = [S, D]
         
-        if is_fluor or is_tadf:
+        if is_fluor:
             lines = Links_split[job_index['relaxAEstate']]
             S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                 CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = parse_log.Extract_ExcitedState(lines)
@@ -287,10 +290,10 @@ class GaussianDFTRun:
             output["T_Min"] = T_Eext
             output["T_Min_MaxDisplace"] = MaxDisplace
             output["T_Phos"] = [WL_forbidden, OS_forbidden, CD_L_forbidden, CD_OS_forbidden]
-            TADF_Eng = 0.0
-            if S_Found and T_Found:
-               TADF_Eng = S_Eext - T_Eext
-            output["Delta(S-T)"] = TADF_Eng
+            #TADF_Eng = 0.0
+            #if S_Found and T_Found:
+            #   TADF_Eng = S_Eext - T_Eext
+            #output["Delta(S-T)"] = TADF_Eng
 
         return output
 
@@ -357,7 +360,7 @@ class GaussianDFTRun:
             line_method = f'#{self.functional}/{self.basis} test {line_iop_functional}\n' 
 
         if TDDFT:
-            NState = target+4 if run_type == 'opt' else 20
+            NState = target+4 if (run_type == 'opt' or run_type == 'freq') else 20
             line_method += f'TD(Nstate={NState}, root={target})\n'if TDstate == None else f'TD(Nstate={NState}, {TDstate}, root={target})\n'
         
         #Section for solvent
@@ -386,6 +389,8 @@ class GaussianDFTRun:
 
         GauInputName = JobName+'.com' 
 
+        # A new file will be made if the specified file name does not exist.
+        # If the same name input file exist, that file will be open and new lines will be added.
         if Newinput == True:
             Input_mode = 'w'
         else:
@@ -480,10 +485,14 @@ class GaussianDFTRun:
 
             ofile.write(input_s)
 
-    def job_construction(self, JobName, scf_need, option_dict, TotalCharge, SpinMulti, targetstate,
-                        ReadFromchk, ReadFromsdf, ReadFromxyz,  
-                        element=[], atomX=[], atomY=[], atomZ=[], optoption=''):
+    def job_construction(self, JobName, scf_need, job_dict, TotalCharge, SpinMulti, targetstate,
+                        ReadFrom, element=[], atomX=[], atomY=[], atomZ=[], optoption='', TDstate_info=[]):
 
+        option_dict = copy.deepcopy(job_dict)
+
+        print(f'Charge: {TotalCharge}, Spin Multiplicity: {SpinMulti}')
+
+        # Setting molecular charge and multiplicity
         Is_ChargeSpec = False
         Is_SpinMultiSpec = False
         if np.isnan(self.SpecTotalCharge) !=  True:
@@ -499,24 +508,52 @@ class GaussianDFTRun:
         else:
             Is_geom_spec = False
 
+        #For setting TD-DFT
+        scf_tag='open'
+        td_tag = False
+        TDstate_tag = None 
+        if targetstate != 0:
+            td_tag = True
+            if SpinMulti == 1:
+                TDstate_tag = 'Singlet'
+                scf_tag='close'
+            elif SpinMulti == 3:
+                SpinMulti = 1
+                TDstate_tag = 'Triplet'
+                scf_tag='close'
+            else:
+                if TDstate_info != []:
+                    targetstate =  TDstate_info[int(targetstate)-1]
+                    TDstate_tag = None 
+                else:
+                    print('No information about the target state, we set the first excited state the target.')
+                    targetstate = 1
+
+        if 'fluor' in option_dict:
+               del option_dict['fluor'] 
+               option_dict['opt'] = True
+        if 'tadf' in option_dict:
+               del option_dict['tadf'] 
+               option_dict['opt'] = True
+
         if scf_need == False:
         #Only no-scf jobs
             if 'symm' in option_dict:
-                if ReadFromchk:
+                if ReadFrom == 'chk':
                     self.make_input(JobName, TotalCharge, SpinMulti, 
                                     run_type='symm', Newinput=True, 
                                     geom_spec=Is_geom_spec, readchk='all') 
-                if ReadFromsdf or ReadFromxyz:
+                if ReadFrom == 'sdf' or ReadFrom == 'xyz':
                     self.make_input(JobName, TotalCharge, SpinMulti, 
                                     run_type='symm', Newinput=True, 
                                     Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
                                     geom_spec=Is_geom_spec) 
             if 'volume' in option_dict:
-                if ReadFromchk:
+                if ReadFrom == 'chk':
                     self.make_input(JobName, TotalCharge, SpinMulti, 
                                     run_type='volume', Newinput=False, 
                                     geom_spec=Is_geom_spec, readchk='all') 
-                if ReadFromsdf or ReadFromxyz:
+                if ReadFrom == 'sdf' or ReadFrom == 'xyz':
                     self.make_input(JobName, TotalCharge, SpinMulti, 
                                     run_type='volume', Newinput=False, 
                                     Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
@@ -524,45 +561,45 @@ class GaussianDFTRun:
         else:
         #The first scf job
             run_opt = 'opt' if 'opt' in option_dict else ''
-            if ReadFromchk and element == []:
+            if ReadFrom == 'chk' and element == []:
                 if Is_ChargeSpec == False and Is_SpinMultiSpec == False:
                     if optoption == '':
-                        self.make_input(JobName, TotalCharge, SpinMulti, 
-                                        run_type=run_opt, Newinput=True, 
+                        self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag,
+                                        run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, Newinput=True, 
                                         geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
                     else:
                         self.make_input(JobName, TotalCharge, SpinMulti, 
-                                        run_type=run_opt, optoption=optoption, Newinput=True, 
+                                        run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, optoption=optoption, Newinput=True, 
                                         geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
                 else:
                     if optoption == '':
-                        self.make_input(JobName, TotalCharge, SpinMulti, 
-                                        run_type=run_opt, Newinput=True, 
+                        self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
+                                        run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, Newinput=True, 
                                         geom_spec=Is_geom_spec, readchk='geomguess', solvent=self.solvent) 
                     else:
-                        self.make_input(JobName, TotalCharge, SpinMulti, 
-                                        run_type=run_opt, optoption=optoption, Newinput=True, 
+                        self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
+                                        run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, optoption=optoption, Newinput=True, 
                                         geom_spec=Is_geom_spec, readchk='geomguess', solvent=self.solvent) 
-            elif ReadFromchk and element != []:
+            elif ReadFrom == 'chk' and element != []:
                 if optoption == '':
-                    self.make_input(JobName, TotalCharge, SpinMulti, 
-                                    run_type=run_opt, Newinput=True, 
+                    self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
+                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, Newinput=True, 
                                     Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
                                     geom_spec=Is_geom_spec, readchk='guess', solvent=self.solvent) 
                 else:
-                    self.make_input(JobName, TotalCharge, SpinMulti, 
-                                    run_type=run_opt, optoption=optoption, Newinput=True, 
+                    self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
+                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, optoption=optoption, Newinput=True, 
                                     Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
                                     geom_spec=Is_geom_spec, readchk='guess', solvent=self.solvent) 
-            elif ReadFromsdf or ReadFromxyz:
+            elif ReadFrom == 'sdf' or ReadFrom == 'xyz':
                 if optoption == '':
-                    self.make_input(JobName, TotalCharge, SpinMulti, 
-                                    run_type=run_opt, Newinput=True, 
+                    self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
+                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, Newinput=True, 
                                     Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
                                     geom_spec=Is_geom_spec, solvent=self.solvent) 
                 else:
-                    self.make_input(JobName, TotalCharge, SpinMulti, 
-                                    run_type=run_opt, optoption=optpotion, Newinput=True, 
+                    self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
+                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, optoption=optpotion, Newinput=True, 
                                     Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
                                     geom_spec=Is_geom_spec, solvent=self.solvent) 
 
@@ -578,18 +615,18 @@ class GaussianDFTRun:
                                 readchk='all', solvent=self.solvent) 
 
             if 'freq' in option_dict: # freq == 1
-                self.make_input(JobName, TotalCharge, SpinMulti, 
-                                run_type='freq', Newinput=False, 
+                self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
+                                run_type='freq', TDDFT=td_tag, TDstate=TDstate_tag, Newinput=False, 
                                 readchk='all', solvent=self.solvent) 
 
             if 'polar' in option_dict: # polar == 1
-                self.make_input(JobName, TotalCharge, SpinMulti, 
-                                run_type='polar', Newinput=False, 
+                self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
+                                run_type='polar', TDDFT=td_tag, TDstate=TDstate_tag, Newinput=False, 
                                 readchk='all', solvent=self.solvent) 
 
             if 'nmr' in option_dict: # nmr == 1
-                self.make_input(JobName, TotalCharge, SpinMulti, 
-                                run_type='nmr', Newinput=False, 
+                self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
+                                run_type='nmr', TDDFT=td_tag, TDstate=TDstate_tag, Newinput=False, 
                                 readchk='all', solvent=self.solvent) 
 
             if 'vip' in option_dict: # vip == 1
@@ -650,320 +687,472 @@ class GaussianDFTRun:
                                 run_type='', TDDFT=True, 
                                 readchk='all', solvent=self.solvent) 
 
-            if 'fluor' in option_dict:
-                TDOpt_chk = f'{JobName}_ExOptAState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateSinglet'
-                self.make_input(JobName, TotalCharge, SpinMulti, 
-                                scf='close', run_type='opt', TDDFT=True, TDstate='Singlet', target=targetstate, 
-                                readchk='all', newchk=TDOpt_chk, solvent=self.solvent) 
+           # if 'fluor' in option_dict:
+           #     TDOpt_chk = f'{JobName}_ExOptAState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateSinglet'
+           #     self.make_input(JobName, TotalCharge, SpinMulti, 
+           #                     scf='close', run_type='opt', TDDFT=True, TDstate='Singlet', target=targetstate, 
+           #                     readchk='all', newchk=TDOpt_chk, solvent=self.solvent) 
 
-            if 'tadf' in option_dict:
-                TTDOpt_chk = f'{JobName}_ExOptFState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateTriplet'
-                #self.make_input(JobName, TotalCharge, SpinMulti, scf='close', run_type='opt', TDDFT=True, TDstate='Triplet', target=targetstate, readchk='all', oldchk=TDOpt_chk, newchk=TTDOpt_chk, solvent=self.solvent) 
-                self.make_input(JobName, TotalCharge, SpinMulti, 
-                                scf='close', run_type='opt', TDDFT=True, TDstate='Triplet', target=targetstate, 
-                                readchk='all', newchk=TTDOpt_chk, solvent=self.solvent) 
+           # if 'tadf' in option_dict:
+           #     TTDOpt_chk = f'{JobName}_ExOptFState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateTriplet'
+           #     self.make_input(JobName, TotalCharge, SpinMulti, 
+           #                     scf='close', run_type='opt', TDDFT=True, TDstate='Triplet', target=targetstate, 
+           #                     readchk='all', newchk=TTDOpt_chk, solvent=self.solvent) 
 
     def run_gaussian(self):
         infilename = self.in_file
         option_line = self.value    
         options = option_line.split()
+        job_eachState = []
+        job_eachState.append({})
         option_dict = {}
-        option_dict_Ex = {}
-        option_dict_pka = {}
-        targetstate = 1
+        TargetStates = [0]
+        TargetSpinMulti = []
+        TargetTotalCharge = []
         PreGauInput = infilename.split('.')
         JobName = PreGauInput[0]
         #GauInputName = PreGauInput[0]+'.com'    
         # File type of input?
-        ReadFromchk = False 
-        ReadFromsdf = False
-        ReadFromxyz = False
+        ReadFrom = None
         # Initialization of molecular coordinate
-        atm = [] 
-        X = [] 
-        Y = [] 
-        Z = []
+        atm, X, Y, Z = [], [], [], []
         Bondpair1 = []
         Bondpair2 = []
         # Classify input
         if PreGauInput[1] == "sdf":
-            ReadFromsdf = True 
+            ReadFrom = 'sdf' 
             atm, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf(infilename)
         elif PreGauInput[1] == "xyz":
-            ReadFromxyz = True
+            ReadFrom = 'xyz' 
             atm, X, Y, Z, TotalCharge, SpinMulti = read_mol_file.read_xyz(infilename)
         elif PreGauInput[1] == "chk":
-            ReadFromchk = True 
+            ReadFrom = 'chk' 
         elif PreGauInput[1] == "fchk":
             TotalCharge, SpinMulti = gaussian_run.fchk2chk.Get_fchk(PreGauInput[0])
-            ReadFromchk = True 
+            ReadFrom = 'chk' 
         else:
             print("Invalid input file")
+
+        TargetSpinMulti.append(SpinMulti)
+        TargetTotalCharge.append(TotalCharge)
 
         # Setting options
         for i in range(len(options)):
             option = options[i]
             if option.lower() == 'opt':
                 option_dict['opt'] = True
+                job_eachState[0]['opt'] = True
                 if '=' in option:
-                    in_target = option.split("=")
+                    in_target = option.split('=')
                     optoption = in_target[-1]
             elif option.lower() == 'freq':
                 option_dict['freq'] = True
+                job_eachState[0]['freq'] = True
             elif option.lower() == 'polar':
                 option_dict['polar'] =  True
+                job_eachState[0]['polar'] = True
             elif option.lower() == 'nmr':
                 option_dict['nmr'] = True
+                job_eachState[0]['nmr'] = True
             elif 'uv' in option.lower():
                 option_dict['uv'] = True
+                job_eachState[0]['uv'] = True
                 if '=' in option:
-                    ref_spectrum = option.split("=")
+                    ref_spectrum = option.split('=')
                     self.ref_uv_path = ref_spectrum[-1]
             elif option.lower() == 'energy':
                 option_dict['energy'] = True
+                job_eachState[0]['energy'] = True
             elif option.lower() == 'homolumo':
                 option_dict['homolumo'] = True
+                job_eachState[0]['homolumo'] = True
             elif option.lower() == 'dipole':
                 option_dict['dipole'] = True
+                job_eachState[0]['dipole'] = True
             elif option.lower() == 'deen':
                 option_dict['deen'] = True
+                job_eachState[0]['deen'] = True
             elif option.lower() == 'stable2o2':
                 option_dict['stable2o2'] = True
+                job_eachState[0]['stable2o2'] = True
             elif 'fluor' in option.lower():
                 option_dict['uv'] = True
-                if SpinMulti == 1:
-                    option_dict['fluor'] = True
-                else:
-                    option_dict_Ex['fluor'] = True
+                option_dict['fluor'] = True
+                job_eachState.append({})
+                job_eachState[0]['uv'] = True
+                job_eachState[len(job_eachState)-1]['fluor'] = True
+                #setting the target state and its spin
                 if '=' in option:
-                    in_target = option.split("=")
-                    targetstate = int(in_target[-1])
+                    in_target = option.split('=')
+                    TargetStates.append(int(in_target[-1]))
+                    TargetSpinMulti.append(SpinMulti)
+                    TargetTotalCharge.append(TotalCharge)
+                else:
+                    TargetStates.append(1)
+                    TargetSpinMulti.append(SpinMulti)
+                    TargetTotalCharge.append(TotalCharge)
             elif option.lower() == 'tadf':
                 option_dict['uv'] = True
-                if SpinMulti == 1:
+                job_eachState[0]['uv'] = True
+                job_eachState.append({})
+                if 'fluor' in option_dict:
+                    option_dict['tadf'] = True
+                    job_eachState[len(job_eachState)-1]['tadf'] = True
+                    #setting the target state and its spin
+                    if '=' in option:
+                        in_target = option.split('=')
+                        TargetStates.append(int(in_target[-1]))
+                        TargetSpinMulti.append(SpinMulti+2)
+                        TargetTotalCharge.append(TotalCharge)
+                    else:
+                        TargetStates.append(1)
+                        TargetSpinMulti.append(SpinMulti+2)
+                        TargetTotalCharge.append(TotalCharge)
+                else:
                     option_dict['fluor'] = True
                     option_dict['tadf'] = True
-                else:
-                    option_dict_Ex['fluor'] = True
-                    option_dict_Ex['tadf'] = True
+                    job_eachState.append({})
+                    job_eachState[len(job_eachState)-2]['fluor'] = True
+                    job_eachState[len(job_eachState)-1]['tadf'] = True
+                    #setting the target state and its spin
+                    if '=' in option:
+                        in_target = option.split('=')
+                        TargetStates.append(int(in_target[-1]))
+                        TargetSpinMulti.append(SpinMulti)
+                        TargetTotalCharge.append(TotalCharge)
+                        TargetStates.append(int(in_target[-1]))
+                        TargetSpinMulti.append(SpinMulti+2)
+                        TargetTotalCharge.append(TotalCharge)
+                    else:
+                        TargetStates.append(1)
+                        TargetStates.append(1)
+                        TargetSpinMulti.append(SpinMulti)
+                        TargetSpinMulti.append(SpinMulti+2)
+                        TargetTotalCharge.append(TotalCharge)
+                        TargetTotalCharge.append(TotalCharge)
             elif option.lower() == 'vip':
+                job_eachState[0]['vip'] = True
                 option_dict['vip'] = True
             elif option.lower() == 'vea':
+                job_eachState[0]['vea'] = True
                 option_dict['vea'] = True
             elif option.lower() == 'aip':
+                job_eachState[0]['vip'] = True
+                job_eachState[0]['aip'] = True
                 option_dict['vip'] = True
                 option_dict['aip'] = True
             elif option.lower() == 'aea':
+                job_eachState[0]['vea'] = True
+                job_eachState[0]['aea'] = True
                 option_dict['vea'] = True
                 option_dict['aea'] = True
             elif option.lower() == 'cden':
+                job_eachState[0]['cden'] = True
                 option_dict['cden'] = True
             elif option.lower() == 'pka':
+                TargetStates.append(0)
+                job_eachState[0]['energy'] = True
+                job_eachState[0]['cden'] = True
+                job_eachState.append({})
+                job_eachState[len(job_eachState)-1]['energy'] = True
+                job_eachState[len(job_eachState)-1]['opt'] = True
+                job_eachState[len(job_eachState)-1]['pka'] = True
+                TargetSpinMulti.append(SpinMulti)
+                TargetTotalCharge.append(TotalCharge-1)
                 option_dict['energy'] = True
                 option_dict['cden'] = True
                 option_dict['pka'] = True
-                option_dict_pka['energy'] = True
             elif option.lower() == 'satkoopmans':
+                job_eachState[0]['homolumo'] = True
+                job_eachState[0]['vip'] = True
+                job_eachState[0]['vea'] = True
+                job_eachState[0]['satkoopmans'] = True
                 option_dict['homolumo'] = True
                 option_dict['vip'] = True
                 option_dict['vea'] = True
                 option_dict['satkoopmans'] = True
             elif option.lower() == 'symm':
+                job_eachState[0]['symm'] = True
                 option_dict['symm'] = True
             elif option.lower() == 'volume':
+                job_eachState[0]['volume'] = True
                 option_dict['volume'] = True
+            elif 'stable' in option.lower():
+                option_dict['stable'] = True
             else:
                 print('invalid option: ', option)
 
-        # Make work directory and change to the directory
+        # Make work directory and move to the directory
         if os.path.isdir(JobName):
             shutil.rmtree(JobName)
         os.mkdir(JobName)
-        if ReadFromchk:
-            inchkfile = JobName + ".chk"
+        if ReadFrom == 'chk':
+            inchkfile = JobName + '.chk'
             shutil.move(inchkfile, JobName) 
         os.chdir(JobName)
 
         # Initialization of otuput dictionary.
-        output_dic = {}
+        output_dic = []
 
-        if self.error == 1:
-            check_logfile = JobName+'.log'
-            option_dict_optcheck = {'opt': True, 'freq': True}
-            scf_need=True
-            self.job_construction(JobName, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
-                                targetstate, ReadFromchk, ReadFromsdf, ReadFromxyz, 
-                                element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='')
-            job_state = "normal"
-            job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName, self.timexe)
+        TDstate_info = []
+        #print(job_eachState)
+        #print(TargetTotalCharge)
+        #print(TargetSpinMulti)
 
-            try:
-                output_prop = self.Extract_values(JobName, option_dict_optcheck, Bondpair1, Bondpair2)
-            except Exception as e:
-                job_state = "error"
-                print(e)
-                pass
+        for i in range(len(TargetStates)):
 
-            with open(check_logfile,'r') as ifile:
-                CKF_lines = ifile.readlines()
-            Mol_atom, Mol_X, Mol_Y, Mol_Z = gaussian_run.Get_MolCoordinate.Extract_Coordinate(CKF_lines)
+            print (f'~~~~~~~~~~~~~Computing the state/species {i}~~~~~~~~~~~~~~~~~~~')
 
-            print(output_prop)
-            Freq_CK = np.array(output_prop['freq'])
-            Freq_min = Freq_CK.min()
-            Freq_min_index = np.argmin(Freq_CK)
+            output_dic.append({})
 
-            ReadFromchk=True 
-            ReadFromsdf=False 
-            ReadFromxyz=False
-        
-            if Freq_min > 0:
-                print (f'Mnimum frequency is positive...{Freq_min} cm^-1')
-                #Checking the remain task (option)
-                all_options = set(option_dict.keys())
-                remain_keys = all_options - set(option_dict_optcheck.keys())
-        
-                if len(remain_keys) >= 1:
-                    self.error -= 1
-                    output_dic.update(output_prop)
-                    if 'freq' in option_dict:
-                        del option_dict['freq']
-                    if 'opt' in option_dict:
-                        del option_dict['opt']
-                    #for the next computation
-                else:
-                    output_dic.update(output_prop)
-                    return(output_dic)
+            job_thisstate = job_eachState[i]
+            targetstate = TargetStates[i]
+            SpinMulti = TargetSpinMulti[i]
+            TotalCharge = TargetTotalCharge[i]
+            if 'pka' in job_thisstate:
+                JobNameState = JobName + f'_DeH'
             else:
-                print (f'Negative frequency is detected...{Freq_min} cm^-1')
+                JobNameState = JobName + f'_State{targetstate}_{SpinMulti}_{TotalCharge}'
+            Jobchk = JobNameState  + '.chk' 
+            GeomStable = True
 
-                ImFreq_modeX = output_prop['freqmode'][0][Freq_min_index]
-                ImFreq_modeY = output_prop['freqmode'][1][Freq_min_index]
-                ImFreq_modeZ = output_prop['freqmode'][2][Freq_min_index]
+            if ReadFrom == 'chk' and i == 0:
+                inchkfile = JobName + '.chk'
+                for f in glob.glob('./*.chk'):
+                    File_name = f.replace('./','')
+                    if File_name == inchkfile:
+                        shutil.move(File_name, Jobchk) 
+                    else:
+                        print ('Suitable chk file was not found!')
+            
+            elif i > 0 and ('pka' not in job_thisstate):
+                for f in glob.glob('./*.fchk'):
+                    print(f)
+                    File_name = f.replace('./','')
+                    if File_name == JobName + f'_State0_{SpinMulti}_{TotalCharge}.fchk' and ('fluor' in job_thisstate):
+                        TDstate_info = output_dic[0]["state_index"][0] 
+                        #print(TDstate_info)
+                        print ('The ground state fchk file was found!')
+                        GS_TotalCharge, GS_SpinMulti = gaussian_run.fchk2chk.Get_fchk(File_name.replace('.fchk',''))
+                        shutil.copy(File_name.replace('.fchk','.chk'), Jobchk) 
+                        ReadFrom = 'chk'
+                        # Initialization of molecular coordinate
+                        atm, X, Y, Z = [], [], [], []
+                    #if File_name == JobName + f'_State1_{SpinMulti-2}_{TotalCharge}.fchk' and  ('tadf' in job_thisstate):
+                    if File_name == JobName + f'_State0_{SpinMulti-2}_{TotalCharge}.fchk' and  ('tadf' in job_thisstate):
+                        TDstate_info = output_dic[0]["state_index"][1] 
+                        #print(TDstate_info)
+                        print ('The ground state fchk file was found!')
+                        GS_TotalCharge, GS_SpinMulti = gaussian_run.fchk2chk.Get_fchk(File_name.replace('.fchk',''))
+                        shutil.copy(File_name.replace('.fchk','.chk'), Jobchk) 
+                        ReadFrom = 'chk'
+                        # Initialization of molecular coordinate
+                        atm, X, Y, Z = [], [], [], []
+           #         else:
+           #             print ('Suitable chk file was not found!')
 
-                X = Mol_X+ 0.05* ImFreq_modeX
-                Y = Mol_Y+ 0.05* ImFreq_modeY
-                Z = Mol_Z+ 0.05* ImFreq_modeZ
+            elif 'pka' in job_thisstate:
+                E_pH = output_dic[0]["Energy"][0]
+                Atom = output_dic[0]["cden"][0]
+                MullCharge = output_dic[0]["cden"][1]
+                Index_MaxProtic = gaussian_run.Get_ChargeSpin.find_MaxProtic(Atom, MullCharge)
+                print(Index_MaxProtic)
+                GS_fchk = JobName+f'_State0_{SpinMulti}_{TotalCharge+1}.fchk'
+                with open(GS_fchk,'r') as ifile:
+                    GS_fchk_lines = ifile.readlines()
+                _, _, Mol_atom, Mol_X, Mol_Y, Mol_Z = gaussian_run.Get_MolCoordinate_fchk.Extract_MolCoord(GS_fchk_lines)
+                atm = np.delete(Mol_atom,Index_MaxProtic) 
+                X = np.delete(Mol_X,Index_MaxProtic)
+                Y = np.delete(Mol_Y,Index_MaxProtic)
+                Z = np.delete(Mol_Z,Index_MaxProtic)
+                ReadFrom = 'xyz'
+            
 
-                self.job_construction(JobName, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
-                                    targetstate, ReadFromchk, ReadFromsdf, ReadFromxyz, 
-                                    element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='')
+            if 'stable' in option_dict:
+                GeomStable = False
+                Stable_Iteration = 0
+                option_dict_optcheck = {'opt': True, 'freq': True, 'energy': True}
+                scf_need=True
+                self.job_construction(JobNameState, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
+                                 targetstate, ReadFrom, 
+                                 element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=TDstate_info)
                 job_state = "normal"
-                job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName, self.timexe)
+                job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe)
+            
+                while GeomStable == False:
 
+                    try:
+                        output_prop = self.Extract_values(JobNameState, option_dict_optcheck, Bondpair1, Bondpair2)
+                    except Exception as e:
+                        job_state = "error"
+                        print(e)
+                        pass
+            
+                    #print(output_prop)
+                    Freq_CK = np.array(output_prop['freq'])
+                    Freq_min = Freq_CK.min()
+                    Freq_min_index = np.argmin(Freq_CK)
+                    
+                    #For the next job, change  RaedFrom to 'chk' 
+                    ReadFrom = 'chk'
+            
+                    if Freq_min > 0:
+                        print (f'Mnimum frequency is positive...{Freq_min} cm^-1')
+                        #remove the stable option
+                        output_dic[i][f'stable_{i}'] = True
+                        GeomStable = True
+                        Stable_Iteration += 1
+            
+                        #Initializing molecular coordinate since the next job will use chk file
+                        atm, X, Y, Z = [], [], [], [] 
+            
+                        #Checking the remain task (option)
+                        all_options = set(job_thisstate.keys())
+                        remain_keys = all_options - set(option_dict_optcheck.keys())
+            
+                        if len(remain_keys) >= 1:
+                            output_dic[i].update(output_prop)
+                            print(remain_keys)
+                            if 'freq' in job_thisstate:
+                                del job_thisstate['freq']
+                            if 'opt' in job_thisstate:
+                                del job_thisstate['opt']
+                            #for the next computation
+                        else:
+                            output_dic[i].update(output_prop)
+
+                        print(f'Remaining job....{job_thisstate}')
+            
+                    else:
+                        print (f'Negative frequency is detected...{Freq_min} cm^-1')
+                
+                        Stable_Iteration += 1
+                        if  Stable_Iteration == 10: # quit after over 10 iterations
+                            output_dic[i]['stable'+f'{targetstate}'] = False
+                            output_dic[i].update(output_prop)
+                            break
+
+                        #Get molecular coordinate
+                        check_logfile = JobNameState + '.log'
+                        with open(check_logfile,'r') as ifile:
+                            CKF_lines = ifile.readlines()
+                        Mol_atom, Mol_X, Mol_Y, Mol_Z = gaussian_run.Get_MolCoordinate.Extract_Coordinate(CKF_lines)
+            
+                        #try to erase the imaginary frequency mode...
+                        ImFreq_modeX = output_prop['freqmode'][0][Freq_min_index]
+                        ImFreq_modeY = output_prop['freqmode'][1][Freq_min_index]
+                        ImFreq_modeZ = output_prop['freqmode'][2][Freq_min_index]
+            
+                        fX = Mol_X + 0.05 * ImFreq_modeX
+                        fY = Mol_Y + 0.05 * ImFreq_modeY
+                        fZ = Mol_Z + 0.05 * ImFreq_modeZ
+            
+                        rX = Mol_X - 0.05 * ImFreq_modeX
+                        rY = Mol_Y - 0.05 * ImFreq_modeY
+                        rZ = Mol_Z - 0.05 * ImFreq_modeZ
+            
+                        JobName_ChStableF = JobNameState+'_ChStableF'+f'_State{targetstate}'
+                        JobName_ChStableR = JobNameState+'_ChStableR'+f'_State{targetstate}'
+                        check_logfileF = JobName_ChStableF+'.log'
+                        check_logfileR = JobName_ChStableR+'.log'
+                        JobName_ChStableF_chk = JobName_ChStableF + '.chk'
+                        JobName_ChStableR_chk = JobName_ChStableR + '.chk'
+            
+                        shutil.copy(Jobchk, JobName_ChStableF_chk)
+                        shutil.copy(Jobchk, JobName_ChStableR_chk)
+            
+                        #explore the direction of forward mode 
+                        self.job_construction(JobName_ChStableF, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
+                                            targetstate, ReadFrom, 
+                                            element=atm, atomX=fX, atomY=fY, atomZ=fZ, optoption='', TDstate_info=TDstate_info)
+                        job_state = "normal"
+                        job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_ChStableF, self.timexe)
+            
+                        try:
+                            output_prop_f = self.Extract_values(JobName_ChStableF, option_dict_optcheck, Bondpair1, Bondpair2)
+                        except Exception as e:
+                            job_state = "error"
+                            print(e)
+                            output_prop_f['Energy'] = [0, 0]
+                            pass
+            
+                        #explore the direction of reverse mode 
+                        self.job_construction(JobName_ChStableR, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
+                                            targetstate, ReadFrom, 
+                                            element=atm, atomX=rX, atomY=rY, atomZ=rZ, optoption='', TDstate_info=TDstate_info)
+                        job_state = "normal"
+                        job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_ChStableR, self.timexe)
+            
+                        try:
+                            output_prop_r = self.Extract_values(JobName_ChStableR, option_dict_optcheck, Bondpair1, Bondpair2)
+                        except Exception as e:
+                            job_state = "error"
+                            print(e)
+                            output_prop_r['Energy'] = [0, 0]
+                            pass
+            
+                        if output_prop_f["Energy"][0] <=  output_prop_r["Energy"][0]:
+                            output_prop = output_prop_f.copy()
+                            shutil.copy(JobName_ChStableF_chk, Jobchk)
+                            shutil.copy(check_logfileF, check_logfile)
+                            output_prop_f = {}
+                        else:
+                            output_prop = output_prop_r.copy()
+                            shutil.copy(JobName_ChStableR_chk, Jobchk)
+                            shutil.copy(check_logfileR, check_logfile)
+                            output_prop_r = {}
+
+            if ('stable' not in option_dict) or GeomStable:
+                check_logfile = JobName+'.log'
+                scf_need = self.check_scf_need(job_thisstate)
+                self.job_construction(JobNameState, scf_need, job_thisstate, TotalCharge, SpinMulti, 
+                                    targetstate, ReadFrom, 
+                                    element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=TDstate_info)
+            
+                job_state = "normal"
+                job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe)
+                # When the scf is performed, the obtained wavefunction is saved to chk file.
+                # But for 'symm' and 'volume' that information is emply except for when the input is chk or fchk files.
+                if scf_need or ReadFromchk:
+                    gaussian_run.chk2fchk.Get_chklist()
+                elif scf_need != True and ReadFromchk != True:
+                    for f in glob.glob('./*.chk'):
+                        os.remove(os.path.join('.', f))
+            
+
+                #output_prop = self.Extract_values(JobName, option_dict, Bondpair1, Bondpair2)
+                #output_dic[i].update(output_prop)
                 try:
-                    output_prop = self.Extract_values(JobName, option_dict_optcheck, Bondpair1, Bondpair2)
+                    output_prop = self.Extract_values(JobNameState, job_thisstate, Bondpair1, Bondpair2)
+                    output_dic[i].update(output_prop)
+                    output_dic[i]['log'] = job_state
                 except Exception as e:
                     job_state = "error"
                     print(e)
                     pass
-
-                output_dic.update(output_prop)
-
-                if 'freq' in option_dict:
-                    del option_dict['freq']
-                if 'opt' in option_dict:
-                    del option_dict['opt']
-
-                self.error -= 1
-
-        # Initialization of molecular coordinate
-            atm = [] 
-            X = [] 
-            Y = [] 
-            Z = []
-
-        if self.error == 0:
-            scf_need = self.check_scf_need(option_dict)
-            self.job_construction(JobName, scf_need, option_dict, TotalCharge, SpinMulti, 
-                                targetstate, ReadFromchk, ReadFromsdf, ReadFromxyz, 
-                                element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='')
-
-            job_state = "normal"
-            job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName, self.timexe)
-            # When the scf is performed, the obtained wavefunction is saved to chk file.
-            # But for 'symm' and 'volume' that information is emply except for when the input is chk or fchk files.
-            if scf_need or ReadFromchk:
-                gaussian_run.chk2fchk.Get_chklist()
-            elif scf_need != True and ReadFromchk != True:
-                for f in glob.glob('./*.chk'):
-                    os.remove(os.path.join('.', f))
-
-            #output_prop = self.Extract_values(JobName, option_dict, Bondpair1, Bondpair2)
-            #output_dic.update(output_prop)
-            try:
-                output_prop = self.Extract_values(JobName, option_dict, Bondpair1, Bondpair2)
-                output_dic.update(output_prop)
-            except Exception as e:
-                job_state = "error"
-                print(e)
-                pass
-
-        # for pka computation
-            if 'pka' in option_dict:
-                output_dic_pka = {}
-                E_pH = output_dic["Energy"][0]
-                Atom = output_dic["cden"][0]
-                MullCharge = output_dic["cden"][1]
-                Index_MaxProtic = gaussian_run.Get_ChargeSpin.find_MaxProtic(Atom, MullCharge)
-                print(Index_MaxProtic)
-                GS_fchk = JobName+".fchk"
-                with open(GS_fchk,'r') as ifile:
-                    GS_lines = ifile.readlines()
-                TotalCharge, SpinMulti, Mol_atom, Mol_X, Mol_Y, Mol_Z = gaussian_run.Get_MolCoordinate_fchk.Extract_MolCoord(GS_lines)
-                DeHMol_atom = np.delete(Mol_atom,Index_MaxProtic) 
-                DeHMol_X = np.delete(Mol_X,Index_MaxProtic)
-                DeHMol_Y = np.delete(Mol_Y,Index_MaxProtic)
-                DeHMol_Z = np.delete(Mol_Z,Index_MaxProtic)
-                JobName_DeHMol = JobName + "_DeH"
             
-                self.make_input(JobName_DeHMol, TotalCharge-1, SpinMulti, 
-                            run_type='opt', Newinput=True, 
-                            Mol_atom=DeHMol_atom, X=DeHMol_X, Y=DeHMol_Y, Z=DeHMol_Z, readchk=False, solvent=self.solvent) 
-            
-                job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_DeHMol, self.timexe)
-                gaussian_run.chk2fchk.Get_chklist()
-                # output_dic_pka = self.Extract_values(JobName_DeHMol, option_dict_pka, Bondpair1, Bondpair2)
-                try:
-                    output_dic_pka = self.Extract_values(JobName_DeHMol, option_dict_pka, Bondpair1, Bondpair2)
-                except Exception as e:
-                    job_state = "error"
-                    print (e)
-                    pass
-                #print("pka: ", output_dic_pka)
-                E_dH = output_dic_pka["Energy"][0]
-                output_dic["pka"] = (E_dH - E_pH)*Eh2kJmol
-            
-             #for fluor == 1 or tadf == 1 for open shell
-            if 'fluor' in option_dict_Ex or 'tadf' in option_dict_Ex: 
-                TotalCharge, SpinMulti = gaussian_run.fchk2chk.Get_fchk(PreGauInput[0])
-                output_dic_Ex = {}
-                compute_state = output_dic["state_index"][0][int(targetstate)-1] 
-                JobName_ExOpt = JobName + '_ExOptAState'+f'{targetstate}'
-            
-                self.make_input(JobName_ExOpt, TotalCharge, SpinMulti, 
-                                run_type='opt', Newinput=True, TDDFT=True, target=compute_state, 
-                                readchk='all', oldchk=JobName, newchk=JobName_ExOpt, solvent=self.solvent) 
-            
-                if 'tadf' in option_dict_Ex: #tadf == 1
-                    ExOptFState_chk=  JobName + '_ExOptFState'+f'{targetstate}'
-                    compute_state = output_dic["state_index"][1][int(targetstate)-1] 
-                    self.make_input(JobName_ExOpt, TotalCharge, SpinMulti, 
-                                    run_type='opt', TDDFT=True, target=compute_state, 
-                                    readchk='all', oldchk=JobName_ExOpt, newchk=ExOptFState_chk, solvent=self.solvent) 
-            
-                job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_ExOpt, self.timexe)
-                gaussian_run.chk2fchk.Get_chklist()
-                # output_dic_Ex = self.Extract_values(JobName_ExOpt, option_dict_Ex, Bondpair1, Bondpair2)
-                try:
-                    output_dic_Ex = self.Extract_values(JobName_ExOpt, option_dict_Ex, Bondpair1, Bondpair2)
-                except Exception as e:
-                    job_state = "error"
-                    print (e)
-                    pass
-                output_dic.update(output_dic_Ex)
+                # for pka computation
+                if 'pka' in job_thisstate:
+                    #print("pka: ", output_dic_pka)
+                    E_dH = output_dic[i]["Energy"][0]
+                    output_dic[i]["pka"] = (E_dH - E_pH)*Eh2kJmol
 
-        output_dic["log"] = job_state
+                if 'tadf' in job_thisstate:
+                    TADF_Eng = 0.0
+                    S_Eext = output_dic[i-1]["MinEtarget"]
+                    T_Eext = output_dic[i]["T_Min"]
+                    TADF_Eng = S_Eext - T_Eext
+                    output_dic[i]["Delta(S-T)"] = TADF_Eng
+
+
+        output_sum = {}
+        for i, j in enumerate(output_dic):
+            #print(i, j)
+            for k in output_dic[i].keys():
+                output_sum.setdefault(k, output_dic[i][k])
+            #for k in range(len(option_dict)):
+                
+        #output_dic["log"] = job_state
 
         # Convert fchk to xyz 
         if self.restart == False and scf_need == True:
@@ -971,7 +1160,7 @@ class GaussianDFTRun:
 
         os.chdir("..")
 
-        return(output_dic)
+        return(output_sum)
 
 
 if __name__ == '__main__':
