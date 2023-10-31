@@ -1064,7 +1064,7 @@ class GaussianDFTRun:
                         #explore the direction of forward mode 
                         self.job_construction(JobName_ChStableF, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
                                             targetstate, ReadFrom, 
-                                            element=atm, atomX=fX, atomY=fY, atomZ=fZ, optoption='', TDstate_info=TDstate_info)
+                                            element=atm, atomX=fX, atomY=fY, atomZ=fZ, optoption='ReadFC', TDstate_info=TDstate_info)
                         job_state = "normal"
                         job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_ChStableF, self.timexe)
             
@@ -1079,7 +1079,7 @@ class GaussianDFTRun:
                         #explore the direction of reverse mode 
                         self.job_construction(JobName_ChStableR, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
                                             targetstate, ReadFrom, 
-                                            element=atm, atomX=rX, atomY=rY, atomZ=rZ, optoption='', TDstate_info=TDstate_info)
+                                            element=atm, atomX=rX, atomY=rY, atomZ=rZ, optoption='ReadFC', TDstate_info=TDstate_info)
                         job_state = "normal"
                         job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_ChStableR, self.timexe)
             
