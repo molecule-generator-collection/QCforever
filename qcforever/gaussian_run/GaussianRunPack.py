@@ -485,7 +485,7 @@ class GaussianDFTRun:
 
             ofile.write(input_s)
 
-    def job_construction(self, JobName, scf_need, job_dict, TotalCharge, SpinMulti, targetstate,
+    def chain_job(self, JobName, scf_need, job_dict, TotalCharge, SpinMulti, targetstate,
                         ReadFrom, element=[], atomX=[], atomY=[], atomZ=[], optoption='', TDstate_info=[]):
 
         option_dict = copy.deepcopy(job_dict)
@@ -914,7 +914,7 @@ class GaussianDFTRun:
             else:
                 JobNameState = JobName + f'_State{targetstate}_{SpinMulti}_{TotalCharge}'
             Jobchk = JobNameState  + '.chk' 
-            GeomStable = True
+            AttmptStable = True
 
             if ReadFrom == 'chk' and i == 0:
                 inchkfile = JobName + '.chk'
@@ -966,20 +966,31 @@ class GaussianDFTRun:
                 Y = np.delete(Mol_Y,Index_MaxProtic)
                 Z = np.delete(Mol_Z,Index_MaxProtic)
                 ReadFrom = 'xyz'
-            
 
             if 'stable' in option_dict:
-                GeomStable = False
-                Stable_Iteration = 0
+
+                if self.geom_spec != {}: 
+                    for k in self.geom_spec.keys():
+                        if self.geom_spec[k][1] == 'F':
+                            print('Specified frozen molecular freedoms are found.')
+                            print('We will not try to find a stable structure.')
+                            #setting the interation limit, relese from the cycle to find stable structure.
+                            Stable_Iteration = 9
+                        else:
+                            Stable_Iteration = 0
+                else:
+                    Stable_Iteration = 0
+
+                AttmptStable = False
                 option_dict_optcheck = {'opt': True, 'freq': True, 'energy': True}
                 scf_need=True
-                self.job_construction(JobNameState, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
-                                 targetstate, ReadFrom, 
-                                 element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=TDstate_info)
+                self.chain_job(JobNameState, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
+                             targetstate, ReadFrom, 
+                             element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=TDstate_info)
                 job_state = "normal"
                 job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe)
             
-                while GeomStable == False:
+                while AttmptStable == False:
 
                     try:
                         output_prop = self.Extract_values(JobNameState, option_dict_optcheck, Bondpair1, Bondpair2)
@@ -1000,7 +1011,7 @@ class GaussianDFTRun:
                         print (f'Mnimum frequency is positive...{Freq_min} cm^-1')
                         #remove the stable option
                         output_dic[i][f'stable_{i}'] = True
-                        GeomStable = True
+                        AttmptStable = True
                         Stable_Iteration += 1
             
                         #Initializing molecular coordinate since the next job will use chk file
@@ -1028,8 +1039,25 @@ class GaussianDFTRun:
                 
                         Stable_Iteration += 1
                         if  Stable_Iteration == 10: # quit after over 10 iterations
-                            output_dic[i]['stable'+f'{targetstate}'] = False
+                            output_dic[i][f'stable_{i}'] = False
                             output_dic[i].update(output_prop)
+                            AttmptStable = True
+
+                            #Checking the remain task (option)
+                            all_options = set(job_thisstate.keys())
+                            remain_keys = all_options - set(option_dict_optcheck.keys())
+            
+                            if len(remain_keys) >= 1:
+                                output_dic[i].update(output_prop)
+                                print(remain_keys)
+                                if 'freq' in job_thisstate:
+                                    del job_thisstate['freq']
+                                if 'opt' in job_thisstate:
+                                    del job_thisstate['opt']
+                            #for the next computation
+                            else:
+                                output_dic[i].update(output_prop)
+                            print(f'Remaining job....{job_thisstate}')
                             break
 
                         #Get molecular coordinate
@@ -1062,7 +1090,7 @@ class GaussianDFTRun:
                         shutil.copy(Jobchk, JobName_ChStableR_chk)
             
                         #explore the direction of forward mode 
-                        self.job_construction(JobName_ChStableF, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
+                        self.chain_job(JobName_ChStableF, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
                                             targetstate, ReadFrom, 
                                             element=atm, atomX=fX, atomY=fY, atomZ=fZ, optoption='ReadFC', TDstate_info=TDstate_info)
                         job_state = "normal"
@@ -1077,7 +1105,7 @@ class GaussianDFTRun:
                             pass
             
                         #explore the direction of reverse mode 
-                        self.job_construction(JobName_ChStableR, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
+                        self.chain_job(JobName_ChStableR, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
                                             targetstate, ReadFrom, 
                                             element=atm, atomX=rX, atomY=rY, atomZ=rZ, optoption='ReadFC', TDstate_info=TDstate_info)
                         job_state = "normal"
@@ -1102,10 +1130,10 @@ class GaussianDFTRun:
                             shutil.copy(check_logfileR, check_logfile)
                             output_prop_r = {}
 
-            if ('stable' not in option_dict) or GeomStable:
+            if ('stable' not in option_dict) or AttmptStable:
                 check_logfile = JobName+'.log'
                 scf_need = self.check_scf_need(job_thisstate)
-                self.job_construction(JobNameState, scf_need, job_thisstate, TotalCharge, SpinMulti, 
+                self.chain_job(JobNameState, scf_need, job_thisstate, TotalCharge, SpinMulti, 
                                     targetstate, ReadFrom, 
                                     element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=TDstate_info)
             
