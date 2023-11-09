@@ -57,11 +57,41 @@ class parse_log:
             for mcoord in coordinates_inf:
                 coordinates_tmp.append(mcoord.strip())
                 #print(coordinates_tmp)
+            CentNum = [list(map(int, line.split()[0])) for line in coordinates_tmp]
+            atomicNum = [list(map(int, line.split()[1])) for line in coordinates_tmp]
             coordinates = [list(map(float, line.split()[3:])) for line in coordinates_tmp]
+            CentNum = np.array(CentNum).reshape(1, -1)
+            atomicNum = np.array(atomicNum).reshape(1, -1)
             coordinates = np.array(coordinates)
+            #print(atomicNum)
             #print(coordinates)
 
-        return coordinates
+        NumAtom = int(np.amax(CentNum))
+        print(f'Number of atoms: {NumAtom}')
+        TotalIter = CentNum.shape
+        print(f'Number of Ieration: {TotalIter}')
+        Coordinfo = coordinates.shape
+        print(f'Coord: {Coordinfo}')
+
+        X = coordinates[:,0]
+        Y = coordinates[:,1]
+        Z = coordinates[:,2]
+
+        #print(coordinates)
+        #print (X)
+        #print (Y)
+        #print (Z)
+
+        Mol_atom =[]
+        for i in range(NumAtom):
+            #print(atomicNum[0][i])
+            if __name__ == '__main__':
+                Mol_atom.append(AtomInfo.AtomicNumElec(int(atomicNum[0][i])))
+            else:
+                Mol_atom.append(gaussian_run.AtomInfo.AtomicNumElec(int(atomicNum[0][i])))
+        print(Mol_atom)
+
+        return Mol_atom, X, Y, Z 
 
     def Estimate_SpinDiff(self, lines):
         print ("Start evaluating spin contamination")    
@@ -75,6 +105,7 @@ class parse_log:
                 line_computed_Spin = line.split()
                 Computed_SS = float(line_computed_Spin[-3])
                 continue
+
         return Computed_SS, Ideal_SS
 
     def Extract_SCFEnergy(self, lines):
@@ -156,6 +187,7 @@ class parse_log:
                 OS_forbidden.append(OS[i])
                 CD_L_forbidden.append(CD_L[i])
                 CD_OS_forbidden.append(CD_OS[i])
+
         return State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                 CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden 
 
@@ -343,7 +375,10 @@ class parse_log:
         charge = []
         spinmulti = []
         Links_split = []
-        #MolCoord =  []
+        AtomNum =  []
+        MolX =  []
+        MolY =  []
+        MolZ =  []
         for i in range(len(Links)):
             lines = Links[i].splitlines()
             #extract method line
@@ -359,7 +394,17 @@ class parse_log:
             spinmulti.append(spinmulti_link)
             Links_split.append(lines)
 
-            #MolCoord.append(self.extract_MolCoordlog(lines))
+            AtomNum_tmp, Mol_tmpX, Mol_tmpY, Mol_tmpZ = self.extract_MolCoordlog(lines)
+            AtomNum.append(AtomNum_tmp)
+            MolX.append(Mol_tmpX)
+            MolY.append(Mol_tmpY)
+            MolZ.append(Mol_tmpZ)
+
+
+        print (AtomNum)
+        print (MolX)
+        print (MolY)
+        print (MolZ)
 
         #print (functional, basis)
         job_index = self.classify_task(method, charge, spinmulti)
@@ -373,6 +418,7 @@ class parse_log:
 
 if __name__ == '__main__':
     usage ='Usage; %s infile' % sys.argv[0]
+    import AtomInfo
 
     try:
         infilename = sys.argv[1]
@@ -382,4 +428,7 @@ if __name__ == '__main__':
     parselog = parse_log(infilename)
     job_index, Links_split = parselog.Check_task()
     print(job_index)
+
+else:
+    from qcforever import gaussian_run
 
