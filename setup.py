@@ -9,8 +9,8 @@ from setuptools import setup
     
 DOCLINES = (__doc__ or '').split('\n')
 INSTALL_REQUIRES = [                      
-    'numpy~=1.19.2',    
-    'rdkit-pypi==2021.03.5']
+    'numpy~=1.26.2',    
+    'rdkit~=2023.9.1']
 PACKAGES = [                    
     'qcforever',
     'qcforever.gaussian_run',
@@ -21,7 +21,7 @@ PACKAGE_DATA = {
 }
 CLASSIFIERS = [           
     'Intended Audience :: Science/Research',
-    'Programming Language :: Python :: 3.7',    
+    'Programming Language :: Python :: 3.11',    
     "License :: OSI Approved :: MIT License",   
     "Operating System :: OS Independent"]        
                                              
@@ -38,7 +38,7 @@ setup(
     url="https://github.com/molecule-generator-collection/QCforever",
     version="1.0.0",                                                     
     download_url="https://github.com/molecule-generator-collection/QCforever",
-    python_requires=">=3.7",                                                      
+    python_requires=">=3.11",                                                      
     install_requires=INSTALL_REQUIRES,
     packages=PACKAGES,                    
     package_data=PACKAGE_DATA,
