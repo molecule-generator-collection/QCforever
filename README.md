@@ -34,6 +34,9 @@ For GAMESS
 python gamess_main.py input_file
 ```
 
+#### Support input format
+`.sdf`, `.xyz`, `.chk`, `.fchk`
+
 ### Usage
 
 ```python
