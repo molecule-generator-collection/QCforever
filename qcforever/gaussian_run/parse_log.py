@@ -191,6 +191,78 @@ class parse_log:
         return State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                 CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden 
 
+    def extract_transtion_EMmoment(self, lines):
+        text = '\n'.join(lines)
+        # Define start and end patterns for transition electric dipole moments
+        e_start_pattern = "Ground to excited state transition electric dipole moments (Au):"
+        e_end_pattern = "Ground to excited state transition velocity dipole moments (Au):"
+
+        # Define start and end patterns for transition magnetic dipole moments
+        m_start_pattern = "Ground to excited state transition magnetic dipole moments (Au):"
+        m_end_pattern = "Ground to excited state transition velocity quadrupole moments (Au):"
+
+        # Extract the relevant portion of the text
+        e_relevant_text = re.search(f"{re.escape(e_start_pattern)}(.*?){re.escape(e_end_pattern)}", text, re.DOTALL).group(1)
+        m_relevant_text = re.search(f"{re.escape(m_start_pattern)}(.*?){re.escape(m_end_pattern)}", text, re.DOTALL).group(1)
+
+        # Split the relevant text into lines and extract the values
+        lines = e_relevant_text.strip().split('\n')
+        header = lines[0].split()
+        te_dipole_values = [line.split() for line in lines[1:]]
+
+        lines = m_relevant_text.strip().split('\n')
+        header = lines[0].split()
+        tm_dipole_values = [line.split() for line in lines[1:]]
+
+        #print(te_dipole_values)
+        #print(tm_dipole_values)
+        mu = []
+        mm = []
+        
+        for i in range(len(te_dipole_values)):
+            mu.append(list(map(float, te_dipole_values[i][1:4])))
+            mm.append(list(map(float, tm_dipole_values[i][1:4])))
+
+        print(mu)
+        print(mm)
+
+        T_const = 2.54174E-18
+        Y_const = 274.0717293
+        V_const = 9.27401E-21 
+
+        state_mu = []
+        state_g = []
+        state_theta = []
+
+        for i in range(len(mu)):
+            mu_state = np.array(mu[i])
+            mm_state = np.array(mm[i])
+            
+            norm_mu_state = np.linalg.norm(mu_state)
+            norm_mm_state = np.linalg.norm(mm_state)
+
+            in_mu_mm = np.inner(mu_state,mm_state)
+
+            mu_state_converted = norm_mu_state*T_const*Y_const
+            state_mu.append(mu_state_converted)
+             
+            if norm_mu_state != 0 and norm_mm_state != 0:
+                cos_theta = in_mu_mm/(norm_mu_state*norm_mm_state)
+                valence = 4*(norm_mu_state*Y_const*norm_mm_state/((norm_mu_state**2)*Y_const**2+norm_mm_state**2))
+            else:
+                cos_theta = 0.0
+                valence = 0.0
+
+            theta = (np.arccos(cos_theta)/np.pi)*180
+            g_calc = cos_theta*valence
+
+            state_theta.append(theta)
+            state_g.append(g_calc)
+    
+            print(theta)
+
+        return  state_mu, state_theta, state_g
+
     def extract_CD(self, lines):
         count = 0
         CD_length = []
@@ -394,17 +466,17 @@ class parse_log:
             spinmulti.append(spinmulti_link)
             Links_split.append(lines)
 
-            AtomNum_tmp, Mol_tmpX, Mol_tmpY, Mol_tmpZ = self.extract_MolCoordlog(lines)
-            AtomNum.append(AtomNum_tmp)
-            MolX.append(Mol_tmpX)
-            MolY.append(Mol_tmpY)
-            MolZ.append(Mol_tmpZ)
+            #AtomNum_tmp, Mol_tmpX, Mol_tmpY, Mol_tmpZ = self.extract_MolCoordlog(lines)
+            #AtomNum.append(AtomNum_tmp)
+            #MolX.append(Mol_tmpX)
+            #MolY.append(Mol_tmpY)
+            #MolZ.append(Mol_tmpZ)
 
 
-        print (AtomNum)
-        print (MolX)
-        print (MolY)
-        print (MolZ)
+        #print (AtomNum)
+        #print (MolX)
+        #print (MolY)
+        #print (MolZ)
 
         #print (functional, basis)
         job_index = self.classify_task(method, charge, spinmulti)
@@ -428,6 +500,13 @@ if __name__ == '__main__':
     parselog = parse_log(infilename)
     job_index, Links_split = parselog.Check_task()
     print(job_index)
+
+    if 'relaxAEstate' in job_index:
+        lines = Links_split[job_index['relaxAEstate']] 
+        mu, theta, g = parselog.extract_transtion_EMmoment(lines)
+        print(mu)
+        print(theta)
+        print(g)
 
 else:
     from qcforever import gaussian_run

@@ -280,6 +280,10 @@ class GaussianDFTRun:
             output["MinEtarget"] = S_Eext
             output["Min_MaxDisplace"] = MaxDisplace
             output["fluor"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
+            mu, theta, g_cal = parse_log.extract_transtion_EMmoment(lines)
+            output["CDL_mu"] = mu
+            output["CDL_theta"] =  theta
+            output["CDL_g"] =  g_cal
         
         if is_tadf:
             lines = Links_split[job_index['relaxFEstate']] 
