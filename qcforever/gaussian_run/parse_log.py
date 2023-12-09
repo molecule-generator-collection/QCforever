@@ -46,32 +46,34 @@ class parse_log:
 
     def extract_MolCoordlog(self, lines):
         text = '\n'.join(lines)
-        pattern = r"Standard orientation:(?:\s+(-+\n\s+Center\s+Atomic\s+Atomic\s+Coordinates \(Angstroms\)\n\s+Number\s+Number\s+Type\s+X\s+Y\s+Z\n\s+(-+\n\s+\d+\s+\d+\s+\d+\s+[-.\d\s]+\n)+)(?=\s+-+\n))"
-        Coord_blocks = re.findall(pattern, text)
+        pattern_block = r"Standard orientation:(?:\s+(-+\n\s+Center\s+Atomic\s+Atomic\s+Coordinates \(Angstroms\)\n\s+Number\s+Number\s+Type\s+X\s+Y\s+Z\n\s+(-+\n\s+\d+\s+\d+\s+\d+\s+[-.\d\s]+\n)+)(?=\s+-+\n))"
+        Coord_blocks = re.findall(pattern_block, text)
+        #print(Coord_blocks)
 
         for block in Coord_blocks:
             print ('Atomic coordinates are found.')
+            CentNum = []
+            atomicNum = []
             pattern = r'\s*\d+\s+\d+\s+\d+\s+[-\d.]+\s+[-\d.]+\s+[-\d.]+'
             coordinates_inf = re.findall(pattern, str(block[1]))
             coordinates_tmp = []
             for mcoord in coordinates_inf:
                 coordinates_tmp.append(mcoord.strip())
-                #print(coordinates_tmp)
-            CentNum = [list(map(int, line.split()[0])) for line in coordinates_tmp]
-            atomicNum = [list(map(int, line.split()[1])) for line in coordinates_tmp]
+            for line in coordinates_tmp:
+                line_tmp = line.split()
+                CentNum.append(int(line_tmp[0])) 
+                atomicNum.append(int(line_tmp[1])) 
             coordinates = [list(map(float, line.split()[3:])) for line in coordinates_tmp]
-            CentNum = np.array(CentNum).reshape(1, -1)
-            atomicNum = np.array(atomicNum).reshape(1, -1)
+            #CentNum = np.array(CentNum).reshape(1, -1)
+            #atomicNum = np.array(atomicNum).reshape(1, -1)
             coordinates = np.array(coordinates)
             #print(atomicNum)
             #print(coordinates)
 
         NumAtom = int(np.amax(CentNum))
         print(f'Number of atoms: {NumAtom}')
-        TotalIter = CentNum.shape
-        print(f'Number of Ieration: {TotalIter}')
         Coordinfo = coordinates.shape
-        print(f'Coord: {Coordinfo}')
+        #print(f'Coord: {Coordinfo}')
 
         X = coordinates[:,0]
         Y = coordinates[:,1]
@@ -86,10 +88,10 @@ class parse_log:
         for i in range(NumAtom):
             #print(atomicNum[0][i])
             if __name__ == '__main__':
-                Mol_atom.append(AtomInfo.AtomicNumElec(int(atomicNum[0][i])))
+                Mol_atom.append(AtomInfo.AtomicNumElec(int(atomicNum[i])))
             else:
-                Mol_atom.append(gaussian_run.AtomInfo.AtomicNumElec(int(atomicNum[0][i])))
-        print(Mol_atom)
+                Mol_atom.append(gaussian_run.AtomInfo.AtomicNumElec(int(atomicNum[i])))
+        #print(Mol_atom)
 
         return Mol_atom, X, Y, Z 
 
@@ -223,8 +225,8 @@ class parse_log:
             mu.append(list(map(float, te_dipole_values[i][1:4])))
             mm.append(list(map(float, tm_dipole_values[i][1:4])))
 
-        print(mu)
-        print(mm)
+        #print(mu)
+        #print(mm)
 
         T_const = 2.54174E-18
         Y_const = 274.0717293
@@ -259,7 +261,7 @@ class parse_log:
             state_theta.append(theta)
             state_g.append(g_calc)
     
-            print(theta)
+            #print(theta)
 
         return  state_mu, state_theta, state_g
 
@@ -466,17 +468,17 @@ class parse_log:
             spinmulti.append(spinmulti_link)
             Links_split.append(lines)
 
-            #AtomNum_tmp, Mol_tmpX, Mol_tmpY, Mol_tmpZ = self.extract_MolCoordlog(lines)
-            #AtomNum.append(AtomNum_tmp)
-            #MolX.append(Mol_tmpX)
-            #MolY.append(Mol_tmpY)
-            #MolZ.append(Mol_tmpZ)
+            AtomNum_tmp, Mol_tmpX, Mol_tmpY, Mol_tmpZ = self.extract_MolCoordlog(lines)
+            AtomNum.append(AtomNum_tmp)
+            MolX.append(Mol_tmpX)
+            MolY.append(Mol_tmpY)
+            MolZ.append(Mol_tmpZ)
 
 
-        #print (AtomNum)
-        #print (MolX)
-        #print (MolY)
-        #print (MolZ)
+        print (AtomNum)
+        print (MolX)
+        print (MolY)
+        print (MolZ)
 
         #print (functional, basis)
         job_index = self.classify_task(method, charge, spinmulti)
