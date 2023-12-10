@@ -52,29 +52,31 @@ class parse_log:
 
         for block in Coord_blocks:
             print ('Atomic coordinates are found.')
-            CentNum = []
-            atomicNum = []
+            #CentNum = []
+            #atomicNum = []
             pattern = r'\s*\d+\s+\d+\s+\d+\s+[-\d.]+\s+[-\d.]+\s+[-\d.]+'
             coordinates_inf = re.findall(pattern, str(block[1]))
             coordinates_tmp = []
             for mcoord in coordinates_inf:
                 coordinates_tmp.append(mcoord.strip())
-            for line in coordinates_tmp:
-                line_tmp = line.split()
-                CentNum.append(int(line_tmp[0])) 
-                atomicNum.append(int(line_tmp[1])) 
+            CentNum_AtomicN = [list(map(float, line.split()[:2])) for line in coordinates_tmp]
             coordinates = [list(map(float, line.split()[3:])) for line in coordinates_tmp]
             #CentNum = np.array(CentNum).reshape(1, -1)
             #atomicNum = np.array(atomicNum).reshape(1, -1)
+            CentNum_AtomicN = np.array(CentNum_AtomicN)
             coordinates = np.array(coordinates)
+            #print(CentNum_AtomicN)
             #print(atomicNum)
             #print(coordinates)
 
-        NumAtom = int(np.amax(CentNum))
+        #print(CentNum_AtomicN[:,0])
+        #print(CentNum_AtomicN[:,1])
+        NumAtom = int(np.amax(CentNum_AtomicN[:,0]))
         print(f'Number of atoms: {NumAtom}')
         Coordinfo = coordinates.shape
         #print(f'Coord: {Coordinfo}')
 
+        atomicNum = CentNum_AtomicN[:,1]
         X = coordinates[:,0]
         Y = coordinates[:,1]
         Z = coordinates[:,2]
