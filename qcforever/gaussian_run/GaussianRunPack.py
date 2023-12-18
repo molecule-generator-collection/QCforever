@@ -261,9 +261,13 @@ class GaussianDFTRun:
         if is_uv:
             lines = Links_split[job_index['uv_line']] 
             _, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = parse_log.Extract_ExcitedState(lines)
+                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden, \
+                mu_allowed, mu_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden = parse_log.Extract_ExcitedState(lines)
             output["uv"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
             output["state_index"] = [State_allowed, State_forbidden]
+            output["CD_mu"] = [mu_allowed, mu_forbidden]
+            output["CD_theta"] = [theta_allowed, theta_forbidden]
+            output["CD_g"] = [g_allowed, g_forbidden]
             if self.ref_uv_path != '':
                 ref_uv = {}
                 print(f"Read the reference spectrum...{self.ref_uv_path}")
@@ -274,26 +278,31 @@ class GaussianDFTRun:
         if is_fluor:
             lines = Links_split[job_index['relaxAEstate']]
             S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden = parse_log.Extract_ExcitedState(lines)
+                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden, \
+                mu_allowed, mu_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden = parse_log.Extract_ExcitedState(lines)
             # For Check internal coordinate
             MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
             output["MinEtarget"] = S_Eext
             output["Min_MaxDisplace"] = MaxDisplace
             output["fluor"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
-            mu, theta, g_cal = parse_log.extract_transtion_EMmoment(lines)
-            output["CDL_mu"] = mu
-            output["CDL_theta"] =  theta
-            output["CDL_g"] =  g_cal
+            #mu, theta, g_cal = parse_log.extract_transtion_EMmoment(lines)
+            output["CDL_mu"] = mu_allowed 
+            output["CDL_theta"] = theta_allowed
+            output["CDL_g"] = g_allowed
         
         if is_tadf:
             lines = Links_split[job_index['relaxFEstate']] 
             T_Found, _, T_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
-                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden  = parse_log.Extract_ExcitedState(lines)
+                CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden, \
+                mu_allowed, mu_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden = parse_log.Extract_ExcitedState(lines)
             # For Check internal coordinate
             MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
             output["T_Min"] = T_Eext
             output["T_Min_MaxDisplace"] = MaxDisplace
             output["T_Phos"] = [WL_forbidden, OS_forbidden, CD_L_forbidden, CD_OS_forbidden]
+            output["CDL_mu"] = mu_forbidden 
+            output["CDL_theta"] = theta_forbidden
+            output["CDL_g"] = g_forbidden
             #TADF_Eng = 0.0
             #if S_Found and T_Found:
             #   TADF_Eng = S_Eext - T_Eext
