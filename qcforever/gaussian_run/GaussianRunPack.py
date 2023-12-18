@@ -300,9 +300,9 @@ class GaussianDFTRun:
             output["T_Min"] = T_Eext
             output["T_Min_MaxDisplace"] = MaxDisplace
             output["T_Phos"] = [WL_forbidden, OS_forbidden, CD_L_forbidden, CD_OS_forbidden]
-            output["CDL_mu"] = mu_forbidden 
-            output["CDL_theta"] = theta_forbidden
-            output["CDL_g"] = g_forbidden
+            output["CDL_T_mu"] = mu_forbidden 
+            output["CDL_T_theta"] = theta_forbidden
+            output["CDL_T_g"] = g_forbidden
             #TADF_Eng = 0.0
             #if S_Found and T_Found:
             #   TADF_Eng = S_Eext - T_Eext
