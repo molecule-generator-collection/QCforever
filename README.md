@@ -10,8 +10,8 @@ Multi step computation is demanded. QCforever automates this process and calcula
 
 1. [Gaussian](https://gaussian.com)==16
 2. [GAMESS(sockets)](https://www.msg.chem.iastate.edu/gamess/)==30 SEP 2022 (R2)
-3. [Python](https://www.anaconda.com/download/)==3.7
-4. [rdkit-pypi](https://anaconda.org/rdkit/rdkit)==2021.03.5
+3. [Python](https://www.anaconda.com/download/)==3.11
+4. [rdkit-pypi](https://anaconda.org/rdkit/rdkit)==2023.09.1
 
 ## How to use
 
