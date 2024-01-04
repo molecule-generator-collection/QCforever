@@ -106,8 +106,9 @@ class parse_log:
         Ideal_SS = TotalS * (TotalS+1)
         for line in lines:
             if re.match("\s+<Sx>=", line):
-                line_computed_Spin = line.split()
-                Computed_SS = float(line_computed_Spin[-3])
+                line_computed_Spin = re.findall(r'[-+]?\d*\.\d+|\d+',line)
+                #line_computed_Spin = line.split()
+                Computed_SS = float(line_computed_Spin[-2])
                 continue
 
         return Computed_SS, Ideal_SS
