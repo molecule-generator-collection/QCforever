@@ -167,7 +167,9 @@ class GaussianDFTRun:
         
         if is_polar:
             polar_lines = Links_split[job_index['polar_line']]
-            Polar_iso, Polar_aniso = gaussian_run.Get_FreqPro.Extract_polar(polar_lines) 
+            #Polar_iso, Polar_aniso = gaussian_run.Get_FreqPro.Extract_polar(polar_lines) 
+            Polar_tens, Polar_iso, Polar_aniso = parse_log.extract_polar(polar_lines) 
+            output["polar_tens"] = Polar_tens
             output["polar_iso"] = Polar_iso[1]
             output["polar_aniso"] = Polar_aniso[1]
         

@@ -459,6 +459,14 @@ class parse_log:
         activate_extraction = False
         iso_values = []
         aniso_values = []
+        xx_values = []
+        yx_values = []
+        yy_values = []
+        zx_values = []
+        zy_values = []
+        zz_values = []
+
+        polar_tens = np.zeros((3,3))
         
         for line in lines:
            # if line.strip() == "Dipole polarizability, Alpha (dipole orientation).":
@@ -474,8 +482,44 @@ class parse_log:
                     values = re.findall(r"\d+\.\d+[Dd][\+\-]?\d+", line)
                     #aniso_values.extend(values)
                     aniso_values.extend([float(val.replace('D', 'E')) for val in values])
+                elif line.strip().startswith("xx"):
+                    values = re.findall(r"\d+\.\d+[Dd][\+\-]?\d+", line)
+                    #aniso_values.extend(values)
+                    xx_values.extend([float(val.replace('D', 'E')) for val in values])
+                elif line.strip().startswith("yx"):
+                    values = re.findall(r"\d+\.\d+[Dd][\+\-]?\d+", line)
+                    #aniso_values.extend(values)
+                    yx_values.extend([float(val.replace('D', 'E')) for val in values])
+                elif line.strip().startswith("yy"):
+                    values = re.findall(r"\d+\.\d+[Dd][\+\-]?\d+", line)
+                    #aniso_values.extend(values)
+                    yy_values.extend([float(val.replace('D', 'E')) for val in values])
+                elif line.strip().startswith("zx"):
+                    values = re.findall(r"\d+\.\d+[Dd][\+\-]?\d+", line)
+                    #aniso_values.extend(values)
+                    zx_values.extend([float(val.replace('D', 'E')) for val in values])
+                elif line.strip().startswith("zy"):
+                    values = re.findall(r"\d+\.\d+[Dd][\+\-]?\d+", line)
+                    #aniso_values.extend(values)
+                    zy_values.extend([float(val.replace('D', 'E')) for val in values])
+                elif line.strip().startswith("zz"):
+                    values = re.findall(r"\d+\.\d+[Dd][\+\-]?\d+", line)
+                    #aniso_values.extend(values)
+                    zz_values.extend([float(val.replace('D', 'E')) for val in values])
+
+        polar_tens[0,0] = xx_values[1]    
+        polar_tens[0,1] = yx_values[1]     
+        polar_tens[1,0] = yx_values[1]     
+        polar_tens[0,2] = zx_values[1]      
+        polar_tens[2,0] = zx_values[1]      
+        polar_tens[1,1] = yy_values[1]     
+        polar_tens[1,2] = zy_values[1]     
+        polar_tens[2,1] = zy_values[1]     
+        polar_tens[2,2] = zz_values[1]     
+    
+        print(polar_tens)
         
-        return iso_values, aniso_values
+        return polar_tens, iso_values, aniso_values
         
     def classify_task(self, lines, charge, spinmulti):
         count = 0
@@ -675,7 +719,8 @@ if __name__ == '__main__':
 
     if 'freq_line' in job_index:
         lines = Links_split[job_index['freq_line']] 
-        Polar_iso, Polar_aniso = parselog.extract_polar(lines)
+        Polar_tens, Polar_iso, Polar_aniso = parselog.extract_polar(lines)
+        output["polar_tens"] = Polar_tens
         output["polar_iso"] = Polar_iso[1]
         output["polar_aniso"] = Polar_aniso[1]
 

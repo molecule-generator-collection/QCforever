@@ -12,6 +12,7 @@ Multiplicity = OrderedDict([
   ("F" ,2),
   ("Ne",1),
   ("Na",2),
+  ("Al",2),
   ("S",3),
   ("Cl",2),
   ("Si" ,3),
