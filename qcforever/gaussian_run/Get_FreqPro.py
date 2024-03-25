@@ -8,7 +8,7 @@ def Extract_Freq(lines):
     IR_int = []
     Raman_int = []
 
-    print ("Get information about  Frequencies")
+    print ("Get information about Frequencies")
     for line in lines:
         if line.find("Frequencies --") >= 0:
             line_Freq = line.split()

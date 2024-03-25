@@ -714,6 +714,62 @@ class GaussianDFTRun:
            #                     scf='close', run_type='opt', TDDFT=True, TDstate='Triplet', target=targetstate, 
            #                     readchk='all', newchk=TTDOpt_chk, solvent=self.solvent) 
 
+    def SpinMulti_scan(self, JobName,  targetstate, ReadFrom, GivenSpinMulti, TotalCharge, atm, X, Y, Z, TDstate_info):
+        print('Try to optimize the spin state of the ground state!')
+        
+        SpinMulti_list = []
+        SpinDiff_list = []
+        Energy_list = []
+        
+        if GivenSpinMulti%2 != 0:
+            print("The number of electron is even.")
+            InitSpinMulti = 1
+        else:
+            print("The number of electron is odd.")
+            InitSpinMulti = 2
+        
+        for i in range(InitSpinMulti, InitSpinMulti+2*3, 2):
+        
+            JobNameState = JobName + f'_State{targetstate}_{i}_{TotalCharge}'
+        
+            option_dict_spincheck = {'energy': True}
+            scf_need=True
+            self.chain_job(JobNameState, scf_need, option_dict_spincheck, TotalCharge, i, 
+                         targetstate, ReadFrom, 
+                         element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=TDstate_info)
+            job_state = "normal"
+            job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe)
+        
+            try:
+                output_prop = self.Extract_values(JobNameState, option_dict_spincheck, Bondpair1=[], Bondpair2=[])
+            except Exception as e:
+                job_state = "error"
+                print(e)
+                pass
+
+            if job_state == "normal":
+                SpinMulti_list.append(i)
+                Energy_list.append(output_prop["Energy"][0])
+                SpinDiff_list.append(output_prop["Energy"][1])
+            else:
+                pass
+
+        StdSpinDiff = np.std(SpinDiff_list)
+
+        print(SpinDiff_list)
+        print(StdSpinDiff)
+        print(Energy_list)
+        print(np.std(Energy_list))
+        Index_LowSpinDiff = SpinDiff_list.index(min(SpinDiff_list))
+        Index_LowEnergy = Energy_list.index(min(Energy_list))
+        
+        if StdSpinDiff < 0.1:
+            SpinMulti = SpinMulti_list[Index_LowEnergy]
+        else:
+            SpinMulti = SpinMulti_list[Index_LowSpinDiff]
+
+        return SpinMulti
+
     def run_gaussian(self):
         infilename = self.in_file
         option_line = self.value    
@@ -760,6 +816,11 @@ class GaussianDFTRun:
                 if '=' in option:
                     in_target = option.split('=')
                     optoption = in_target[-1]
+            elif 'optspin' in option.lower():
+                option_dict['optspin'] = True
+                option_dict['energy'] = True
+                job_eachState[0]['optspin'] = True
+                job_eachState[0]['energy'] = True
             elif option.lower() == 'freq':
                 option_dict['freq'] = True
                 job_eachState[0]['freq'] = True
@@ -927,7 +988,15 @@ class GaussianDFTRun:
             if 'pka' in job_thisstate:
                 JobNameState = JobName + f'_DeH'
             else:
-                JobNameState = JobName + f'_State{targetstate}_{SpinMulti}_{TotalCharge}'
+            #For scanning the spin state of the target 
+                if 'optspin' in job_thisstate:
+                    SpinMulti  = self.SpinMulti_scan(targetstate=targetstate, JobName=JobName, ReadFrom=ReadFrom, GivenSpinMulti=SpinMulti, TotalCharge=TotalCharge, 
+                                atm=atm, X=X, Y=Y, Z=Z, TDstate_info=TDstate_info)
+                    JobNameState = JobName + f'_State{targetstate}_{SpinMulti}_{TotalCharge}'
+                    ReadFrom == 'chk'
+                else:
+                    JobNameState = JobName + f'_State{targetstate}_{SpinMulti}_{TotalCharge}'
+
             Jobchk = JobNameState  + '.chk' 
             AttmptStable = True
 
