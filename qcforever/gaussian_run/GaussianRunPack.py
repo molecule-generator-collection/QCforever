@@ -994,6 +994,7 @@ class GaussianDFTRun:
                                 atm=atm, X=X, Y=Y, Z=Z, TDstate_info=TDstate_info)
                     JobNameState = JobName + f'_State{targetstate}_{SpinMulti}_{TotalCharge}'
                     ReadFrom == 'chk'
+                    output_dic[i]['spinmulti'] = SpinMulti
                 else:
                     JobNameState = JobName + f'_State{targetstate}_{SpinMulti}_{TotalCharge}'
 
