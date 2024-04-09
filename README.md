@@ -101,6 +101,7 @@ Following options are currently available:
 |freq| Compute the variable related to the vibrational analysis of a molecule. IR, Raman, etc|:white_check_mark:|:white_check_mark:|
 |pka| Compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species. The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydrogen.|:white_check_mark:||
 |stable| try to find a stable structure when the negative frequency is detected (dev version only).|:white_check_mark:||
+|optspin| try to find a suitable spin multiplicity (dev version only).|:white_check_mark:||
 
 ## License
 
