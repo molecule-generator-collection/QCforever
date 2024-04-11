@@ -9,8 +9,8 @@ from setuptools import setup
     
 DOCLINES = (__doc__ or '').split('\n')
 INSTALL_REQUIRES = [                      
-    'numpy~=1.26.2',    
-    'rdkit-pypi==2023.9.1']
+    'numpy>=1.22.0',    
+    'rdkit>=2023.3.3']
 PACKAGES = [                    
     'qcforever',
     'qcforever.gaussian_run',
