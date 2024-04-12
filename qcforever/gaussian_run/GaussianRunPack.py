@@ -804,6 +804,14 @@ class GaussianDFTRun:
         else:
             print("Invalid input file")
 
+        # Specify the electronic structure (spin multiplicity and charge) of the target state
+        if np.isnan(self.SpecTotalCharge) !=  True:
+            Is_ChargeSpec = True
+            TotalCharge = self.SpecTotalCharge
+        if np.isnan(self.SpecSpinMulti) != True:
+            Is_SpinMultiSpec = True
+            SpinMulti = self.SpecSpinMulti
+
         TargetSpinMulti.append(SpinMulti)
         TargetTotalCharge.append(TotalCharge)
 
