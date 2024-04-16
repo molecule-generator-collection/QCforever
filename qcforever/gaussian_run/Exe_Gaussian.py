@@ -25,9 +25,9 @@ def count_Njob(jobname):
     Gau_infile = f"{jobname}.com"
     with open(Gau_infile,'r') as infile:
         lines = infile.readlines()
-    count = 0
+    count = 1
     for line in lines:
-        if line.find("#") >= 0:
+        if line.find("--Link1--") >= 0:
             count += 1
     return count
 
@@ -36,13 +36,17 @@ def count_Finishjob(jobname):
     Gau_logfile = f"{jobname}.log"
     with open(Gau_logfile,'r') as infile:
         lines = infile.readlines()
-    count = 0
+    fcount = 0
+    is_error = 0
     for line in lines:
         if line.find("Normal termination") >= 0:
-            count += 1
-        if line.find("Error termination") >= 0:
+            fcount += 1
+        if line.find("Error termination request processed by") >= 0:
+            print("Error is detected!")
+            is_error += 1
             pass
-    return count
+
+    return fcount, is_error
 
 
 def exe_Gaussian(jobname, exe_time):
@@ -65,15 +69,15 @@ def exe_Gaussian(jobname, exe_time):
         for f in glob.glob("./Gau-*"):    
             print(f)
             os.remove(os.path.join('.', f))
-    NFinishedJob = count_Finishjob(jobname)
-    if Njob == NFinishedJob:
+    NFinishedJob, is_error = count_Finishjob(jobname)
+    print (f'Successful Job: {NFinishedJob} Error Job: {is_error}')
+    if Njob == NFinishedJob and is_error == 0:
         job_state = "normal"
-    elif job_state != "timeout" or Njob != NFinishedJob:
+    elif job_state != "timeout" or is_error != 0:
         job_state = "abnormal"
 
     print (GaussianPros)
     del GaussianPros
-    gc.collect()
 
     return job_state 
 

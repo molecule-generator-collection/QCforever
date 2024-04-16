@@ -964,7 +964,7 @@ class GaussianDFTRun:
             elif 'stable' in option.lower():
                 option_dict['stable'] = True
             else:
-                print('invalid option: ', option)
+                print('Invalid option: ', option)
 
         # Make work directory and move to the directory
         if os.path.isdir(JobName):
@@ -982,6 +982,8 @@ class GaussianDFTRun:
         #print(job_eachState)
         #print(TargetTotalCharge)
         #print(TargetSpinMulti)
+
+        job_state = ""
 
         for i in range(len(TargetStates)):
 
@@ -1080,7 +1082,6 @@ class GaussianDFTRun:
                 self.chain_job(JobNameState, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
                              targetstate, ReadFrom, 
                              element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=TDstate_info)
-                job_state = "normal"
                 job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe)
             
                 while AttmptStable == False:
@@ -1186,7 +1187,6 @@ class GaussianDFTRun:
                         self.chain_job(JobName_ChStableF, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
                                             targetstate, ReadFrom, 
                                             element=atm, atomX=fX, atomY=fY, atomZ=fZ, optoption='ReadFC', TDstate_info=TDstate_info)
-                        job_state = "normal"
                         job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_ChStableF, self.timexe)
             
                         try:
@@ -1201,7 +1201,6 @@ class GaussianDFTRun:
                         self.chain_job(JobName_ChStableR, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
                                             targetstate, ReadFrom, 
                                             element=atm, atomX=rX, atomY=rY, atomZ=rZ, optoption='ReadFC', TDstate_info=TDstate_info)
-                        job_state = "normal"
                         job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_ChStableR, self.timexe)
             
                         try:
@@ -1230,8 +1229,8 @@ class GaussianDFTRun:
                                     targetstate, ReadFrom, 
                                     element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=TDstate_info)
             
-                job_state = "normal"
                 job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe)
+                print (job_state)
                 # When the scf is performed, the obtained wavefunction is saved to chk file.
                 # But for 'symm' and 'volume' that information is emply except for when the input is chk or fchk files.
                 if scf_need or ReadFromchk:
@@ -1239,7 +1238,6 @@ class GaussianDFTRun:
                 elif scf_need != True and ReadFromchk != True:
                     for f in glob.glob('./*.chk'):
                         os.remove(os.path.join('.', f))
-            
 
                 #output_prop = self.Extract_values(JobName, option_dict, Bondpair1, Bondpair2)
                 #output_dic[i].update(output_prop)
@@ -1265,13 +1263,15 @@ class GaussianDFTRun:
                     TADF_Eng = S_Eext - T_Eext
                     output_dic[i]["Delta(S-T)"] = TADF_Eng
 
-
         output_sum = {}
         for i, j in enumerate(output_dic):
             #print(i, j)
             for k in output_dic[i].keys():
                 output_sum.setdefault(k, output_dic[i][k])
+            if output_dic[i]['log'] != 'normal':
+                output_sum['log'] = output_dic[i]['log']
             #for k in range(len(option_dict)):
+    
                 
         #output_dic["log"] = job_state
 

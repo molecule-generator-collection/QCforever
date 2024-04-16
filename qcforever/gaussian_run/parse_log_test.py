@@ -50,8 +50,8 @@ class parse_log:
         Coord_blocks = re.findall(pattern_block, text)
         #print(Coord_blocks)
 
+        print ('Atom coordinates are found.')
         for block in Coord_blocks:
-            print ('Atomic coordinates are found.')
             #CentNum = []
             #atomicNum = []
             pattern = r'\s*\d+\s+\d+\s+\d+\s+[-\d.]+\s+[-\d.]+\s+[-\d.]+'
@@ -713,9 +713,9 @@ if __name__ == '__main__':
         output["MinEtarget"] = S_Eext
         output["fluor"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
         #mu, theta, g_cal = parse_log.extract_transtion_EMmoment(lines)
-        output["CDL_mu"] = mu_allowed 
-        output["CDL_theta"] = theta_allowed
-        output["CDL_g"] = g_allowed
+        output["CPL_mu"] = mu_allowed 
+        output["CPL_theta"] = theta_allowed
+        output["CPL_g"] = g_allowed
 
     if 'freq_line' in job_index:
         lines = Links_split[job_index['freq_line']] 
