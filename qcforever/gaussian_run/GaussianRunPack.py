@@ -288,9 +288,9 @@ class GaussianDFTRun:
             output["Min_MaxDisplace"] = MaxDisplace
             output["fluor"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
             #mu, theta, g_cal = parse_log.extract_transtion_EMmoment(lines)
-            output["CDL_mu"] = mu_allowed 
-            output["CDL_theta"] = theta_allowed
-            output["CDL_g"] = g_allowed
+            output["CPL_mu"] = mu_allowed 
+            output["CPL_theta"] = theta_allowed
+            output["CPL_g"] = g_allowed
         
         if is_tadf:
             lines = Links_split[job_index['relaxFEstate']] 
@@ -302,9 +302,9 @@ class GaussianDFTRun:
             output["T_Min"] = T_Eext
             output["T_Min_MaxDisplace"] = MaxDisplace
             output["T_Phos"] = [WL_forbidden, OS_forbidden, CD_L_forbidden, CD_OS_forbidden]
-            output["CDL_T_mu"] = mu_forbidden 
-            output["CDL_T_theta"] = theta_forbidden
-            output["CDL_T_g"] = g_forbidden
+            output["CPL_T_mu"] = mu_forbidden 
+            output["CPL_T_theta"] = theta_forbidden
+            output["CPL_T_g"] = g_forbidden
             #TADF_Eng = 0.0
             #if S_Found and T_Found:
             #   TADF_Eng = S_Eext - T_Eext
@@ -1244,7 +1244,7 @@ class GaussianDFTRun:
                 try:
                     output_prop = self.Extract_values(JobNameState, job_thisstate, Bondpair1, Bondpair2)
                     output_dic[i].update(output_prop)
-                    output_dic[i]['log'] = job_state
+                    output_dic[i][f'log_{i}'] = job_state
                 except Exception as e:
                     job_state = "error"
                     print(e)
@@ -1268,8 +1268,6 @@ class GaussianDFTRun:
             #print(i, j)
             for k in output_dic[i].keys():
                 output_sum.setdefault(k, output_dic[i][k])
-            if output_dic[i]['log'] != 'normal':
-                output_sum['log'] = output_dic[i]['log']
             #for k in range(len(option_dict)):
     
                 
