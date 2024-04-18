@@ -702,18 +702,6 @@ class GaussianDFTRun:
                                 run_type='', TDDFT=True, 
                                 readchk='all', solvent=self.solvent) 
 
-           # if 'fluor' in option_dict:
-           #     TDOpt_chk = f'{JobName}_ExOptAState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateSinglet'
-           #     self.make_input(JobName, TotalCharge, SpinMulti, 
-           #                     scf='close', run_type='opt', TDDFT=True, TDstate='Singlet', target=targetstate, 
-           #                     readchk='all', newchk=TDOpt_chk, solvent=self.solvent) 
-
-           # if 'tadf' in option_dict:
-           #     TTDOpt_chk = f'{JobName}_ExOptFState{targetstate}' if targetstate != 1 else f'{JobName}_ExOptStateTriplet'
-           #     self.make_input(JobName, TotalCharge, SpinMulti, 
-           #                     scf='close', run_type='opt', TDDFT=True, TDstate='Triplet', target=targetstate, 
-           #                     readchk='all', newchk=TTDOpt_chk, solvent=self.solvent) 
-
     def SpinMulti_scan(self, JobName,  targetstate, ReadFrom, GivenSpinMulti, TotalCharge, atm, X, Y, Z, TDstate_info):
         print('Try to optimize the spin state of the ground state!')
         
@@ -992,7 +980,11 @@ class GaussianDFTRun:
             output_dic.append({})
 
             job_thisstate = job_eachState[i]
-            targetstate = TargetStates[i]
+            if TargetStates[i] == -1:
+                #Get the index of state whose OS is max. 
+                targetstate = np.argmax(output_dic[0]["uv"][1]) + 1
+            else:
+                targetstate = TargetStates[i]
             SpinMulti = TargetSpinMulti[i]
             TotalCharge = TargetTotalCharge[i]
             if 'pka' in job_thisstate:
