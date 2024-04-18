@@ -1270,8 +1270,15 @@ class GaussianDFTRun:
                 output_sum.setdefault(k, output_dic[i][k])
             #for k in range(len(option_dict)):
     
-                
-        #output_dic["log"] = job_state
+        #Decide the log state        
+        if 'error' in output_sum.values():
+            output_sum['log'] = 'Value extraction failed!'
+        elif 'abnormal' in output_sum.values():
+            output_sum['log'] = 'Gaussian computation failed!'
+        elif 'timeout' in output_sum.values():
+            output_sum['log'] = 'Not enough time!'
+        else: 
+            output_sum['log'] = 'normal'
 
         # Convert fchk to xyz 
         if self.restart == False and scf_need == True:
