@@ -505,7 +505,7 @@ class GaussianDFTRun:
 
         option_dict = copy.deepcopy(job_dict)
 
-        print(f'Charge: {TotalCharge}, Spin Multiplicity: {SpinMulti}')
+        print(f'Target state: {targetstate}, Charge: {TotalCharge}, Spin Multiplicity: {SpinMulti}')
 
         # Setting molecular charge and multiplicity
         Is_ChargeSpec = False
@@ -580,41 +580,46 @@ class GaussianDFTRun:
                 if Is_ChargeSpec == False and Is_SpinMultiSpec == False:
                     if optoption == '':
                         self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag,
-                                        run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, Newinput=True, 
-                                        geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
+                                        run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate, 
+                                        Newinput=True, geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
                     else:
                         self.make_input(JobName, TotalCharge, SpinMulti, 
-                                        run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, optoption=optoption, Newinput=True, 
-                                        geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
+                                        run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate, 
+                                        optoption=optoption, 
+                                        Newinput=True, geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
                 else:
                     if optoption == '':
                         self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
-                                        run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, Newinput=True, 
-                                        geom_spec=Is_geom_spec, readchk='geomguess', solvent=self.solvent) 
+                                        run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate, 
+                                        Newinput=True, geom_spec=Is_geom_spec, readchk='geomguess', solvent=self.solvent) 
                     else:
                         self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
-                                        run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, optoption=optoption, Newinput=True, 
+                                        run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate,  
+                                        optoption=optoption, Newinput=True, 
                                         geom_spec=Is_geom_spec, readchk='geomguess', solvent=self.solvent) 
             elif ReadFrom == 'chk' and element != []:
                 if optoption == '':
                     self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
-                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, Newinput=True, 
+                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate,  
+                                    Newinput=True, 
                                     Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
                                     geom_spec=Is_geom_spec, readchk='guess', solvent=self.solvent) 
                 else:
                     self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
-                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, optoption=optoption, Newinput=True, 
+                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate, 
+                                    optoption=optoption, Newinput=True, 
                                     Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
                                     geom_spec=Is_geom_spec, readchk='guess', solvent=self.solvent) 
             elif ReadFrom == 'sdf' or ReadFrom == 'xyz':
                 if optoption == '':
                     self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
-                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, Newinput=True, 
+                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate, Newinput=True, 
                                     Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
                                     geom_spec=Is_geom_spec, solvent=self.solvent) 
                 else:
                     self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
-                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, optoption=optpotion, Newinput=True, 
+                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate, optoption=optpotion, 
+                                    Newinput=True, 
                                     Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
                                     geom_spec=Is_geom_spec, solvent=self.solvent) 
 
@@ -631,17 +636,20 @@ class GaussianDFTRun:
 
             if 'freq' in option_dict: # freq == 1
                 self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
-                                run_type='freq', TDDFT=td_tag, TDstate=TDstate_tag, Newinput=False, 
+                                run_type='freq', TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate,  
+                                Newinput=False, 
                                 readchk='all', solvent=self.solvent) 
 
             if 'polar' in option_dict: # polar == 1
                 self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
-                                run_type='polar', TDDFT=td_tag, TDstate=TDstate_tag, Newinput=False, 
+                                run_type='polar', TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate, 
+                                Newinput=False, 
                                 readchk='all', solvent=self.solvent) 
 
             if 'nmr' in option_dict: # nmr == 1
                 self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
-                                run_type='nmr', TDDFT=td_tag, TDstate=TDstate_tag, Newinput=False, 
+                                run_type='nmr', TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate, 
+                                Newinput=False, 
                                 readchk='all', solvent=self.solvent) 
 
             if 'vip' in option_dict: # vip == 1
@@ -981,7 +989,7 @@ class GaussianDFTRun:
 
             job_thisstate = job_eachState[i]
             if TargetStates[i] == -1:
-                #Get the index of state whose OS is max. 
+                #Get the index of the state whose OS is max. 
                 targetstate = np.argmax(output_dic[0]["uv"][1]) + 1
             else:
                 targetstate = TargetStates[i]
