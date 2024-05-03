@@ -1,4 +1,5 @@
 import os
+import re
 import glob
 import sys
 import copy
@@ -1271,14 +1272,26 @@ class GaussianDFTRun:
             #for k in range(len(option_dict)):
     
         #Decide the log state        
-        if 'error' in output_sum.values():
-            output_sum['log'] = 'Value extraction failed!'
-        elif 'abnormal' in output_sum.values():
-            output_sum['log'] = 'Gaussian computation failed!'
-        elif 'timeout' in output_sum.values():
-            output_sum['log'] = 'Not enough time!'
-        else: 
-            output_sum['log'] = 'normal'
+        keylist = list(output_sum.keys())
+        for i in range(len(keylist)):
+            if re.match('log', keylist[i]):    
+                if output_sum[keylist[i]] == 'error':
+                    if 'log' in output_sum.keys() and output_sum['log'] != 'normal':
+                        output_sum['log'] += 'Value extraction failed! '
+                    else:
+                        output_sum['log'] = 'Value extraction failed! '
+                elif output_sum[keylist[i]] == 'abnormal':
+                    if 'log' in output_sum.keys() and output_sum['log'] != 'normal':
+                        output_sum['log'] += 'Gaussian computation failed! '
+                    else:
+                        output_sum['log'] = 'Gaussian computation failed! '
+                elif output_sum[keylist[i]] == 'timeout':
+                    if 'log' in output_sum.keys() and output_sum['log'] != 'normal':
+                        output_sum['log'] += 'Not enough time for Gaussian calculations! '
+                    else:
+                        output_sum['log'] = 'Not enough time for Gaussian calculations! '
+                else:
+                    output_sum['log'] = 'normal'
 
         # Convert fchk to xyz 
         if self.restart == False and scf_need == True:
