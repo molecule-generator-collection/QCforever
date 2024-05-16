@@ -767,43 +767,44 @@ class GaussianDFTRun:
 
         return SpinMulti
 
-    def LC_para_BOopt(self, atm, X, Y, Z, TotalCharge, SpinMulti):
+    def LC_para_BOopt(self, JobName, ReadFrom, atm, X, Y, Z, TotalCharge, SpinMulti):
         
         from bayes_opt import BayesianOptimization
         from bayes_opt import UtilityFunction
 
         def KTLC_BB(mu):
             self.para_functional = [mu]
-            JobNameState = JobName + f'_State0_{SpinMulti}_{TotalCharge}_{mu}'
         
-            option_dict_lcparacheck= {'satkoopmans': True}
+            option_dict_lcparacheck= {'homolumo': True, 'vip': True, 'vea': True,  'satkoopmans': True}
             scf_need=True
-            self.chain_job(JobNameState, scf_need, option_dict_lcparacheck, TotalCharge, SpinMulti, 
+            self.chain_job(JobName, scf_need, option_dict_lcparacheck, TotalCharge, SpinMulti, 
                          0, ReadFrom, 
                          element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=[])
             job_state = "normal"
-            job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe)
+            job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName, self.timexe)
+            gaussian_run.chk2fchk.Get_chklist()
         
             try:
-                output_prop = self.Extract_values(JobNameState, option_dict_lcparacheck, Bondpair1=[], Bondpair2=[])
+                output_prop = self.Extract_values(JobName, option_dict_lcparacheck, Bondpair1=[], Bondpair2=[])
             except Exception as e:
                 job_state = "error"
                 square_diff_satkoopmans = -10
                 print(e)
                 pass
 
+            print (output_prop)
+
             if job_state == "normal":
                 #mu_list.append(i)
                 #satkoopmansIP_list.append(output_prop["satkoopmans"][0])
                 #satkoopmansEA_list.append(output_prop["satkoopmans"][1])
-                square_diff_satkoopmans = -outdic['satkoopmans'][0]**2
+                square_diff_satkoopmans = -output_prop['satkoopmans'][0]**2
             else:
                 square_diff_satkoopmans = -10
                 pass
             
-            print (output_prop)
             
-            return diff_satkoopmans
+            return square_diff_satkoopmans
 
         pbounds = {'mu': (0,1)}
 
@@ -1077,7 +1078,8 @@ class GaussianDFTRun:
         #When ktlc-blyp-bo is specified as a functionl, try to optimize mu prameter with BO
         if self.functional == 'ktlc-blyp-bo':
             self.functional = 'lc-blyp' 
-            self.para_functional = [LC_para_BOopt(atm, X, Y, Z, TotalCharge, SpinMulti)]
+            self.para_functional = [self.LC_para_BOopt(JobName, ReadFrom, atm, X, Y, Z, TotalCharge, SpinMulti)]
+            ReadFrom == 'chk'
         else:
             pass
 
@@ -1333,9 +1335,9 @@ class GaussianDFTRun:
                 print (job_state)
                 # When the scf is performed, the obtained wavefunction is saved to chk file.
                 # But for 'symm' and 'volume' that information is emply except for when the input is chk or fchk files.
-                if scf_need or ReadFromchk:
+                if scf_need or ReadFrom=='chk':
                     gaussian_run.chk2fchk.Get_chklist()
-                elif scf_need != True and ReadFromchk != True:
+                elif scf_need != True and ReadFrom != 'chk':
                     for f in glob.glob('./*.chk'):
                         os.remove(os.path.join('.', f))
 
