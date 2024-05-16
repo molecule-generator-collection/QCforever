@@ -767,6 +767,98 @@ class GaussianDFTRun:
 
         return SpinMulti
 
+    def LC_para_BOopt(self, atm, X, Y, Z, TotalCharge, SpinMulti):
+        
+        from bayes_opt import BayesianOptimization
+        from bayes_opt import UtilityFunction
+
+        def KTLC_BB(mu):
+            self.para_functional = [mu]
+            JobNameState = JobName + f'_State0_{SpinMulti}_{TotalCharge}_{mu}'
+        
+            option_dict_lcparacheck= {'satkoopmans': True}
+            scf_need=True
+            self.chain_job(JobNameState, scf_need, option_dict_lcparacheck, TotalCharge, SpinMulti, 
+                         0, ReadFrom, 
+                         element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=[])
+            job_state = "normal"
+            job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe)
+        
+            try:
+                output_prop = self.Extract_values(JobNameState, option_dict_lcparacheck, Bondpair1=[], Bondpair2=[])
+            except Exception as e:
+                job_state = "error"
+                square_diff_satkoopmans = -10
+                print(e)
+                pass
+
+            if job_state == "normal":
+                #mu_list.append(i)
+                #satkoopmansIP_list.append(output_prop["satkoopmans"][0])
+                #satkoopmansEA_list.append(output_prop["satkoopmans"][1])
+                square_diff_satkoopmans = -outdic['satkoopmans'][0]**2
+            else:
+                square_diff_satkoopmans = -10
+                pass
+            
+            print (output_prop)
+            
+            return diff_satkoopmans
+
+        pbounds = {'mu': (0,1)}
+
+        optimizer = BayesianOptimization( 
+        f=KTLC_BB,
+        pbounds=pbounds,
+        verbose=1, 
+        random_state=1,
+        )
+
+        #initial mu values 
+        init_mu = [0.15, 0.35, 0.65]
+   
+        #initial try...
+        for i in range(len(init_mu)):
+            optimizer.set_bounds(new_bounds={"mu": (init_mu[i],init_mu[i])})
+            optimizer.maximize(
+                init_points=1,
+                n_iter=0,
+            )
+
+        diff_koopmans = np.sqrt(abs(optimizer.max['target']))
+        optimizer.set_bounds(new_bounds={"mu": (0,1)})
+
+        #Extra try...
+        if diff_koopmans <= 0.01:
+            print("Successful parameter optimization!")
+            pass
+        else:
+            i = 3 
+            acquisition_function = UtilityFunction(kind="ei", xi=1e-4)
+            while diff_koopmans > 0.01:
+                optimizer.maximize(
+                    init_points=0,
+                    n_iter=1,
+                    acquisition_function=acquisition_function,
+                )
+                i += 1
+                diff_koopmans = np.sqrt(abs(optimizer.max['target']))
+                if i > 51:
+                    break
+
+            if diff_koopmans > 0.01:
+                print("The prameter optimization failed!")
+            else:
+                print("Successful parameter optimization!")
+
+        for i, res in enumerate(optimizer.res):
+            print(f"Iteration {i}: {res}")
+
+        diff_koopmans = np.sqrt(abs(optimizer.max['target']))
+        print(f"Optimized mu is {optimizer.max['params']['mu']} with the difference {diff_koopmans}.")
+
+        return optimizer.max['params']['mu']
+
     def run_gaussian(self):
         infilename = self.in_file
         option_line = self.value    
@@ -981,6 +1073,13 @@ class GaussianDFTRun:
         #print(TargetSpinMulti)
 
         job_state = ""
+
+        #When ktlc-blyp-bo is specified as a functionl, try to optimize mu prameter with BO
+        if self.functional == 'ktlc-blyp-bo':
+            self.functional = 'lc-blyp' 
+            self.para_functional = [LC_para_BOopt(atm, X, Y, Z, TotalCharge, SpinMulti)]
+        else:
+            pass
 
         for i in range(len(TargetStates)):
 
