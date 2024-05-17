@@ -12,6 +12,7 @@ Multi step computation is demanded. QCforever automates this process and calcula
 2. [GAMESS(sockets)](https://www.msg.chem.iastate.edu/gamess/)==30 SEP 2022 (R2)
 3. [Python](https://www.anaconda.com/download/)==3.11
 4. [rdkit-pypi](https://anaconda.org/rdkit/rdkit)==2023.09.1
+5. [bayesian-optimization](https://github.com/bayesian-optimization/BayesianOptimization)==v1.4.3
 
 ## How to use
 
@@ -47,7 +48,7 @@ outdic = test.run_gaussian()
 
 - ***Functional*** is to specify the functional in the density functional theory (DFT).
 Currently supported functionals are the following: `BLYP`, `B3LYP`, `X3LYP`, `LC-BLYP`, `CAM-B3LYP`, 
-and 'KTLC-BLYP-BO'.
+and `KTLC-BLYP-BO`(https://doi.org/10.1021/acs.jctc.3c00764).
 
 - ***basis_set*** is to specify the basis set.
   Current QCforever supports the following basis set:
