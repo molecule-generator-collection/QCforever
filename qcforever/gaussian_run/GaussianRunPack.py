@@ -782,7 +782,7 @@ class GaussianDFTRun:
                          element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=[])
             job_state = "normal"
             job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName, self.timexe)
-            gaussian_run.chk2fchk.Get_chklist()
+            gaussian_run.chk2fchk.Get_chklist(0)
         
             try:
                 output_prop = self.Extract_values(JobName, option_dict_lcparacheck, Bondpair1=[], Bondpair2=[])
@@ -802,7 +802,6 @@ class GaussianDFTRun:
             else:
                 square_diff_satkoopmans = -10
                 pass
-            
             
             return square_diff_satkoopmans
 
@@ -1079,7 +1078,7 @@ class GaussianDFTRun:
         if self.functional == 'ktlc-blyp-bo':
             self.functional = 'lc-blyp' 
             self.para_functional = [self.LC_para_BOopt(JobName, ReadFrom, atm, X, Y, Z, TotalCharge, SpinMulti)]
-            ReadFrom == 'chk'
+            ReadFrom = 'chk'
         else:
             pass
 
@@ -1336,7 +1335,7 @@ class GaussianDFTRun:
                 # When the scf is performed, the obtained wavefunction is saved to chk file.
                 # But for 'symm' and 'volume' that information is emply except for when the input is chk or fchk files.
                 if scf_need or ReadFrom=='chk':
-                    gaussian_run.chk2fchk.Get_chklist()
+                    gaussian_run.chk2fchk.Get_chklist(1)
                 elif scf_need != True and ReadFrom != 'chk':
                     for f in glob.glob('./*.chk'):
                         os.remove(os.path.join('.', f))
@@ -1371,6 +1370,10 @@ class GaussianDFTRun:
             for k in output_dic[i].keys():
                 output_sum.setdefault(k, output_dic[i][k])
             #for k in range(len(option_dict)):
+
+        #If functional parameter is not default ones, add them to the output dictionary.
+        if self.para_functional != []:
+            output_sum['functional_param'] = self.para_functional
     
         #Decide the log state        
         keylist = list(output_sum.keys())

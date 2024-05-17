@@ -3,14 +3,17 @@ import os
 import subprocess
 
 
-def Get_chklist():
+def Get_chklist(remove):
     for f in glob.glob('./*.chk'):
         print(f)
         try:
             subprocess.run(['formchk', f])
         except:
             print("Failed converting chk to fchk!")            
-        os.remove(os.path.join('.', f))
+        if remove == 1:
+            os.remove(os.path.join('.', f))
+        else:
+            pass
 
 
 if __name__ == '__main__':
