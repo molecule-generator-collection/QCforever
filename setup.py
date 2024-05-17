@@ -10,7 +10,8 @@ from setuptools import setup
 DOCLINES = (__doc__ or '').split('\n')
 INSTALL_REQUIRES = [                      
     'numpy>=1.22.0',    
-    'rdkit>=2023.3.3']
+    'rdkit>=2023.3.3',
+    'bayesian-optimization==1.4.3']
 PACKAGES = [                    
     'qcforever',
     'qcforever.gaussian_run',
