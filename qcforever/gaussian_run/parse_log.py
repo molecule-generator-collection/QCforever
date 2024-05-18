@@ -220,15 +220,15 @@ class parse_log:
         m_end_pattern = "Ground to excited state transition velocity quadrupole moments (Au):"
 
         # Extract the relevant portion of the text
-        e_relevant_text = re.search(f"{re.escape(e_start_pattern)}(.*?){re.escape(e_end_pattern)}", text, re.DOTALL).group(1)
-        m_relevant_text = re.search(f"{re.escape(m_start_pattern)}(.*?){re.escape(m_end_pattern)}", text, re.DOTALL).group(1)
+        e_relevant_text = re.findall(f"{re.escape(e_start_pattern)}(.*?){re.escape(e_end_pattern)}", text, re.DOTALL)
+        m_relevant_text = re.findall(f"{re.escape(m_start_pattern)}(.*?){re.escape(m_end_pattern)}", text, re.DOTALL)
 
         # Split the relevant text into lines and extract the values
-        lines = e_relevant_text.strip().split('\n')
+        lines = e_relevant_text[-1].strip().split('\n')
         header = lines[0].split()
         te_dipole_values = [line.split() for line in lines[1:]]
 
-        lines = m_relevant_text.strip().split('\n')
+        lines = m_relevant_text[-1].strip().split('\n')
         header = lines[0].split()
         tm_dipole_values = [line.split() for line in lines[1:]]
 
