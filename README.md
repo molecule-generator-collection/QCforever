@@ -2,8 +2,10 @@
 
 ![Robot2+PC](https://user-images.githubusercontent.com/46772738/188896764-65ab12c1-3cc9-421d-8d87-ed33c932380a.png)
 
-QCforever (https://doi.org/10.1021/acs.jcim.2c00812) is a wrapper of Gaussian (https://gaussian.com). To compute obsevable properties of a molecule through quantum chemical computation (QC),
-Multi step computation is demanded. QCforever automates this process and calculates multiple physical properties of molecules simultaneously.
+QCforever (https://doi.org/10.1021/acs.jcim.2c00812) is a wrapper of Gaussian (https://gaussian.com) or GAMESS (https://www.msg.chem.iastate.edu/gamess/). 
+To compute obsevable properties of a molecule through quantum chemical computation (QC),
+multi step computation is demanded. 
+QCforever automates this process and calculates multiple physical properties of molecules simultaneously.
 
 
 ## Requirements
@@ -48,7 +50,7 @@ outdic = test.run_gaussian()
 
 - ***Functional*** is to specify the functional in the density functional theory (DFT).
 Currently supported functionals are the following: `BLYP`, `B3LYP`, `X3LYP`, `LC-BLYP`, `CAM-B3LYP`, 
-and [`KTLC-BLYP-BO`](https://doi.org/10.1021/acs.jctc.3c00764).
+and [`KTLC-BLYP-BO`](https://doi.org/10.1021/acs.jctc.3c00764) only for Gaussian.
 
 - ***basis_set*** is to specify the basis set.
   Current QCforever supports the following basis set:
