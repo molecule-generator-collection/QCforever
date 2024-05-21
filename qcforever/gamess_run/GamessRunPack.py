@@ -201,8 +201,9 @@ class GamessDFTRun:
 #setting for functional
         lc_option = False
         functional = ''
-        if self.functional == 'LC-BLYP':
-            functional = 'BLYP'
+        if re.match('LC-', self.functional) or re.match('KTLC-', self.functional):
+            kind_functional = self.functional.split('-')
+            functional = kind_functional[-1]
             lc_option = True
             if self.para_functional != []:
                 mu_param = self.para_functional[0]
