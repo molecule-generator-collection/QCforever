@@ -31,7 +31,7 @@ class GamessDFTRun:
         self.SpecTotalCharge = np.nan
         self.SpecSpinMulti = np.nan
 #        self.ref_uv_path = ''
-#        self.para_functional = []
+        self.para_functional = []
 
     def conversion_memory(self, mem_byte):
         r = re.compile("([0-9]+)([a-zA-Z]+)")
@@ -198,6 +198,19 @@ class GamessDFTRun:
         else:
             mem_words = self.conversion_memory(self.mem)
 
+#setting for functional
+        lc_option = False
+        functional = ''
+        if self.functional == 'LC-BLYP':
+            functional = 'BLYP'
+            lc_option = True
+            if self.para_functional != []:
+                mu_param = self.para_functional[0]
+            else:
+                mu_param = None
+        else:
+            functional = self.functional
+
 #setting for basis set
         GBASIS, NGAUSS, NDFUNC = gamess_run.make_basis.basis_dissection(self.basis)
 
@@ -220,7 +233,7 @@ class GamessDFTRun:
 
 #make input
         with open(GamInputName ,'w') as ofile:
-            line_input = f' $CONTRL SCFTYP={scftype} RUNTYP={run_type} DFTTYP={self.functional}'
+            line_input = f' $CONTRL SCFTYP={scftype} RUNTYP={run_type} DFTTYP={functional}'
             if TDDFT == True:
                 line_input += ' TDDFT=EXCITE \n' 
             elif TDDFT == 'SPNFLP':
@@ -234,6 +247,13 @@ class GamessDFTRun:
                     line_input += f' MULT={target[1]} $END\n' 
                 else:
                     line_input += f' $END\n' 
+            if lc_option == True:
+                line_input += f' $DFT LC=.TRUE.'
+                if mu_param != None:
+                    line_input += f' MU={mu_param}'
+                else:
+                    pass
+                line_input += f' $END\n'
             line_input += ' $SCF damp=.TRUE.'
             if run_type == 'HESSIAN' or run_type == 'RAMAN':
                 line_input += ' DIRSCF=.TRUE. $END\n'
