@@ -484,8 +484,12 @@ class GamessDFTRun:
             print(e)
             pass
 
+        if self.para_functional != []:
+            output_dic['functional_param'] = self.para_functional
+
         if 'log' not in output_dic:
             output_dic["log"] = job_state
+
 
         os.chdir("..")
 
