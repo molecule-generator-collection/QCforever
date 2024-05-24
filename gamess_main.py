@@ -9,7 +9,7 @@ except:
     print (usage); sys.exit()
 
 
-#for stargint from gaussian calculation
+#for starting from gaussian calculation
 option = "opt homolumo energy dipole uv fluor"
 #option = "opt uv vip vea"
 #option = "opt deen vip vea homolumo dipole uv symm"
