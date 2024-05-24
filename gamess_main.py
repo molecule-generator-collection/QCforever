@@ -9,7 +9,7 @@ except:
     print (usage); sys.exit()
 
 
-#for stargint from gaussian calculation
+#for starting from gamess calculation
 option = "opt homolumo energy dipole uv fluor"
 #option = "opt uv vip vea"
 #option = "opt deen vip vea homolumo dipole uv symm"
@@ -20,11 +20,12 @@ option = "opt homolumo energy dipole uv fluor"
 #option = "opt cden homolumo energy dipole deen stable2o2 tadf" 
 #option = "opt nmr uv energy homolumo dipole deen stable2o2 vip vea cden symm"
 
-#test = GaussianRunPack.GaussianDFTRun('B3LYP', 'STO-3G', 10, option, infilename, solvent='water', restart=False)
-test = GamessRunPack.GamessDFTRun('BHHLYP', '3-21G', 8, option, infilename)
+test = GamessRunPack.GamessDFTRun('LC-BLYP', '3-21G', 8, option, infilename)
+#test = GamessRunPack.GamessDFTRun('BHHLYP', '3-21G', 8, option, infilename)
 
 test.mem = '5GB'
 test.timexe = 60*60
+test.para_functional = [0.65]
 #test.SpecSpinMulti = 3
 #test.SpecTotalCharge = 3
 outdic = test.run_gamess()
