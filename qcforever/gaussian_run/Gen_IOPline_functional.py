@@ -15,7 +15,7 @@ def functional_para(functional, para):
 
     iop_line = ''
 
-    if functional == 'lc-blyp':
+    if functional == 'lc-blyp' or 'lc-whpbe' or 'lc-wpbe':
         if len(para) != 1:
             print('Number of parameters is invalid! ignoring parameters except for the first one!\n')
 
