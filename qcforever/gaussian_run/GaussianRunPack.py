@@ -1079,6 +1079,14 @@ class GaussianDFTRun:
             self.functional = 'lc-blyp' 
             self.para_functional = [self.LC_para_BOopt(JobName, ReadFrom, atm, X, Y, Z, TotalCharge, SpinMulti)]
             ReadFrom = 'chk'
+        elif self.functional == 'ktlc-wpbe-bo':
+            self.functional = 'lc-wpbe' 
+            self.para_functional = [self.LC_para_BOopt(JobName, ReadFrom, atm, X, Y, Z, TotalCharge, SpinMulti)]
+            ReadFrom = 'chk'
+        elif self.functional == 'ktlc-whpbe-bo':
+            self.functional = 'lc-whpbe' 
+            self.para_functional = [self.LC_para_BOopt(JobName, ReadFrom, atm, X, Y, Z, TotalCharge, SpinMulti)]
+            ReadFrom = 'chk'
         else:
             pass
 
