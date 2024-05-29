@@ -95,10 +95,13 @@ class GaussianDFTRun:
             if BetaEigenVal == []:
                 Alpha_gap = Eh2eV * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
                 output["homolumo"] = Alpha_gap
+                output["MO"] = [AlphaEigenVal[:NumAlphaElec], AlphaEigenVal[NumAlphaElec:]]
             else:
                 Alpha_gap = Eh2eV * (AlphaEigenVal[NumAlphaElec]-AlphaEigenVal[NumAlphaElec-1])
                 Beta_gap = Eh2eV * (BetaEigenVal[NumBetaElec]-BetaEigenVal[NumBetaElec-1])
                 output["homolumo"] = [Alpha_gap, Beta_gap]
+                output["Alpha_MO"] = [AlphaEigenVal[:NumAlphaElec], AlphaEigenVal[NumAlphaElec:]]
+                output["Beta_MO"] = [BetaEigenVal[:NumBetaElec], BetaEigenVal[NumBetaElec:]]
         
         if is_dipole:
             Dipole_X = []
