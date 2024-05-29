@@ -76,7 +76,9 @@ class GamessDFTRun:
                 output['log'] = job_scfstate
 
         if is_homolumo_specified:
+            #To get the number of electrons.
             num_occu_alpha, num_occu_beta  = parselog.getNumberElectron()
+            #To get the block for molecular orbitals
             bb = parselog.getBlock("MOLECULAR ORBITALS")
             if bb == []:
                 bb = parselog.getBlock("EIGENVECTORS")
@@ -84,8 +86,11 @@ class GamessDFTRun:
                 beta_values = parselog.getMO_single(bb[-1])
             else:
                 alpha_values, beta_values = parselog.getMO_set(bb[-1])
+
             alpha_gap, beta_gap = parselog.gethomolumogap(alpha_values, beta_values, num_occu_alpha, num_occu_beta)
             output['homolumo'] = [alpha_gap, beta_gap]
+            output['Alpha_MO'] = [alpha_values[:num_occu_alpha],alpha_values[num_occu_alpha:]]
+            output['Beta_MO'] = [beta_values[:num_occu_beta],alpha_values[num_occu_beta:]]
 
         if is_dipole_specified:
             dd = parselog.getBlock("ELECTROSTATIC MOMENTS")    
