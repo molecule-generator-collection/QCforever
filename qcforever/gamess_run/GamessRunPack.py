@@ -7,7 +7,7 @@ import numpy as np
 
 
 from qcforever import gamess_run
-from qcforever.util import read_mol_file
+from qcforever.util import read_mol_file, check_resource
 
 
 byte2words = 1/8
@@ -22,7 +22,7 @@ class GamessDFTRun:
         self.in_file = in_file
         self.functional = functional
         self.basis = basis
-        self.nproc = nproc
+        self.nproc = check_resource.respec_cores(nproc)
         self.value = value
         self.error = error
         self.gamessversion = '00'

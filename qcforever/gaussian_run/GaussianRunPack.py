@@ -8,7 +8,7 @@ import shutil
 import numpy as np
 
 from qcforever import gaussian_run
-from qcforever.util import read_mol_file
+from qcforever.util import read_mol_file, check_resource
 
 
 Eh2kJmol = 2625.5
@@ -20,7 +20,7 @@ class GaussianDFTRun:
         self.in_file = in_file
         self.functional = functional.lower()
         self.basis = basis.lower()
-        self.nproc = nproc
+        self.nproc = check_resource.respec_cores(nproc)
         self.value = value
         self.solvent = solvent.lower()
         self.restart = restart
