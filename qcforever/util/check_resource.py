@@ -1,5 +1,5 @@
 import sys
-import os
+import psutil
 import time
 
 def respec_cores(spec_cores):
@@ -18,13 +18,13 @@ def respec_cores(spec_cores):
 
 def get_ava_cores():
 
-    ava_cores = len(os.sched_getaffinity(0)) 
+    ava_cores = int(psutil.cpu_count()*(1-psutil.cpu_percent(interval=1)/100))
 
     if ava_cores == 0:
         while ava_cores == 0:
             time.sleep(10)
             print ('Waiting resource.....')
-            ava_cores = len(os.sched_getaffinity(0)) 
+            ava_cores = int(psutil.cpu_count()*(1-psutil.cpu_percent(interval=None)/100))
 
     return ava_cores
 
