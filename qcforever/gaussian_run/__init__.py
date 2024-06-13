@@ -1,6 +1,5 @@
 from . import (
     AtomInfo,
-    CF_1D,
     chk2fchk,
     Exe_Gaussian,
     fchk2chk,
@@ -15,5 +14,4 @@ from . import (
     Get_MolCoordinate,
     Get_MolInterCoordinate,
     Get_MolInterCoordinate,
-    ConstrainInfo_line,
-    UV_similarity)
+    ConstrainInfo_line)
