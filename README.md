@@ -15,7 +15,7 @@ QCforever automates this process and calculates multiple physical properties of 
 3. [Python](https://www.anaconda.com/download/)==3.11
 4. [rdkit-pypi](https://anaconda.org/rdkit/rdkit)==2023.09.1
 5. [bayesian-optimization](https://github.com/bayesian-optimization/BayesianOptimization)==1.4.3
-6. [6.6.1](https://github.com/grimme-lab/xtb/tree/v6.6.1)==6.6.1
+6. [xtb](https://github.com/grimme-lab/xtb/tree/v6.6.1)==6.6.1
 
 ## How to use
 
