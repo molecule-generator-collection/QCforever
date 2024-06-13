@@ -1090,7 +1090,11 @@ class GaussianDFTRun:
                 print('Conformation search is only possible when the input file is sdf.')
                 pass
 
-            atm, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf("./optimized_structures.sdf")
+            try:
+                atm, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf("./optimized_structures.sdf")
+            except Exception as e:
+                print(e)
+                pass
 
         #When ktlc-blyp-bo is specified as a functionl, try to optimize mu prameter with BO
         if self.functional == 'ktlc-blyp-bo':
