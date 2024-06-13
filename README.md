@@ -110,7 +110,7 @@ Following options are currently available:
 |pka| Compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species. The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydrogen.|:white_check_mark:||
 |stable| try to find a stable structure when the negative frequency is detected.|:white_check_mark:||
 |optspin| try to find a suitable spin multiplicity.|:white_check_mark:||
-|confopt| try to find a stable molecular conformation with xTB (developing).|:white_check_mark:||
+|optconf| try to find a stable molecular conformation with xTB (developing).|:white_check_mark:||
 
 ## License
 
