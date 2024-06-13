@@ -7,8 +7,8 @@ To compute obsevable properties of a molecule through quantum chemical computati
 multi step computation is demanded. 
 QCforever automates this process and calculates multiple physical properties of molecules simultaneously.
 Don't you belive the QC?
-Then, you can optimize functional parameters of density functional theory through Bayesian optimization.
-Grey-box optimisation (LAQA) can also be used to obtain energetically favourable molecular conformations.
+Then, you can optimize functional parameters of density functional theory through Bayesian optimization (https://doi.org/10.1021/acs.jctc.3c00764).
+Grey-box optimisation (LAQA (https://doi.org/10.1021/acs.jctc.1c00301)) can also be used to obtain energetically favourable molecular conformations.
 
 
 ## Requirements
