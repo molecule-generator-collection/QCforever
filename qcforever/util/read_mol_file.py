@@ -6,14 +6,14 @@ from rdkit.Chem import Descriptors, rdmolops
 
 
 def read_sdf(infile):
+    sdfinfo = Chem.SDMolSupplier(infile, removeHs=False)
+    mols = [mol for mol in sdfinfo if mol is not None]
+    N = mols[0].GetNumAtoms()
+    N_Bond = mols[0].GetNumBonds()
+    N_radical = Descriptors.NumRadicalElectrons(mols[0])
+    Charge = Descriptors.NumRadicalElectrons(mols[0])
+
     with open(infile, 'r') as ifile:
-        sdfinfo = Chem.SDMolSupplier(infile, removeHs=False)
-        for mol in sdfinfo:
-            N = mol.GetNumAtoms()
-            N_Bond = mol.GetNumBonds()
-            N_radical = Descriptors.NumRadicalElectrons(mol)
-            Charge = rdmolops.GetFormalCharge(mol) 
-        
         count = 0
         X = []
         Y = []
