@@ -8,7 +8,8 @@ import shutil
 import numpy as np
 
 from qcforever import gaussian_run
-from qcforever.util import read_mol_file, check_resource
+from qcforever.util import read_mol_file, check_resource, UV_similarity
+from qcforever.laqa_fafoom import laqa_confopt_sdf
 
 
 Eh2kJmol = 2625.5
@@ -277,8 +278,8 @@ class GaussianDFTRun:
             if self.ref_uv_path != '':
                 ref_uv = {}
                 print(f"Read the reference spectrum...{self.ref_uv_path}")
-                ref_uv["uv"] = gaussian_run.UV_similarity.read_data(self.ref_uv_path)
-                S, D = gaussian_run.UV_similarity.smililarity_dissimilarity(ref_uv["uv"][0], ref_uv["uv"][1], output["uv"][0], output["uv"][1])
+                ref_uv["uv"] = UV_similarity.read_data(self.ref_uv_path)
+                S, D = UV_similarity.smililarity_dissimilarity(ref_uv["uv"][0], ref_uv["uv"][1], output["uv"][0], output["uv"][1])
                 output["Similality/Disdimilarity"] = [S, D]
         
         if is_fluor:
@@ -916,6 +917,8 @@ class GaussianDFTRun:
                 if '=' in option:
                     in_target = option.split('=')
                     optoption = in_target[-1]
+            elif 'optconf' in option.lower():
+                option_dict['optconf'] = True
             elif 'optspin' in option.lower():
                 option_dict['optspin'] = True
                 option_dict['energy'] = True
@@ -1076,6 +1079,18 @@ class GaussianDFTRun:
         #print(TargetSpinMulti)
 
         job_state = ""
+
+        if 'optconf' in option_dict:
+            print('Try to find stable conformation...')
+            if ReadFrom == 'sdf':
+                print('The input is a sdf file, OK...')
+                original_sdf = '../' + infilename
+                laqa_confopt_sdf.LAQA_confopt_main('None', original_sdf)
+            else:
+                print('Conformation search is only possible when the input file is sdf.')
+                pass
+
+            atm, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf("./optimized_structures.sdf")
 
         #When ktlc-blyp-bo is specified as a functionl, try to optimize mu prameter with BO
         if self.functional == 'ktlc-blyp-bo':
