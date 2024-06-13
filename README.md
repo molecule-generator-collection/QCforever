@@ -6,6 +6,9 @@ QCforever (https://doi.org/10.1021/acs.jcim.2c00812) is a wrapper of Gaussian (h
 To compute obsevable properties of a molecule through quantum chemical computation (QC),
 multi step computation is demanded. 
 QCforever automates this process and calculates multiple physical properties of molecules simultaneously.
+Don't you belive the QC?
+Then, you can optimize functional parameters of density functional theory through Bayesian optimization.
+Grey-box optimisation (LAQA) can also be used to obtain energetically favourable molecular conformations.
 
 
 ## Requirements
