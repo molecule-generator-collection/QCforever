@@ -34,7 +34,7 @@ def LAQA_read_input(param_file):
                             'macro_opt_cycle': 1000, 'micro_opt_cycle': 5,
                             'thr_econv': 5.0e-4, 'thr_fconv': 1.0e-6,
                             'printlevel': 0, 'energy_function': 'xtb',
-                            'gauss_exedir': '/fefs/opt/x86_64/Gaussian/g16/g16',
+                            'gauss_exedir': '/fefs/opt/x86_64/Gaussian/g16/',
                             'gauss_scrdir': os.getcwd(), 'g16_template': 'g16.template',
                             'qcmethod' : 'pm6',
                             'xtb_call': 'xtb', 'gfn': '2',

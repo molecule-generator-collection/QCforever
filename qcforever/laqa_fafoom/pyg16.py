@@ -86,11 +86,11 @@ class g16Object():
         """
         success = False
         if os.path.exists('Gau_molecule.com') is False:
-            raise OSError("Required input file not present.")
+            raise OSError("Required input file is not present.")
         os.environ['GAUSS_EXEDIR'] = self.gauss_exedir
         os.environ['GAUSS_SCRDIR'] = self.gauss_scrdir
-        #print(os.environ['GAUSS_EXEDIR'])
-        #print(os.environ['GAUSS_SCRDIR'])
+        print(os.environ['GAUSS_EXEDIR'])
+        print(os.environ['GAUSS_SCRDIR'])
         g16 = subprocess.Popen(     \
            "$GAUSS_EXEDIR/g16 Gau_molecule.com", \
             stdout=subprocess.PIPE, shell=True)
@@ -260,7 +260,7 @@ if __name__ == '__main__':
     '  1  2  1  0  0  0  0\n' + \
     '  1  3  1  0  0  0  0\n' + \
     'M  END\n$$$$'
-    gauss_exedir = '/home/center/opt/x86_64/apps/gaussian16/c01/g16'
+    gauss_exedir = '/fefs/opt/x86_64/Gaussian/g16'
     gauss_scrdir = os.getcwd()
     nprocs = 8
     memory = '2GB'

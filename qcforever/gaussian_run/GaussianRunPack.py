@@ -919,6 +919,11 @@ class GaussianDFTRun:
                     optoption = in_target[-1]
             elif 'optconf' in option.lower():
                 option_dict['optconf'] = True
+                if '=' in option:
+                    in_target = option.split('=')
+                    optconfoption = in_target[-1]
+                else:
+                    optconfoption = 'xtb'
             elif 'optspin' in option.lower():
                 option_dict['optspin'] = True
                 option_dict['energy'] = True
@@ -1085,7 +1090,7 @@ class GaussianDFTRun:
             if ReadFrom == 'sdf':
                 print('The input is a sdf file, OK...')
                 original_sdf = '../' + infilename
-                laqa_confopt_sdf.LAQA_confopt_main('None', original_sdf)
+                laqa_confopt_sdf.LAQA_confopt_main('None', original_sdf, TotalCharge, SpinMulti, optconfoption)
             else:
                 print('Conformation search is only possible when the input file is sdf.')
                 pass
