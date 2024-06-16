@@ -923,7 +923,7 @@ class GaussianDFTRun:
                     in_target = option.split('=')
                     optconfoption = in_target[-1]
                 else:
-                    optconfoption = 'xtb'
+                    optconfoption = 'pm6'
             elif 'optspin' in option.lower():
                 option_dict['optspin'] = True
                 option_dict['energy'] = True
