@@ -11,7 +11,7 @@ from rdkit.Chem import AllChem
 from qcforever import laqa_fafoom
 
 
-def LAQA_confopt_main(param_file, insdffile, TotalCharge, SpinMulti, method):
+def LAQA_confopt_main(insdffile, TotalCharge, SpinMulti, method, nproc, mem):
 
     t_laqaopt_bgn = time.time()
     print(f"\nStart LAQA conforation searh job at {datetime.datetime.now()}")
@@ -22,7 +22,7 @@ def LAQA_confopt_main(param_file, insdffile, TotalCharge, SpinMulti, method):
 
     SMILES = Chem.MolToSmiles(mol)
 
-    make_laqa_input(SMILES, SpinMulti, TotalCharge, method)
+    make_laqa_input(SMILES, SpinMulti, TotalCharge, method, nproc, mem)
 
     laqa_fafoom.initgeom.LAQA_initgeom('laqa_setting.inp', SMILES)
     laqa_fafoom.laqa_optgeom.LAQA_optgeom('laqa_setting.inp')
@@ -31,7 +31,7 @@ def LAQA_confopt_main(param_file, insdffile, TotalCharge, SpinMulti, method):
     print(f"\nFinish LAQA conforation searh job at {datetime.datetime.now()}")
     print(f"Wall time of LAQA conformation optimization job: {t_laqaopt_end - t_laqaopt_bgn:20.2f} sec.")
 
-def make_laqa_input(SMILES, SpinMulti, TotalCharge, method):
+def make_laqa_input(SMILES, SpinMulti, TotalCharge, method, nproc, mem):
 
     input_s = ''
 
@@ -53,6 +53,8 @@ def make_laqa_input(SMILES, SpinMulti, TotalCharge, method):
         #Delete the final binary file name of 'g16'
         input_s += f'gauss_exedir  = "{Gaussian_exedir[:-4]}"\n'
         input_s += f'qcmethod = "{method}" \n'
+        input_s += f'nprocs = "{nproc}" \n'
+        input_s += f'memory = "{mem}" \n'
 
     with open('laqa_setting.inp', 'w') as laqa_infile:
         

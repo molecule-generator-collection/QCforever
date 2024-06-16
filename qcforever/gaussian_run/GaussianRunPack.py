@@ -1090,7 +1090,8 @@ class GaussianDFTRun:
             if ReadFrom == 'sdf':
                 print('The input is a sdf file, OK...')
                 original_sdf = '../' + infilename
-                laqa_confopt_sdf.LAQA_confopt_main('None', original_sdf, TotalCharge, SpinMulti, optconfoption)
+                laqa_confopt_sdf.LAQA_confopt_main(original_sdf, TotalCharge, SpinMulti, 
+                                                    optconfoption, self.nproc, self.mem)
             else:
                 print('Conformation search is only possible when the input file is sdf.')
                 pass
@@ -1098,6 +1099,7 @@ class GaussianDFTRun:
             try:
                 atm, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf("./optimized_structures.sdf")
             except Exception as e:
+                print('Conformation search is failed!')
                 print(e)
                 pass
 
