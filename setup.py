@@ -16,7 +16,7 @@ PACKAGES = [
     'qcforever',
     'qcforever.gaussian_run',
     'qcforever.gamess_run',
-    'qcforever.util']
+    'qcforever.util',
     'qcforever.laqa_fafoom']
 PACKAGE_DATA = {
     'qcforever': ['gaussian_run/*.json'],
