@@ -49,6 +49,7 @@ def make_laqa_input(SMILES, SpinMulti, TotalCharge, method, nproc, mem):
         input_s += f'gfn = "2"\n'
     if method == 'pm6':
         input_s += '\nenergy_function = "g16"\n'
+        #Get the directry that include 'g16'
         Gaussian_exedir = shutil.which('g16')
         #Delete the final binary file name of 'g16'
         input_s += f'gauss_exedir  = "{Gaussian_exedir[:-4]}"\n'
