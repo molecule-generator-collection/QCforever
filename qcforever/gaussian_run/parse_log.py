@@ -168,7 +168,7 @@ class parse_log:
 
         return charge, spinmulti
 
-    def classify_SpinStates(self, Ideal_SS, SS, WaveLength, OS, CD_L, CD_OS, mu, theta, g):
+    def classify_SpinStates(self, Ideal_SS, SS, WaveLength, OS, CD_L, CD_OS, mu, mm, theta, g):
         State_allowed = []
         State_forbidden = []
         WL_allowed = []
@@ -181,6 +181,8 @@ class parse_log:
         CD_OS_forbidden = []
         mu_allowed = []
         mu_forbidden = []
+        mm_allowed = []
+        mm_forbidden = []
         theta_allowed = []
         theta_forbidden = []
         g_allowed = []
@@ -193,6 +195,7 @@ class parse_log:
                 CD_L_allowed.append(CD_L[i])
                 CD_OS_allowed.append(CD_OS[i])
                 mu_allowed.append(mu[i])
+                mm_allowed.append(mm[i])
                 theta_allowed.append(theta[i])
                 g_allowed.append(g[i])
             else:
@@ -202,12 +205,13 @@ class parse_log:
                 CD_L_forbidden.append(CD_L[i])
                 CD_OS_forbidden.append(CD_OS[i])
                 mu_forbidden.append(mu[i])
+                mm_forbidden.append(mm[i])
                 theta_forbidden.append(theta[i])
                 g_forbidden.append(g[i])
 
         return State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                 CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden, \
-                mu_allowed, mu_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden
+                mu_allowed, mu_forbidden, mm_allowed, mm_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden
 
     def extract_transtion_EMmoment(self, lines):
         text = '\n'.join(lines)
@@ -249,6 +253,8 @@ class parse_log:
         V_const = 9.27401E-21 
 
         state_mu = []
+        norm_mu = []
+        norm_mm = []
         state_g = []
         state_theta = []
 
@@ -258,6 +264,9 @@ class parse_log:
             
             norm_mu_state = np.linalg.norm(mu_state)
             norm_mm_state = np.linalg.norm(mm_state)
+
+            norm_mu.append(norm_mu_state)
+            norm_mm.append(norm_mm_state)
 
             in_mu_mm = np.inner(mu_state,mm_state)
 
@@ -279,7 +288,7 @@ class parse_log:
     
             #print(theta)
 
-        return  state_mu, state_theta, state_g
+        return  norm_mu, norm_mm, state_theta, state_g
 
     def extract_CD(self, lines):
         count = 0
@@ -352,16 +361,16 @@ class parse_log:
                 Found = True
         
         CD_length, CD_OS = self.extract_CD(lines)
-        mu, theta, g = self.extract_transtion_EMmoment(lines)
+        mu, mm, theta, g = self.extract_transtion_EMmoment(lines)
         State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                 CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden, \
-                mu_allowed, mu_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden \
-                = self.classify_SpinStates(Ideal_SS, SS, WaveLength, V_OS, CD_length, CD_OS, mu, theta, g)
+                mu_allowed, mu_forbidden, mm_allowed, mm_forbidden,  theta_allowed, theta_forbidden, g_allowed, g_forbidden \
+                = self.classify_SpinStates(Ideal_SS, SS, WaveLength, V_OS, CD_length, CD_OS, mu, mm, theta, g)
 
 
         return Found, Egrd, Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
             CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden, \
-            mu_allowed, mu_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden  
+            mu_allowed, mu_forbidden, mm_allowed, mm_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden  
 
     def extract_Freq(self, lines):
         count = 0

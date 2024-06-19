@@ -85,8 +85,7 @@ class GaussianDFTRun:
         
         if is_opt:
             print ("Optimization was performed...Check geometry...")
-            MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(GS_lines)
-            output["GS_MaxDisplace"] = MaxDisplace
+            output["GS_MaxDisplace"] = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(GS_lines) 
         
         if is_homolumo:
             with open(fchkname, 'r') as ifile:
@@ -240,8 +239,7 @@ class GaussianDFTRun:
                 PC_Energy_SS = parse_log.Extract_SCFEnergy(PC_lines)
                 VNP_Energy_SS = parse_log.Extract_SCFEnergy(VNP_lines)
                 # For Check internal coordinate
-                MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(PC_lines)
-                output["relaxedIP_MaxDisplace"] = MaxDisplace
+                output["relaxedIP_MaxDisplace"] = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(PC_lines)
                 output["aip"] = [Eh2eV*(PC_Energy_SS[0]-GS_Energy), Eh2eV*(PC_Energy_SS[0]-VNP_Energy_SS[0]), PC_Energy_SS[1], VNP_Energy_SS[1]]
             if is_aea:
                 NC_lines = Links_split[job_index['NC_line']]
@@ -249,8 +247,7 @@ class GaussianDFTRun:
                 NC_Energy_SS = parse_log.Extract_SCFEnergy(NC_lines)
                 VNN_Energy_SS = parse_log.Extract_SCFEnergy(VNN_lines)
                 # For Check internal coordinate
-                MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(NC_lines)
-                output["relaxedEA_MaxDisplace"] = MaxDisplace
+                output["relaxedEA_MaxDisplace"] = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(NC_lines)
                 # Normal electronic affinity calculation
                 output["aea"] = [Eh2eV*(GS_Energy-NC_Energy_SS[0]), Eh2eV*(VNN_Energy_SS[0]-NC_Energy_SS[0]), NC_Energy_SS[1], VNN_Energy_SS[1]]
         
@@ -269,10 +266,12 @@ class GaussianDFTRun:
             lines = Links_split[job_index['uv_line']] 
             _, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                 CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden, \
-                mu_allowed, mu_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden = parse_log.Extract_ExcitedState(lines)
+                mu_allowed, mu_forbidden, mm_allowed, mm_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden \
+                = parse_log.Extract_ExcitedState(lines)
             output["uv"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
             output["state_index"] = [State_allowed, State_forbidden]
             output["CD_mu"] = [mu_allowed, mu_forbidden]
+            output["CD_mm"] = [mm_allowed, mm_forbidden]
             output["CD_theta"] = [theta_allowed, theta_forbidden]
             output["CD_g"] = [g_allowed, g_forbidden]
             if self.ref_uv_path != '':
@@ -286,14 +285,15 @@ class GaussianDFTRun:
             lines = Links_split[job_index['relaxAEstate']]
             S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                 CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden, \
-                mu_allowed, mu_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden = parse_log.Extract_ExcitedState(lines)
+                mu_allowed, mu_forbidden, mm_allowed, mm_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden \
+                = parse_log.Extract_ExcitedState(lines)
             # For Check internal coordinate
-            MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
             output["MinEtarget"] = S_Eext
-            output["Min_MaxDisplace"] = MaxDisplace
+            output["Min_MaxDisplace"] = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
             output["fluor"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
-            #mu, theta, g_cal = parse_log.extract_transtion_EMmoment(lines)
+            #mu, mm, theta, g_cal = parse_log.extract_transtion_EMmoment(lines)
             output["CPL_mu"] = mu_allowed 
+            output["CPL_mm"] = mm_allowed 
             output["CPL_theta"] = theta_allowed
             output["CPL_g"] = g_allowed
         
@@ -301,13 +301,14 @@ class GaussianDFTRun:
             lines = Links_split[job_index['relaxFEstate']] 
             T_Found, _, T_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
                 CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden, \
-                mu_allowed, mu_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden = parse_log.Extract_ExcitedState(lines)
+                mu_allowed, mu_forbidden, mm_allowed, mm_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden \
+                = parse_log.Extract_ExcitedState(lines)
             # For Check internal coordinate
-            MaxDisplace = gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
             output["T_Min"] = T_Eext
-            output["T_Min_MaxDisplace"] = MaxDisplace
+            output["T_Min_MaxDisplace"] =gaussian_run.Get_MolInterCoordinate.Extract_InterMol(lines)
             output["T_Phos"] = [WL_forbidden, OS_forbidden, CD_L_forbidden, CD_OS_forbidden]
             output["CPL_T_mu"] = mu_forbidden 
+            output["CPL_T_mm"] = mm_forbidden 
             output["CPL_T_theta"] = theta_forbidden
             output["CPL_T_g"] = g_forbidden
             #TADF_Eng = 0.0
