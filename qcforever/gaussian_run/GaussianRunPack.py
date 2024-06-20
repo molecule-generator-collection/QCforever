@@ -279,7 +279,7 @@ class GaussianDFTRun:
                 print(f"Read the reference spectrum...{self.ref_uv_path}")
                 ref_uv["uv"] = UV_similarity.read_data(self.ref_uv_path)
                 S, D = UV_similarity.smililarity_dissimilarity(ref_uv["uv"][0], ref_uv["uv"][1], output["uv"][0], output["uv"][1])
-                output["Similality/Disdimilarity"] = [S, D]
+                output["Similarity/Dissimilarity"] = [S, D]
         
         if is_fluor:
             lines = Links_split[job_index['relaxAEstate']]
