@@ -4,7 +4,7 @@ from qcforever.gaussian_run import GaussianRunPack
 				
 usage ='Usage; %s' % sys.argv[0]
 
-option = "symm pka opt homolumo energy dipole deen stable2o2 uv=/Users/shouichi/Desktop/workspace/QCforever/Samples/UV_peak.dat aip aea tadf" 
+option = "symm pka opt homolumo energy dipole deen stable2o2 uv=/home/sumita/QCforever/Samples/UV_peak.dat aip aea tadf" 
 
 infilename = 'ch2o.xyz'
 
@@ -144,8 +144,8 @@ if compare_list_ab(ref_data['uv'][3],  outdic['uv'][3]) < 0.001:
 else: 
     print("Something strange...")
 
-print('Similality/Disdimilarity')
-if compare_list_ab(ref_data['Similality/Disdimilarity'],  outdic['Similality/Disdimilarity']) < 0.01:
+print('Similarity/Dissimilarity')
+if compare_list_ab(ref_data['Similarity/Dissimilarity'],  outdic['Similarity/Dissimilarity']) < 0.01:
     print("OK")
 else: 
     print("Something strange...")
