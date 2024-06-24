@@ -1156,8 +1156,9 @@ class GaussianDFTRun:
                     File_name = f.replace('./','')
                     if File_name == inchkfile:
                         shutil.move(File_name, Jobchk) 
+                        print (f'Get the information from {File_name}')
                     else:
-                        print ('Suitable chk file was not found!')
+                        print (f'{File_name} is not suitable for this job!')
             
             elif i > 0 and ('pka' not in job_thisstate):
                 for f in glob.glob('./*.fchk'):
