@@ -716,7 +716,7 @@ class GaussianDFTRun:
                                 run_type='', TDDFT=True, 
                                 readchk='all', solvent=self.solvent) 
 
-    def SpinMulti_scan(self, JobName,  targetstate, ReadFrom, GivenSpinMulti, TotalCharge, atm, X, Y, Z, TDstate_info):
+    def SpinMulti_scan(self, JobName,  ReadFrom, GivenSpinMulti, TotalCharge, atm, X, Y, Z, targetstate=0, TDstate_info=[]):
         print('Try to optimize the spin state of the ground state!')
         
         SpinMulti_list = []
@@ -724,15 +724,20 @@ class GaussianDFTRun:
         Energy_list = []
         
         if GivenSpinMulti%2 != 0:
-            print("The number of electron is even.")
+            print("The number of electrons is even.")
             InitSpinMulti = 1
         else:
-            print("The number of electron is odd.")
+            print("The number of electrons is odd.")
             InitSpinMulti = 2
         
         for i in range(InitSpinMulti, InitSpinMulti+2*3, 2):
         
             JobNameState = JobName + f'_State{targetstate}_{i}_{TotalCharge}'
+
+            if ReadFrom == 'chk':
+                inchkfile = JobName + '.chk'
+                Jobchk = JobNameState  + '.chk' 
+                shutil.copy(inchkfile, Jobchk) 
         
             option_dict_spincheck = {'energy': True}
             scf_need=True
@@ -765,10 +770,18 @@ class GaussianDFTRun:
         Index_LowSpinDiff = SpinDiff_list.index(min(SpinDiff_list))
         Index_LowEnergy = Energy_list.index(min(Energy_list))
         
-        if StdSpinDiff < 0.1:
+        if Index_LowSpinDiff == Index_LowEnergy:
+            SpinMulti = SpinMulti_list[Index_LowEnergy]
+        elif max(SpinDiff_list) < 0.1:
             SpinMulti = SpinMulti_list[Index_LowEnergy]
         else:
             SpinMulti = SpinMulti_list[Index_LowSpinDiff]
+
+        #overwrite/save the chk file as input chk file
+        ReNameState =  JobName + f'_State{targetstate}_{SpinMulti}_{TotalCharge}'
+        ReNameStateChk = ReNameState + '.chk'
+        inchkfile = JobName + '.chk'
+        shutil.copy(ReNameStateChk, inchkfile) 
 
         return SpinMulti
 
@@ -906,8 +919,8 @@ class GaussianDFTRun:
             Is_SpinMultiSpec = True
             SpinMulti = self.SpecSpinMulti
 
-        TargetSpinMulti.append(SpinMulti)
         TargetTotalCharge.append(TotalCharge)
+        TargetSpinMulti.append(SpinMulti)
 
         # Setting options
         for i in range(len(options)):
@@ -1086,6 +1099,47 @@ class GaussianDFTRun:
 
         job_state = ""
 
+
+        # Setting the KTLC functionals
+        functional_para_opt = False
+        if self.functional == 'ktlc-blyp-bo' or  self.functional == 'ktlc-wpbe-bo' or self.functional == 'ktlc-whpbe-bo':
+            functional_para_opt = True
+            if self.functional == 'ktlc-blyp-bo':
+                self.functional = 'lc-blyp' 
+            elif self.functional == 'ktlc-wpbe-bo':
+                self.functional = 'lc-wpbe' 
+            elif self.functional == 'ktlc-whpbe-bo':
+                self.functional = 'lc-whpbe' 
+            else:
+                print('Your specified functional is not avaiable!')
+                print('Instead, we set KTLC-BLYP-BO.')
+                self.functional = 'lc-blyp' 
+
+        #Scaning spin state
+        if 'optspin' in option_dict:
+            ReSpinMulti  = self.SpinMulti_scan( 
+                        JobName=JobName, 
+                        ReadFrom=ReadFrom, 
+                        GivenSpinMulti=SpinMulti, 
+                        TotalCharge=TotalCharge, 
+                        atm=atm, X=X, Y=Y, Z=Z)
+            #output_dic.append({})
+            #output_dic['spinmulti'] = ReSpinMulti
+            if ReSpinMulti != SpinMulti:
+                for i_sm in range(len(TargetSpinMulti)): 
+                    TargetSpinMulti[i_sm] += ReSpinMulti - SpinMulti
+                SpinMulti = ReSpinMulti
+                if 'optconf' not in option_dict:
+                    ReadFrom = 'chk'
+                else:
+                    pass
+            else:
+                if 'optconf' not in option_dict:
+                    ReadFrom = 'chk'
+                else:
+                    pass 
+                    
+        #Conformation search
         if 'optconf' in option_dict:
             print('Try to find stable conformation...')
             if ReadFrom == 'sdf':
@@ -1105,16 +1159,7 @@ class GaussianDFTRun:
                 pass
 
         #When ktlc-blyp-bo is specified as a functionl, try to optimize mu prameter with BO
-        if self.functional == 'ktlc-blyp-bo':
-            self.functional = 'lc-blyp' 
-            self.para_functional = [self.LC_para_BOopt(JobName, ReadFrom, atm, X, Y, Z, TotalCharge, SpinMulti)]
-            ReadFrom = 'chk'
-        elif self.functional == 'ktlc-wpbe-bo':
-            self.functional = 'lc-wpbe' 
-            self.para_functional = [self.LC_para_BOopt(JobName, ReadFrom, atm, X, Y, Z, TotalCharge, SpinMulti)]
-            ReadFrom = 'chk'
-        elif self.functional == 'ktlc-whpbe-bo':
-            self.functional = 'lc-whpbe' 
+        if functional_para_opt:
             self.para_functional = [self.LC_para_BOopt(JobName, ReadFrom, atm, X, Y, Z, TotalCharge, SpinMulti)]
             ReadFrom = 'chk'
         else:
@@ -1137,15 +1182,22 @@ class GaussianDFTRun:
             if 'pka' in job_thisstate:
                 JobNameState = JobName + f'_DeH'
             else:
-            #For scanning the spin state of the target 
+                JobNameState = JobName + f'_State{targetstate}_{SpinMulti}_{TotalCharge}'
+            '''#For scanning the spin state of the target 
                 if 'optspin' in job_thisstate:
-                    SpinMulti  = self.SpinMulti_scan(targetstate=targetstate, JobName=JobName, ReadFrom=ReadFrom, GivenSpinMulti=SpinMulti, TotalCharge=TotalCharge, 
-                                atm=atm, X=X, Y=Y, Z=Z, TDstate_info=TDstate_info)
+                    SpinMulti  = self.SpinMulti_scan(JobName=JobName, 
+                                ReadFrom=ReadFrom, 
+                                GivenSpinMulti=SpinMulti, 
+                                TotalCharge=TotalCharge, 
+                                atm=atm, X=X, Y=Y, Z=Z, 
+                                targetstate=targetstate, 
+                                TDstate_info=TDstate_info)
                     JobNameState = JobName + f'_State{targetstate}_{SpinMulti}_{TotalCharge}'
-                    ReadFrom == 'chk'
+                    ReadFrom = 'chk'
                     output_dic[i]['spinmulti'] = SpinMulti
                 else:
                     JobNameState = JobName + f'_State{targetstate}_{SpinMulti}_{TotalCharge}'
+            '''
 
             Jobchk = JobNameState  + '.chk' 
             AttmptStable = True
@@ -1409,6 +1461,9 @@ class GaussianDFTRun:
             for k in output_dic[i].keys():
                 output_sum.setdefault(k, output_dic[i][k])
             #for k in range(len(option_dict)):
+
+        if 'optspin' in option_dict:
+            output_sum['spinmulti'] = SpinMulti
 
         #If functional parameter is not default ones, add them to the output dictionary.
         if self.para_functional != []:
