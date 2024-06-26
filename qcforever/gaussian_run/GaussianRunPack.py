@@ -1129,15 +1129,11 @@ class GaussianDFTRun:
                 for i_sm in range(len(TargetSpinMulti)): 
                     TargetSpinMulti[i_sm] += ReSpinMulti - SpinMulti
                 SpinMulti = ReSpinMulti
-                if 'optconf' not in option_dict:
-                    ReadFrom = 'chk'
-                else:
-                    pass
             else:
-                if 'optconf' not in option_dict:
-                    ReadFrom = 'chk'
-                else:
-                    pass 
+                pass 
+
+            if 'optconf' not in option_dict:
+                ReadFrom = 'chk'
                     
         #Conformation search
         if 'optconf' in option_dict:
