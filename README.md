@@ -18,6 +18,7 @@ Grey-box optimisation (LAQA (https://doi.org/10.1021/acs.jctc.1c00301)) can also
 3. [Python](https://www.anaconda.com/download/)==3.11
 4. [rdkit-pypi](https://anaconda.org/rdkit/rdkit)==2023.09.1
 5. [bayesian-optimization](https://github.com/bayesian-optimization/BayesianOptimization)==1.4.3
+6. [psutil](https://github.com/giampaolo/psutil)
 
 ## Optional
 
@@ -113,7 +114,7 @@ Following options are currently available:
 |pka| Compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species. The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydrogen.|:white_check_mark:||
 |stable| try to find a stable structure when the negative frequency is detected.|:white_check_mark:||
 |optspin| try to find a suitable spin multiplicity.|:white_check_mark:||
-|optconf| try to find a stable molecular conformation with PM6 (Gaussian).|:white_check_mark:||
+|optconf| try to find a stable molecular conformation with PM6 (Gaussian16).|:white_check_mark:||
 
 ## License
 
