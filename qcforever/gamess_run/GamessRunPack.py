@@ -3,8 +3,9 @@ import re
 import sys
 import math
 import shutil
-import numpy as np
+import pickle
 
+import numpy as np
 
 from qcforever import gamess_run
 from qcforever.util import read_mol_file, check_resource
@@ -18,13 +19,14 @@ kcalmol2Eh = 1.593601E-3
 
 class GamessDFTRun:
 
-    def __init__(self, functional, basis, nproc, value, in_file, error=0):
+    def __init__(self, functional, basis, nproc, value, in_file, error=0, pklsave=False):
         self.in_file = in_file
         self.functional = functional
         self.basis = basis
         self.nproc = check_resource.respec_cores(nproc)
         self.value = value
         self.error = error
+        self.pklsave = pklsave
         self.gamessversion = '00'
         self.mem = ''
         self.timeexe = 60 * 60 * 80
@@ -495,6 +497,11 @@ class GamessDFTRun:
         if 'log' not in output_dic:
             output_dic["log"] = job_state
 
+        #Save as pickle
+        if self.pklsave:
+            result_dic = jobname+".pkl"
+            with open(result_dic, 'wb') as f:
+                pickle.dump(output_dic, f)
 
         os.chdir("..")
 
