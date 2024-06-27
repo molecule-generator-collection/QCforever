@@ -4,6 +4,7 @@ import glob
 import sys
 import copy
 import shutil
+import pickle
 
 import numpy as np
 
@@ -17,7 +18,16 @@ Eh2eV = 27.211
 
 
 class GaussianDFTRun:
-    def __init__(self, functional, basis, nproc, value, in_file, solvent="0", error=0, restart=True):
+    def __init__(self, 
+                functional, 
+                basis, 
+                nproc, 
+                value, 
+                in_file, 
+                solvent="0", 
+                error=0, 
+                restart=True, 
+                pklsave=False):
         self.in_file = in_file
         self.functional = functional.lower()
         self.basis = basis.lower()
@@ -26,6 +36,7 @@ class GaussianDFTRun:
         self.solvent = solvent.lower()
         self.restart = restart
         self.error = error
+        self.pklsave = pklsave
         self.mem = ''
         self.timexe = 60 * 60 * 80
         self.SpecTotalCharge = np.nan
@@ -1489,6 +1500,12 @@ class GaussianDFTRun:
                         output_sum['log'] = 'Not enough time for Gaussian calculations! '
                 else:
                     output_sum['log'] = 'normal'
+
+        #Save as pickle
+        if self.pklsave:
+            result_dic = JobName+".pkl"
+            with open(result_dic, 'wb') as f:
+                pickle.dump(output_sum, f)
 
         # Convert fchk to xyz 
         if self.restart == False and scf_need == True:
