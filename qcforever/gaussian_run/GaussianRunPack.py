@@ -518,10 +518,10 @@ class GaussianDFTRun:
         Is_SpinMultiSpec = False
         if np.isnan(self.SpecTotalCharge) !=  True:
             Is_ChargeSpec = True
-            TotalCharge = self.SpecTotalCharge
+        #    TotalCharge = self.SpecTotalCharge
         if np.isnan(self.SpecSpinMulti) != True:
             Is_SpinMultiSpec = True
-            SpinMulti = self.SpecSpinMulti
+        #    SpinMulti = self.SpecSpinMulti
 
         # Setting  geometric constrain
         if self.geom_spec != {}: 
@@ -912,6 +912,8 @@ class GaussianDFTRun:
             print("Invalid input file")
 
         # Specify the electronic structure (spin multiplicity and charge) of the target state
+        Is_ChargeSpec = False
+        Is_SpinMultiSpec = False
         if np.isnan(self.SpecTotalCharge) !=  True:
             Is_ChargeSpec = True
             TotalCharge = self.SpecTotalCharge
@@ -1118,17 +1120,18 @@ class GaussianDFTRun:
         #Scaning spin state
         if 'optspin' in option_dict:
             ReSpinMulti  = self.SpinMulti_scan( 
-                        JobName=JobName, 
-                        ReadFrom=ReadFrom, 
-                        GivenSpinMulti=SpinMulti, 
-                        TotalCharge=TotalCharge, 
-                        atm=atm, X=X, Y=Y, Z=Z)
+                            JobName=JobName, 
+                            ReadFrom=ReadFrom, 
+                            GivenSpinMulti=SpinMulti, 
+                            TotalCharge=TotalCharge, 
+                            atm=atm, X=X, Y=Y, Z=Z)
             #output_dic.append({})
             #output_dic['spinmulti'] = ReSpinMulti
             if ReSpinMulti != SpinMulti:
                 for i_sm in range(len(TargetSpinMulti)): 
                     TargetSpinMulti[i_sm] += ReSpinMulti - SpinMulti
                 SpinMulti = ReSpinMulti
+                print(f"Target States' Spin multiplicity: {TargetSpinMulti}")
             else:
                 pass 
 
@@ -1459,7 +1462,7 @@ class GaussianDFTRun:
             #for k in range(len(option_dict)):
 
         if 'optspin' in option_dict:
-            output_sum['spinmulti'] = SpinMulti
+            output_sum['spinmulti'] = ReSpinMulti
 
         #If functional parameter is not default ones, add them to the output dictionary.
         if self.para_functional != []:
