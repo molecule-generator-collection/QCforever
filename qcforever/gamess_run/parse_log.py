@@ -16,7 +16,7 @@ class parse_log:
 
         for ii in range(len(self.lines)):
             ll = self.lines[ii]
-            if (re.match("\s*SCF IS UNCONVERGED",ll)):
+            if (re.match(r"\s*SCF IS UNCONVERGED",ll)):
                 scf_state = "scf error"
 
         return scf_state
@@ -27,7 +27,7 @@ class parse_log:
 
         for ii in range(len(self.lines)):
             ll = self.lines[ii]
-            if (re.search("\s*THE VIBRATIONAL ANALYSIS IS NOT VALID !!!",ll)):
+            if (re.search(r"\s*THE VIBRATIONAL ANALYSIS IS NOT VALID !!!",ll)):
                 vib_state = "Not SP"
 
         return vib_state
@@ -38,7 +38,7 @@ class parse_log:
         for ii in range(len(self.lines)):
             ll = self.lines[ii]
 
-            mmat = re.search("^[\s]*NUMBER OF OCCUPIED ORBITALS[^=]+=[\s]*([^\s]+)",ll)
+            mmat = re.search(r"^[\s]*NUMBER OF OCCUPIED ORBITALS[^=]+=[\s]*([^\s]+)",ll)
             if(mmat):
                 if(re.search("ALPHA",ll)):
                     num_occu_alpha = int(mmat.group(1))
@@ -54,7 +54,7 @@ class parse_log:
         for ii in range(len(self.lines)):
             ll = self.lines[ii]
        
-            if(re.search("^[\s]*FINAL", ll)):
+            if(re.search(r"^[\s]*FINAL", ll)):
                 #print(ll)
                 sline = ll.split()
                 energy.append(sline[-4])
@@ -75,12 +75,12 @@ class parse_log:
                 Wavel = []
                 OS = []
                 ii += 2
-            if (flag == 1 and re.match("\s+[0-9]",ll) and not re.search('HARTREE', ll)):
+            if (flag == 1 and re.match(r"\s+[0-9]",ll) and not re.search('HARTREE', ll)):
                 sline = ll.split()
                 if len(sline) > 4: 
                     Wavel.append(1240/float(sline[-5]))
                     OS.append(float(sline[-1]))
-            if (flag == 1 and  re.match("\s+\n", ll)):
+            if (flag == 1 and  re.match(r"\s+\n", ll)):
                 flag = 0
             ii += 1
         
@@ -102,23 +102,23 @@ class parse_log:
                 Mulliken_charge = []
                 Lowdin_charge = []
                 ii += 1
-            if (flag == 1 and re.match("\s+[0-9]",ll) and not re.search('HARTREE', ll)):
+            if (flag == 1 and re.match(r"\s+[0-9]",ll) and not re.search('HARTREE', ll)):
                 sline = ll.split()
                 if len(sline) > 4: 
                     Element.append(sline[1])
                     Mulliken_charge.append(float(sline[3]))
                     Lowdin_charge.append(float(sline[5]))
-            if (flag == 1 and re.match("\s*\n", ll)):
+            if (flag == 1 and re.match(r"\s*\n", ll)):
                 flag = 0
             if (flag == 0 and re.search("ATOMIC SPIN DENSITY AT THE NUCLEUS", ll)):
                 flag = 2
                 Spin = []
                 ii += 1
-            if (flag == 2 and re.match("\s+[0-9]",ll) and not re.search('HARTREE', ll)):
+            if (flag == 2 and re.match(r"\s+[0-9]",ll) and not re.search('HARTREE', ll)):
                 sline = ll.split()
                 if len(sline) > 4: 
                     Spin.append(float(sline[3]))
-            if (flag == 2 and re.match("\s*\n", ll)):
+            if (flag == 2 and re.match(r"\s*\n", ll)):
                 flag = 0
 
             ii += 1
@@ -133,13 +133,13 @@ class parse_log:
         while(ii < len(self.lines)):
             ll = self.lines[ii]
             
-            if(flag == 1 and (re.search("^[\s]*----",ll) or re.search("\.\.\.\.\.\.",ll))):
+            if(flag == 1 and (re.search(r"^[\s]*----",ll) or re.search(r"\.\.\.\.\.\.",ll))):
                 flag = 0
                 ret.append(currentlist)
                 currentlist = []
                 
-            if(re.search("^[\s]*"+label,ll)):
-                if(re.search("^[\s]*----",self.lines[ii-1]) and re.search("^[\s]*----",self.lines[ii+1])):
+            if(re.search(r"^[\s]*"+label,ll)):
+                if(re.search(r"^[\s]*----",self.lines[ii-1]) and re.search(r"^[\s]*----",self.lines[ii+1])):
                     flag = 1
                     ii += 2
                     continue
@@ -174,9 +174,9 @@ class parse_log:
             if(re.search(r"BETA SET",ll)):
                 #print (ll)
                 elec_flag = -1
-            if(re.search("^          +[0-9]+ ",ll) and re.search("^          ",nex) and not re.search("[A-DF-Za-df-z]",nex)):
-                ipt = re.split("[\s]+",re.sub("[\s]+$","",re.sub("^[\s]+","",ll)))
-                vpt = re.split("[\s]+",re.sub("[\s]+$","",re.sub("^[\s]+","",nex)))
+            if(re.search(r"^          +[0-9]+ ",ll) and re.search(r"^          ",nex) and not re.search("[A-DF-Za-df-z]",nex)):
+                ipt = re.split(r"[\s]+",re.sub(r"[\s]+$","",re.sub(r"^[\s]+","",ll)))
+                vpt = re.split(r"[\s]+",re.sub(r"[\s]+$","",re.sub(r"^[\s]+","",nex)))
                 for pp in range(len(ipt)):
                     if elec_flag == 1:
                         alpha_indices.append(int(ipt[pp]))
@@ -210,8 +210,8 @@ class parse_log:
             ll = block[ii]
             nex = block[ii+1]
             if(re.search("^          +[0-9]+ ",ll) and re.search("^          ",nex) and not re.search("[A-DF-Za-df-z]",nex)):
-                ipt = re.split("[\s]+",re.sub("[\s]+$","",re.sub("^[\s]+","",ll)))
-                vpt = re.split("[\s]+",re.sub("[\s]+$","",re.sub("^[\s]+","",nex)))
+                ipt = re.split(r"[\s]+",re.sub(r"[\s]+$","",re.sub(r"^[\s]+","",ll)))
+                vpt = re.split(r"[\s]+",re.sub(r"[\s]+$","",re.sub(r"^[\s]+","",nex)))
                 for pp in range(len(ipt)):
                         indices.append(int(ipt[pp]))
                         values.append(float(vpt[pp]))
@@ -250,12 +250,12 @@ class parse_log:
             ll = block[ii]
             nex = block[ii+1]
             #/D/
-            if(re.search("/D/",ll)):
-                ipt = re.split("[\s]+",re.sub("[\s]+$","",re.sub("^[\s]+","",ll)))
-                vpt = re.split("[\s]+",re.sub("[\s]+$","",re.sub("^[\s]+","",nex)))
+            if(re.search(r"/D/",ll)):
+                ipt = re.split(r"[\s]+",re.sub(r"[\s]+$","",re.sub(r"^[\s]+","",ll)))
+                vpt = re.split(r"[\s]+",re.sub(r"[\s]+$","",re.sub(r"^[\s]+","",nex)))
                 
                 for pp in range(len(ipt)):
-                    if(ipt[pp] == "/D/"):#/D/
+                    if(ipt[pp] == r"/D/"):#/D/
                         ret =float(vpt[pp])
             ii += 1
 #    if(ret == None):
@@ -271,20 +271,20 @@ class parse_log:
 
         while(ii < len(block)-1):
             ll = block[ii]
-            if(re.search("\s* FREQUENCY:",ll)):
-                iFreq = re.split("[\s]+",re.sub("[\s]+$","",re.sub("^[\s]+","",ll)))
+            if(re.search(r"\s* FREQUENCY:",ll)):
+                iFreq = re.split(r"[\s]+",re.sub(r"[\s]+$","",re.sub(r"^[\s]+","",ll)))
                 #print(iFreq[1:])
                 for pp in range(1, len(iFreq)):
                     Frequency.append(float(iFreq[pp]))
 
-            if(re.search("\s* IR INTENSITY:",ll)):
-                iIR = re.split("[\s]+",re.sub("[\s]+$","",re.sub("^[\s]+","",ll)))
+            if(re.search(r"\s* IR INTENSITY:",ll)):
+                iIR = re.split(r"[\s]+",re.sub(r"[\s]+$","",re.sub(r"^[\s]+","",ll)))
                 #print(iInt[2:])
                 for pp in range(2, len(iIR)):
                     IR.append(float(iIR[pp]))
 
-            if(re.search("\s* RAMAN ACTIVITY:",ll)):
-                iRaman = re.split("[\s]+",re.sub("[\s]+$","",re.sub("^[\s]+","",ll)))
+            if(re.search(r"\s* RAMAN ACTIVITY:",ll)):
+                iRaman = re.split(r"[\s]+",re.sub(r"[\s]+$","",re.sub(r"^[\s]+","",ll)))
                 #print(iInt[2:])
                 for pp in range(2, len(iRaman)):
                     Raman.append(float(iRaman[pp]))
@@ -306,11 +306,11 @@ class parse_log:
 
         while(ii < len(block)-1):
             ll = block[ii]
-            if(flag == 0 and re.search("\s* THE HARMONIC ZERO POINT ENERGY IS",ll)):
+            if(flag == 0 and re.search(r"\s* THE HARMONIC ZERO POINT ENERGY IS",ll)):
                 flag = 1
                 #print (ll)
                 pass
-            if (flag == 1 and re.match("\s+[0-9]",ll) and not re.search('WORDS', ll)):
+            if (flag == 1 and re.match(r"\s+[0-9]",ll) and not re.search('WORDS', ll)):
                 #print (ll)
                 sline = ll.split()
                 if len(sline) > 2: 
@@ -322,7 +322,7 @@ class parse_log:
                 flag = 2
                 #print (ll)
 
-            if (flag == 2 and re.match("\s+TOTAL",ll)):
+            if (flag == 2 and re.match(r"\s+TOTAL",ll)):
                 #print (ll)
                 sline = ll.split()
                 if len(sline) > 4: 
@@ -337,7 +337,7 @@ class parse_log:
                 flag = 3
                 #print (ll)
 
-            if (flag == 3 and re.match("\s* TOTAL",ll) and not re.search('WALL', ll)):
+            if (flag == 3 and re.match(r"\s* TOTAL",ll) and not re.search('WALL', ll)):
                 #print (ll)
                 sline = ll.split()
                 if len(sline) > 4: 

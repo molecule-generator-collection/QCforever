@@ -105,7 +105,7 @@ class parse_log:
         TotalS = (InputSpinMulti-1) / 2
         Ideal_SS = TotalS * (TotalS+1)
         for line in lines:
-            if re.match("\s+<Sx>=", line):
+            if re.match(r"\s+<Sx>=", line):
                 line_computed_Spin = re.findall(r'[-+]?\d*\.\d+|\d+',line)
                 #line_computed_Spin = line.split()
                 Computed_SS = float(line_computed_Spin[-2])
@@ -341,7 +341,7 @@ class parse_log:
         print ("Get information about excited state")
         for line in lines:
             if line.find("SCF Done:  ") >=0:
-                line_SCFEnergy = re.split("\s+", line)
+                line_SCFEnergy = re.split(r"\s+", line)
                 Egrd = float(line_SCFEnergy[5])
             if line.find("Total Energy, E(TD-HF/TD-DFT)") >=0:
                 line_totalenergy = line.split('=')
@@ -536,12 +536,12 @@ class parse_log:
     
         for i in range(len(lines)):
             print(lines[i])
-            if re.search('\sGuess=Only', lines[i]):
+            if re.search(r'\sGuess=Only', lines[i]):
                 #print('SCF energy is not available')
-                if re.search('\sSymmetry', lines[i]):
+                if re.search(r'\sSymmetry', lines[i]):
                     symm = True
                     job_index['symm'] = i
-                if re.search('\svolume', lines[i]):
+                if re.search(r'\svolume', lines[i]):
                     is_volume = True
                     job_index['volume'] = i
             else:
@@ -551,13 +551,13 @@ class parse_log:
                     GScharge = charge[i]
                     GSspin = spinmulti[i]
                     #if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) == None:
-                    if re.search('\sTD', lines[i]) == None:
+                    if re.search(r'\sTD', lines[i]) == None:
                         is_opt = True
                         job_index['ts'] = i
                         job_index['state_0'] = i
-                    if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) and re.search('Singlet', lines[i]):
+                    if re.search(r'\sOpt', lines[i]) and re.search(r'\sTD', lines[i]) and re.search('Singlet', lines[i]):
                         is_fluor = True
-                        match_root = re.search('\s+root=\d+', lines[i])
+                        match_root = re.search(r'\s+root=\d+', lines[i])
                         if match_root:    
                             root_line = match_root.group().split('=')
                             target = root_line[1]
@@ -565,9 +565,9 @@ class parse_log:
                         job_index['ts'] = i
                         job_index['relaxAEstate'] = i
                         job_index[f'state_{target}'] = i
-                    if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) and re.search('Triplet', lines[i]):
+                    if re.search(r'\sOpt', lines[i]) and re.search(r'\sTD', lines[i]) and re.search('Triplet', lines[i]):
                         is_tadf = True
-                        match_root = re.search('\s+root=\d+', lines[i])
+                        match_root = re.search(r'\s+root=\d+', lines[i])
                         if match_root:    
                             root_line = match_root.group().split('=')
                             target = root_line[1]
@@ -575,9 +575,9 @@ class parse_log:
                         job_index['ts'] = i
                         job_index['relaxFEstate'] = i
                         job_index[f'state_{target}'] = i
-                    if re.search('\sOpt', lines[i]) and re.search('\sTD', lines[i]) and re.search('Singlet', lines[i]) == None and re.search('Triplet', lines[i]) == None: 
+                    if re.search(r'\sOpt', lines[i]) and re.search(r'\sTD', lines[i]) and re.search('Singlet', lines[i]) == None and re.search('Triplet', lines[i]) == None: 
                         is_fluor = True
-                        match_root = re.search('\s+root=', lines[i])
+                        match_root = re.search(r'\s+root=', lines[i])
                         if match_root:    
                             root_line = match_root.group().split('=')
                             target = root_line[1]
@@ -589,7 +589,7 @@ class parse_log:
                 if count > 1:
                     if charge[i] == GScharge + 1:
                         #print ('Ionization computation')
-                        if re.search('\sOpt', lines[i]):
+                        if re.search(r'\sOpt', lines[i]):
                             is_aip = True
                             job_index['PC_line'] = i
                             if i+1 <len(lines):
@@ -599,7 +599,7 @@ class parse_log:
                             job_index['IP_line'] = i
                     if charge[i] == GScharge - 1:
                         #print ('Electronic affinity computation')
-                        if re.search('\sOpt', lines[i]):
+                        if re.search(r'\sOpt', lines[i]):
                             is_aea = True
                             job_index['NC_line'] = i
                             if i+1 <len(lines):
@@ -607,17 +607,17 @@ class parse_log:
                         else:
                             is_vea = True
                             job_index['EA_line'] = i
-                if re.search('\spolar', lines[i]):
+                if re.search(r'\spolar', lines[i]):
                     is_polar = True
                     job_index['polar_line'] = i
-                if re.search('\sFreq', lines[i]):
+                if re.search(r'\sFreq', lines[i]):
                     is_freq = True
                     is_polar = True
                     job_index['freq_line'] = i
-                if re.search('\sNMR', lines[i]):
+                if re.search(r'\sNMR', lines[i]):
                     is_nmr = True
                     job_index['nmr_line'] = i
-                if re.search('\sTD', lines[i]) and re.search('\sOpt', lines[i]) == None:
+                if re.search(r'\sTD', lines[i]) and re.search(r'\sOpt', lines[i]) == None:
                     is_uv = True
                     job_index['uv_line'] = i
     
