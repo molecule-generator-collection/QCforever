@@ -1159,13 +1159,16 @@ class GaussianDFTRun:
                                                     optconfoption, self.nproc, self.mem)
             else:
                 print('Conformation search is only possible when the input file is sdf.')
+                reconf = False
                 pass
 
             try:
                 atm, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf("./optimized_structures.sdf")
+                reconf = True
             except Exception as e:
                 print('Conformation search is failed!')
                 print(e)
+                reconf = False
                 pass
 
         #When ktlc-blyp-bo is specified as a functionl, try to optimize mu prameter with BO
@@ -1474,6 +1477,9 @@ class GaussianDFTRun:
 
         if 'optspin' in option_dict:
             output_sum['spinmulti'] = ReSpinMulti
+
+        if 'optconf' in option_dict:
+            output_sum['optconf'] = reconf
 
         #If functional parameter is not default ones, add them to the output dictionary.
         if self.para_functional != []:
