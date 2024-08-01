@@ -9,6 +9,7 @@ import numpy as np
 
 from qcforever import gamess_run
 from qcforever.util import read_mol_file, check_resource
+from qcforever.laqa_fafoom import laqa_confopt_sdf
 
 
 byte2words = 1/8
@@ -315,13 +316,12 @@ class GamessDFTRun:
         jobname = PreGamInput[0]
         GamInputName = jobname +'.inp'    
         # File type of input?
-        ReadFromsdf = 0 
-        ReadFromxyz = 0 
+        ReadFrom = '' 
         if PreGamInput[1] == "sdf":
-            ReadFromsdf = 1 
+            ReadFrom = "sdf" 
             Mol_atom, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf(infilename)
         elif PreGamInput[1] == "xyz":
-            ReadFromxyz = 1
+            ReadFrom = "xyz" 
             Mol_atom, X, Y, Z, TotalCharge, SpinMulti = read_mol_file.read_xyz(infilename)
             Bondpair1 = []
             Bondpair2 = []
@@ -339,6 +339,13 @@ class GamessDFTRun:
             option = options[i]
             if option.lower() == 'opt':
                 option_dict['opt'] = True
+            elif 'optconf' in option.lower():
+                option_dict['optconf'] = True
+                if '=' in option:
+                    in_target = option.split('=')
+                    optconfoption = in_target[-1]
+                else:
+                    optconfoption = 'pm6'
             elif option.lower() == 'energy':
                 option_dict['energy'] = True
             elif option.lower() == 'homolumo':
@@ -374,6 +381,36 @@ class GamessDFTRun:
             else:
                 print('invalid option: ', option)
 
+        output_dic = {}
+        # Make work directory and move to the directory
+        if os.path.isdir(PreGamInput[0]):
+            shutil.rmtree(PreGamInput[0])
+        os.mkdir(PreGamInput[0])
+        #shutil.move(GamInputName, PreGamInput[0])
+        os.chdir(PreGamInput[0])
+
+        #Conformation search
+        if 'optconf' in option_dict:
+            print('Try to find stable conformation...')
+            if ReadFrom == 'sdf':
+                print('The input is a sdf file, OK...')
+                original_sdf = '../' + infilename
+                laqa_confopt_sdf.LAQA_confopt_main(original_sdf, TotalCharge, SpinMulti, 
+                                                    optconfoption, self.nproc, self.mem)
+            else:
+                print('Conformation search is only possible when the input file is sdf.')
+                reconf = False
+                pass
+
+            try:
+                Mol_atm, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf("./optimized_structures.sdf")
+                reconf = True
+            except Exception as e:
+                print('Conformation search is failed!')
+                print(e)
+                reconf = False
+                pass
+
 #setting for run type
         if 'opt' in  option_dict:
             run_type = 'OPTIMIZE'
@@ -381,13 +418,6 @@ class GamessDFTRun:
             run_type = 'ENERGY'
 
         self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, Mol_atom, X, Y, Z, TDDFT=False, datfile=None)
-
-        output_dic = {}
-        if os.path.isdir(PreGamInput[0]):
-            shutil.rmtree(PreGamInput[0])
-        os.mkdir(PreGamInput[0])
-        shutil.move(GamInputName, PreGamInput[0])
-        os.chdir(PreGamInput[0])
         job_state = gamess_run.Exe_Gamess.exe_Gamess(jobname, self.gamessversion, self.nproc)
 
 #for uv computation
@@ -484,15 +514,21 @@ class GamessDFTRun:
             self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=freqdatfile)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(ramanjobname, self.gamessversion, self.nproc)
 
-        try:
-            output_dic = self.Extract_values(jobname, option_dict)
-        except Exception as e: 
-            job_state = "error"
-            print(e)
-            pass
+        output_dic = self.Extract_values(jobname, option_dict)
+
+#        try:
+#            output_dic = self.Extract_values(jobname, option_dict)
+#        except Exception as e: 
+#            job_state = "error"
+#            print(e)
+#            pass
+
 
         if self.para_functional != []:
             output_dic['functional_param'] = self.para_functional
+
+        if 'optconf' in option_dict:
+            output_dic['optconf'] = reconf
 
         if 'log' not in output_dic:
             output_dic["log"] = job_state
