@@ -1112,7 +1112,6 @@ class GaussianDFTRun:
 
         job_state = ""
 
-
         # Setting the KTLC functionals
         functional_para_opt = False
         if self.functional == 'ktlc-blyp-bo' or  self.functional == 'ktlc-wpbe-bo' or self.functional == 'ktlc-whpbe-bo':
