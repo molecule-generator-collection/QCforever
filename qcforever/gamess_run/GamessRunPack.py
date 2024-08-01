@@ -514,14 +514,13 @@ class GamessDFTRun:
             self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=freqdatfile)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(ramanjobname, self.gamessversion, self.nproc)
 
-        output_dic = self.Extract_values(jobname, option_dict)
-
-#        try:
-#            output_dic = self.Extract_values(jobname, option_dict)
-#        except Exception as e: 
-#            job_state = "error"
-#            print(e)
-#            pass
+#        output_dic = self.Extract_values(jobname, option_dict)
+        try:
+            output_dic = self.Extract_values(jobname, option_dict)
+        except Exception as e: 
+            job_state = "error"
+            print(e)
+            pass
 
 
         if self.para_functional != []:
