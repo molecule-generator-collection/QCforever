@@ -209,7 +209,7 @@ class GamessDFTRun:
 #setting for functional
         lc_option = False
         functional = ''
-        if re.match('LC-', self.functional) or re.match('KTLC-', self.functional):
+        if re.match('LC-', self.functional):
             kind_functional = self.functional.split('-')
             functional = kind_functional[-1]
             lc_option = True
@@ -303,6 +303,140 @@ class GamessDFTRun:
                     line_input += ' $END\n'
 
             ofile.write(line_input)
+
+    def LC_para_BOopt(self, jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti):
+        
+        from bayes_opt import BayesianOptimization
+        from bayes_opt import UtilityFunction
+
+
+        def KTLC_BB(mu):
+            self.para_functional = [mu]
+
+            #Calculating the ground state
+            GamInputName = jobname +'.inp'
+            run_type = 'ENERGY'
+
+            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, Mol_atom, X, Y, Z, TDDFT=False, datfile=None)
+            job_state = gamess_run.Exe_Gamess.exe_Gamess(jobname, self.gamessversion, self.nproc)
+            ###########################
+
+            #vip computation
+            run_type = 'ENERGY'
+
+            GSdatfile = jobname + '.dat'
+            vipjobname = jobname + '_VIP'
+            GamInputName = vipjobname + '.inp'
+
+            IPTotalCharge = TotalCharge + 1
+        
+            if SpinMulti == 1:
+                IPSpinMulti = SpinMulti + 1
+            else:
+                IPSpinMulti = SpinMulti - 1
+
+            self.make_input(run_type, IPTotalCharge, IPSpinMulti, GamInputName, datfile=GSdatfile)
+            job_state = gamess_run.Exe_Gamess.exe_Gamess(vipjobname, self.gamessversion, self.nproc)
+            ###########################
+
+            #'vea' computation
+            run_type = 'ENERGY'
+
+            GSdatfile = jobname + '.dat'
+            veajobname = jobname + '_VEA'
+            GamInputName = veajobname + '.inp'
+
+            EATotalCharge = TotalCharge - 1
+        
+            if SpinMulti == 1:
+                EASpinMulti = SpinMulti + 1
+            else:
+                EASpinMulti = SpinMulti - 1
+
+            self.make_input(run_type, EATotalCharge, EASpinMulti, GamInputName, datfile=GSdatfile)
+            job_state = gamess_run.Exe_Gamess.exe_Gamess(veajobname, self.gamessversion, self.nproc)
+            ###########################
+
+            job_state = "normal"
+            option_dict_lcparacheck= {'energy': True, 'homolumo': True, 'vip': True, 'vea': True}
+            try:
+                outdic = self.Extract_values(jobname, option_dict_lcparacheck)
+            except Exception as e: 
+                job_state = "error"
+                print(e)
+                pass
+            ##For debug##########################
+            #outdic = self.Extract_values(jobname, option_dict_lcparacheck)
+            #print(outdic)
+            #####################################
+
+
+            square_diff_satkoopmans = -10
+            if job_state == "normal":
+                Delta_IP = outdic['vip'] + max(outdic['Alpha_MO'][0][-1],outdic['Beta_MO'][0][-1])*Eh2eV
+                Delta_EA = outdic['vea'] + min(outdic['Alpha_MO'][1][0],outdic['Beta_MO'][1][0])*Eh2eV
+
+                square_diff_satkoopmans = -Delta_IP**2 
+            else:
+                square_diff_satkoopmans = -10
+                pass
+            
+            return square_diff_satkoopmans
+
+        pbounds = {'mu': (0,1)}
+
+        optimizer = BayesianOptimization( 
+        f=KTLC_BB,
+        pbounds=pbounds,
+        verbose=1, 
+        random_state=1,
+        )
+
+        #initial mu values 
+        init_mu = [0.15, 0.35, 0.65]
+   
+        #initial try...
+        for i in range(len(init_mu)):
+            optimizer.set_bounds(new_bounds={"mu": (init_mu[i],init_mu[i])})
+            optimizer.maximize(
+                init_points=1,
+                n_iter=0,
+            )
+
+        diff_koopmans = np.sqrt(abs(optimizer.max['target']))
+        optimizer.set_bounds(new_bounds={"mu": (0,1)})
+
+        #Extra try...
+        if diff_koopmans <= 0.01:
+            print("Successful parameter optimization!")
+            pass
+        else:
+            i = 3 
+            acquisition_function = UtilityFunction(kind="ei", xi=1e-4)
+            while diff_koopmans > 0.01:
+                optimizer.maximize(
+                    init_points=0,
+                    n_iter=1,
+                    acquisition_function=acquisition_function,
+                )
+                i += 1
+                diff_koopmans = np.sqrt(abs(optimizer.max['target']))
+                if i > 51:
+                    break
+
+            if diff_koopmans > 0.01:
+                print("The prameter optimization failed!")
+            else:
+                print("Successful parameter optimization!")
+
+        for i, res in enumerate(optimizer.res):
+            print(f"Iteration {i}: {res}")
+
+        diff_koopmans = np.sqrt(abs(optimizer.max['target']))
+        print(f"Optimized mu is {optimizer.max['params']['mu']} with the difference {diff_koopmans}.")
+
+        return optimizer.max['params']['mu']
+
 
     def run_gamess(self):
         infilename = self.in_file
@@ -411,7 +545,17 @@ class GamessDFTRun:
                 reconf = False
                 pass
 
-#setting for run type
+#setting for KTLC-functional
+        if re.match('KTLC-', self.functional):
+            base_functional = self.functional.split('-')
+            self.functional = "LC-" + base_functional[1]
+            self.para_functional = [self.LC_para_BOopt(jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti)]
+            #try:
+            #    self.para_functional = [self.LC_para_BOopt(jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti)]
+            #except: 
+            #    self.para_functional = []
+
+#setting of run type for the ground state
         if 'opt' in  option_dict:
             run_type = 'OPTIMIZE'
         else:
@@ -530,7 +674,10 @@ class GamessDFTRun:
             output_dic['optconf'] = reconf
 
         if 'log' not in output_dic:
-            output_dic["log"] = job_state
+            if job_state == '':
+                output_dic["log"] = 'normal' 
+            else:
+                output_dic["log"] = job_state
 
         #Save as pickle
         if self.pklsave:

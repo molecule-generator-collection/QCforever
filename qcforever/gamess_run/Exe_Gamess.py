@@ -48,7 +48,7 @@ def exe_Gamess(jobname, gamessversion, nproc):
         f.write(GamessRes.stdout.decode('utf-8'))
 
     path_datfile = userscr+'/'+datfile
-    shutil.move(path_datfile, cwd)
+    shutil.move(path_datfile, os.path.join(cwd, datfile))
 
     return job_state 
 
