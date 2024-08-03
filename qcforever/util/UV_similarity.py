@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 
-from qcforever import gaussian_run
+#from qcforever import gaussian_run
 from qcforever import util
 
 
