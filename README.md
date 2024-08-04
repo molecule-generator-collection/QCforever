@@ -58,7 +58,7 @@ outdic = test.run_gaussian()
 
 - ***Functional*** is to specify the functional in the density functional theory (DFT).
 Currently supported functionals are the following: `BLYP`, `B3LYP`, `X3LYP`, `LC-BLYP`, `CAM-B3LYP`, 
-and [KTLC- series(`KTLC-BLYP-BO`, 'KTLC-wPBE-BO', and so on)](https://doi.org/10.1021/acs.jctc.3c00764).
+and [KTLC- series](https://doi.org/10.1021/acs.jctc.3c00764) (`KTLC-BLYP-BO`, 'KTLC-wPBE-BO', and so on).
 
 - ***basis_set*** is to specify the basis set.
   Current QCforever supports the following basis set:
