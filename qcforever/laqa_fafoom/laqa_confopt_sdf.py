@@ -54,8 +54,10 @@ def make_laqa_input(SMILES, SpinMulti, TotalCharge, method, nproc, mem):
         #Delete the final binary file name of 'g16'
         input_s += f'gauss_exedir  = "{Gaussian_exedir[:-4]}"\n'
         input_s += f'qcmethod = "{method}" \n'
-        input_s += f'nprocs = "{nproc}" \n'
-        input_s += f'memory = "{mem}" \n'
+        if nproc > 1:
+            input_s += f'nprocs = "{nproc}" \n'
+        if mem != '':
+            input_s += f'memory = "{mem}" \n'
 
     with open('laqa_setting.inp', 'w') as laqa_infile:
         
