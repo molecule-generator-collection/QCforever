@@ -1154,8 +1154,12 @@ class GaussianDFTRun:
             if ReadFrom == 'sdf':
                 print('The input is a sdf file, OK...')
                 original_sdf = '../' + infilename
-                laqa_confopt_sdf.LAQA_confopt_main(original_sdf, TotalCharge, SpinMulti, 
-                                                    optconfoption, self.nproc, self.mem)
+                try:
+                    laqa_confopt_sdf.LAQA_confopt_main(original_sdf, TotalCharge, SpinMulti, 
+                                                        optconfoption, self.nproc, self.mem)
+                except:
+                    reconf = False
+                    pass
             else:
                 print('Conformation search is only possible when the input file is sdf.')
                 reconf = False
