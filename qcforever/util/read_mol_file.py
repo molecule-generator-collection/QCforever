@@ -11,7 +11,7 @@ def read_sdf(infile):
     N = mols[0].GetNumAtoms()
     N_Bond = mols[0].GetNumBonds()
     N_radical = Descriptors.NumRadicalElectrons(mols[0])
-    Charge = Descriptors.NumRadicalElectrons(mols[0])
+    Charge = rdmolops.GetFormalCharge(mols[0])
 
     with open(infile, 'r') as ifile:
         count = 0
