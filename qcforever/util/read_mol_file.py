@@ -46,7 +46,9 @@ def read_sdf(infile):
                 a = line.split()  # not used
                 count += 1
                 continue
-            if 3 < count <= N+4:
+            if 3 < count <= N+3:
+                #print("Atom Coordinte")
+                #print(line)
                 i_atom = line.split()
                 if len(i_atom) != 0:
                     X.append(float(i_atom[0]))
@@ -55,7 +57,7 @@ def read_sdf(infile):
                     element_symbol.append(i_atom[3])
                 count += 1
                 continue
-            if N+4 < count <= N+N_Bond+3:
+            if N+3 < count <= N+N_Bond+3:
                 bond_info = line.split()
                 bond_info = line.split()
                 Bond_pair1.append(int(bond_info[0]))
@@ -86,17 +88,12 @@ def read_sdf(infile):
                 count +=1
         
     # Copy to array of numpy
-    Mol_atom = []
-    Mol_CartX = np.zeros(N)
-    Mol_CartY = np.zeros(N)
-    Mol_CartZ = np.zeros(N)
     CHG_atom = np.array(CHG_atom)
     CHG = np.array(CHG)
-    for j in range(N):
-        Mol_CartX[j] = X[j] 
-        Mol_CartY[j] = Y[j] 
-        Mol_CartZ[j] = Z[j] 
-        Mol_atom.append(element_symbol[j])
+    Mol_atom = element_symbol
+    Mol_CartX = np.array(X)
+    Mol_CartY = np.array(Y)
+    Mol_CartZ = np.array(Z)
 
     print('Reading the sdf file has finished')
     SpinMulti = N_radical + 1
