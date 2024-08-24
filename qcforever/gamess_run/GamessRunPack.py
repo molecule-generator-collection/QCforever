@@ -424,18 +424,20 @@ class GamessDFTRun:
                 if i > 51:
                     break
 
-            if diff_koopmans > 0.01:
-                print("The prameter optimization failed!")
-            else:
-                print("Successful parameter optimization!")
+        if diff_koopmans > 0.01:
+            print("The prameter optimization failed!")
+            print("The default parameter will be used!")
+            return []
+        else:
+            print("Successful parameter optimization!")
 
-        for i, res in enumerate(optimizer.res):
-            print(f"Iteration {i}: {res}")
+            for i, res in enumerate(optimizer.res):
+                print(f"Iteration {i}: {res}")
 
-        diff_koopmans = np.sqrt(abs(optimizer.max['target']))
-        print(f"Optimized mu is {optimizer.max['params']['mu']} with the difference {diff_koopmans}.")
+            diff_koopmans = np.sqrt(abs(optimizer.max['target']))
+            print(f"Optimized mu is {optimizer.max['params']['mu']} with the difference {diff_koopmans}.")
 
-        return optimizer.max['params']['mu']
+            return [optimizer.max['params']['mu']]
 
 
     def run_gamess(self):
@@ -554,7 +556,7 @@ class GamessDFTRun:
         if re.match('KTLC-', self.functional):
             base_functional = self.functional.split('-')
             self.functional = "LC-" + base_functional[1]
-            self.para_functional = [self.LC_para_BOopt(jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti)]
+            self.para_functional = self.LC_para_BOopt(jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti)
             #try:
             #    self.para_functional = [self.LC_para_BOopt(jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti)]
             #except: 
