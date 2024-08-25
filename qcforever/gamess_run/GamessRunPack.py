@@ -370,7 +370,6 @@ class GamessDFTRun:
             #print(outdic)
             #####################################
 
-
             square_diff_satkoopmans = -10
             if job_state == "normal":
                 Delta_IP = outdic['vip'] + max(outdic['Alpha_MO'][0][-1],outdic['Beta_MO'][0][-1])*Eh2eV
@@ -519,6 +518,8 @@ class GamessDFTRun:
 
         output_dic = {}
         # Make work directory and move to the directory
+        pwd = os.getcwd()
+        print(pwd)
         if os.path.isdir(PreGamInput[0]):
             shutil.rmtree(PreGamInput[0])
         os.mkdir(PreGamInput[0])
@@ -692,7 +693,7 @@ class GamessDFTRun:
             with open(result_dic, 'wb') as f:
                 pickle.dump(output_dic, f)
 
-        os.chdir("..")
+        os.chdir(pwd)
 
         return(output_dic)
             

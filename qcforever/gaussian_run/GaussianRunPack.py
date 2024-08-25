@@ -821,7 +821,7 @@ class GaussianDFTRun:
                 print(e)
                 pass
 
-            print (output_prop)
+            #print (output_prop)
 
             if job_state == "normal":
                 #mu_list.append(i)
@@ -1096,6 +1096,8 @@ class GaussianDFTRun:
                 print('Invalid option: ', option)
 
         # Make work directory and move to the directory
+        pwd = os.getcwd()
+        print(pwd)
         if os.path.isdir(JobName):
             shutil.rmtree(JobName)
         os.mkdir(JobName)
@@ -1522,7 +1524,7 @@ class GaussianDFTRun:
         if self.restart == False and scf_need == True:
             gaussian_run.Get_MolCoordinate_fchk.Get_fchklist2xyz()
 
-        os.chdir("..")
+        os.chdir(pwd)
 
         return(output_sum)
 
