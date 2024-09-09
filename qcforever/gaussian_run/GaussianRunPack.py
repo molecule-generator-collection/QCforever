@@ -1203,6 +1203,7 @@ class GaussianDFTRun:
                 JobNameState = JobName + f'_DeH'
             else:
                 JobNameState = JobName + f'_State{targetstate}_{SpinMulti}_{TotalCharge}'
+
             '''#For scanning the spin state of the target 
                 if 'optspin' in job_thisstate:
                     SpinMulti  = self.SpinMulti_scan(JobName=JobName, 
@@ -1458,9 +1459,11 @@ class GaussianDFTRun:
                     output_dic[i].update(output_prop)
                     output_dic[i][f'log_{i}'] = job_state
                 except Exception as e:
-                    job_state = "error"
                     print(e)
-                    pass
+                    job_state = "error"
+                    output_dic[i][f'log_{i}'] = job_state
+                    break
+                    #pass
             
                 # for pka computation
                 if 'pka' in job_thisstate:
