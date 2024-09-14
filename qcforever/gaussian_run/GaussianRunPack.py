@@ -1525,7 +1525,10 @@ class GaussianDFTRun:
 
         # Convert fchk to xyz 
         if self.restart == False and scf_need == True:
-            gaussian_run.Get_MolCoordinate_fchk.Get_fchklist2xyz()
+            try:
+                gaussian_run.Get_MolCoordinate_fchk.Get_fchklist2xyz()
+            except:
+                pass
 
         os.chdir(pwd)
 
