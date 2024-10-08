@@ -124,7 +124,7 @@ class GamessDFTRun:
             vip_scfstate = parse_viplog.Check_SCF()
             if vip_scfstate == True:
                 vip_E = parse_viplog.getEnergy()
-                output['vip'] = Eh2eV * (vip_E - output['energy'])
+                output['vip'] = [Eh2eV * (vip_E[0] - output['energy'][0]), vip_E[1]]
             else:
                 output['vip'] = ''
                 output['log'] = vip_scfstate
@@ -136,7 +136,7 @@ class GamessDFTRun:
             vea_scfstate = parse_vealog.Check_SCF()
             if vea_scfstate == True:
                 vea_E = parse_vealog.getEnergy()
-                output['vea'] = Eh2eV * (output['energy'] - vea_E)
+                output['vea'] = [Eh2eV * (output['energy'][0] - vea_E[0]), vea_E[1]]
             else:
                 output['vea'] = ''
                 output['log'] = vea_scfstate
@@ -148,7 +148,7 @@ class GamessDFTRun:
             aip_scfstate = parse_aiplog.Check_SCF()
             if aip_scfstate == True:
                 aip_E = parse_aiplog.getEnergy()
-                output['aip'] = Eh2eV * (aip_E - output['energy'])
+                output['aip'] = [Eh2eV * (aip_E[0] - output['energy'][0]), aip_E[1]]
             else:
                 output['vip'] = ''
                 output['log'] = aip_scfstate
@@ -160,7 +160,7 @@ class GamessDFTRun:
             aea_scfstate = parse_aealog.Check_SCF()
             if aea_scfstate == True:
                 aea_E = parse_aealog.getEnergy()
-                output['aea'] = Eh2eV * (output['energy'] - aea_E)
+                output['aea'] = [Eh2eV * (output['energy'][0] - aea_E[0]), aea_E[1]]
             else:
                 output['aea'] = ''
                 output['log'] = vea_scfstate
@@ -175,10 +175,10 @@ class GamessDFTRun:
                 output['freq'], output['IR'], output['Raman'] = parse_freqlog.getFreq(ff[0])
                 tt = parse_freqlog.getBlock("THERMOCHEMISTRY AT ")
                 E_0, U, H, G, Cv, Cp, S =  parse_freqlog.getThermo(tt[0])
-                output['Ezp'] = output['energy'] + E_0[0]
-                output['Et'] = output['energy'] + U[1]*kcalmol2Eh
-                output['E_enth'] = output['energy'] + H[1]*kcalmol2Eh
-                output['E_free'] = output['energy'] + G[1]*kcalmol2Eh
+                output['Ezp'] = output['energy'][0] + E_0[0]
+                output['Et'] = output['energy'][0] + U[1]*kcalmol2Eh
+                output['E_enth'] = output['energy'][0] + H[1]*kcalmol2Eh
+                output['E_free'] = output['energy'][0] + G[1]*kcalmol2Eh
                 output['Ei'] = U[1]
                 output['Cv'] = Cv[1]
                 output['Cp'] = Cp[1]

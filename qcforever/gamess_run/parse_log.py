@@ -59,7 +59,50 @@ class parse_log:
                 sline = ll.split()
                 energy.append(sline[-4])
 
-        return float(energy[-1])
+        try:
+            Comp_SS, Ideal_SS = self.Estimate_SpinDiff(self)
+        except:
+            Comp_SS, Ideal_SS = 0.0, 0.0
+
+        Energy_spin = [float(energy[-1]), Comp_SS-Ideal_SS]
+
+        #return float(energy[-1])
+        return Energy_spin
+
+    def extract_inputChargeSpin(self):
+        charge = 0
+        spinmulti  = 1
+
+        for ii in range(len(self.lines)):
+            ll = self.lines[ii]
+            if(re.search("CHARGE OF MOLECULE",ll)):
+                csline = ll.split()
+                charge = float(csline[-1])
+            if(re.search("SPIN MULTIPLICITY", ll)):
+                msline = ll.split()
+                spinmulti = float(msline[-1])
+
+        return charge, spinmulti
+
+    def Estimate_SpinDiff(self):
+
+        SpinSqu = []
+
+        InputCharge, InputSpinMulti = self.extract_inputChargeSpin()
+
+        for ii in range(len(self.lines)):
+            ll = self.lines[ii]
+            if(re.search(r"^[\s]*S-SQUARED", ll)):
+                #print(ll)
+                sline = ll.split()
+                SpinSqu.append(sline[-1])
+
+        Computed_SS = float(SpinSqu[-1]) 
+
+        TotalS = (InputSpinMulti-1) / 2
+        Ideal_SS = TotalS * (TotalS+1)
+
+        return Computed_SS, Ideal_SS
 
     def getTDDFT(self):
 
@@ -372,10 +415,14 @@ if __name__ == '__main__':
 
     print(parselog.getEnergy())
 
+    print(parselog.Estimate_SpinDiff())
+
+
     Wavel, OS = parselog.getTDDFT()
 
     print ("Wave length:", Wavel)
     print ("OS:", OS)
+    
 
     Element, MullCharge, Spin = parselog.getChargeSpin()
 
