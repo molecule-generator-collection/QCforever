@@ -59,10 +59,7 @@ class parse_log:
                 sline = ll.split()
                 energy.append(sline[-4])
 
-        try:
-            Comp_SS, Ideal_SS = self.Estimate_SpinDiff(self)
-        except:
-            Comp_SS, Ideal_SS = 0.0, 0.0
+        Comp_SS, Ideal_SS = self.Estimate_SpinDiff()
 
         Energy_spin = [float(energy[-1]), Comp_SS-Ideal_SS]
 
@@ -76,9 +73,11 @@ class parse_log:
         for ii in range(len(self.lines)):
             ll = self.lines[ii]
             if(re.search("CHARGE OF MOLECULE",ll)):
+                #print(ll)
                 csline = ll.split()
                 charge = float(csline[-1])
             if(re.search("SPIN MULTIPLICITY", ll)):
+                #print(ll)
                 msline = ll.split()
                 spinmulti = float(msline[-1])
 
@@ -415,7 +414,7 @@ if __name__ == '__main__':
 
     print(parselog.getEnergy())
 
-    print(parselog.Estimate_SpinDiff())
+#    print(parselog.Estimate_SpinDiff())
 
 
     Wavel, OS = parselog.getTDDFT()
