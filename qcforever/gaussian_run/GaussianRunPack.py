@@ -1517,6 +1517,13 @@ class GaussianDFTRun:
                 else:
                     output_sum['log'] = 'normal'
 
+        if output_sum['log'] == 'normal' and 'fluor' in option_dict and 'opt' in option_dict and 'energy' in option_dict:
+            print(output_sum['MinEtarget'])
+            print(output_sum['Energy'][0])
+            output_sum['E0-0'] = Eh2eV*(output_sum['MinEtarget']-output_sum['Energy'][0])
+        else:
+            pass
+
         #Save as pickle
         if self.pklsave:
             result_dic = JobName+".pkl"
