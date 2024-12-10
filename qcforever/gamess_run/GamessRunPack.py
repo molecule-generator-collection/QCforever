@@ -20,12 +20,21 @@ kcalmol2Eh = 1.593601E-3
 
 class GamessDFTRun:
 
-    def __init__(self, functional, basis, nproc, value, in_file, error=0, pklsave=False):
+    def __init__(self, 
+                functional, 
+                basis, 
+                nproc, 
+                value, 
+                in_file, 
+                solvent="0",
+                error=0, 
+                pklsave=False):
         self.in_file = in_file
         self.functional = functional
         self.basis = basis
         self.nproc = check_resource.respec_cores(nproc)
         self.value = value
+        self.solvent = solvent.upper()
         self.error = error
         self.pklsave = pklsave
         self.gamessversion = '00'
@@ -194,11 +203,26 @@ class GamessDFTRun:
 
         return output
 
+    def MakeSolventLine(self):
+        s = ''
+        try:
+            float(self.solvent)
+        except ValueError:
+            print('Solvent effect is included by PCM')
+            s += f'$PCM SOLVNT={self.solvent} $END\n'
+        else:
+            if self.solvent == '0':
+                return s, s_solvent
+            else:
+                print('Solvent effect is included by PCM')
+                s += f'$PCM RSOLV=1.38 EPS={self.solvent} $END\n'
+        return s
+
     def make_input(
         self, run_type, 
         TotalCharge, SpinMulti, 
         GamInputName, Mol_atom=[], X=[], Y=[], Z=[], 
-        TDDFT=False, target=[1, 1], datfile=None):
+        TDDFT=False, target=[1, 1], datfile=None, solvent='0'):
         #target[0]=target state index, target[1]=spin multiplicity of the target state
 #setting for memory
         if self.mem == '':
@@ -240,6 +264,11 @@ class GamessDFTRun:
         else:
             scftype = "UHF"
 
+        CPCM = ''
+        if solvent != '0':
+            self.solvent = solvent
+            CPCM = self.MakeSolventLine()
+
 #make input
         with open(GamInputName ,'w') as ofile:
             line_input = f' $CONTRL SCFTYP={scftype} RUNTYP={run_type} DFTTYP={functional}'
@@ -263,6 +292,7 @@ class GamessDFTRun:
                 else:
                     pass
                 line_input += f' $END\n'
+            line_input += CPCM # for solvent effect line
             line_input += ' $SCF damp=.TRUE.'
             if run_type == 'HESSIAN' or run_type == 'RAMAN':
                 line_input += ' DIRSCF=.TRUE. $END\n'
