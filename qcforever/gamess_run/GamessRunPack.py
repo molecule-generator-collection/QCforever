@@ -209,13 +209,13 @@ class GamessDFTRun:
             float(self.solvent)
         except ValueError:
             print('Solvent effect is included by PCM')
-            s += f'$PCM SOLVNT={self.solvent} $END\n'
+            s += f' $PCM SOLVNT={self.solvent} $END\n'
         else:
             if self.solvent == '0':
                 return s, s_solvent
             else:
                 print('Solvent effect is included by PCM')
-                s += f'$PCM RSOLV=1.38 EPS={self.solvent} $END\n'
+                s += f' $PCM RSOLV=1.38 EPS={self.solvent} $END\n'
         return s
 
     def make_input(
@@ -347,7 +347,7 @@ class GamessDFTRun:
             GamInputName = jobname +'.inp'
             run_type = 'ENERGY'
 
-            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, Mol_atom, X, Y, Z, TDDFT=False, datfile=None)
+            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, Mol_atom, X, Y, Z, TDDFT=False, datfile=None, solvent=self.solvent)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(jobname, self.gamessversion, self.nproc)
             ###########################
 
@@ -365,7 +365,7 @@ class GamessDFTRun:
             else:
                 IPSpinMulti = SpinMulti - 1
 
-            self.make_input(run_type, IPTotalCharge, IPSpinMulti, GamInputName, datfile=GSdatfile)
+            self.make_input(run_type, IPTotalCharge, IPSpinMulti, GamInputName, datfile=GSdatfile, solvent=self.solvent)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(vipjobname, self.gamessversion, self.nproc)
             ###########################
 
@@ -383,7 +383,7 @@ class GamessDFTRun:
             else:
                 EASpinMulti = SpinMulti - 1
 
-            self.make_input(run_type, EATotalCharge, EASpinMulti, GamInputName, datfile=GSdatfile)
+            self.make_input(run_type, EATotalCharge, EASpinMulti, GamInputName, datfile=GSdatfile, solvent=self.solvent)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(veajobname, self.gamessversion, self.nproc)
             ###########################
 
@@ -402,8 +402,8 @@ class GamessDFTRun:
 
             square_diff_satkoopmans = -10
             if job_state == "normal":
-                Delta_IP = outdic['vip'] + max(outdic['Alpha_MO'][0][-1],outdic['Beta_MO'][0][-1])*Eh2eV
-                Delta_EA = outdic['vea'] + min(outdic['Alpha_MO'][1][0],outdic['Beta_MO'][1][0])*Eh2eV
+                Delta_IP = outdic['vip'][0] + max(outdic['Alpha_MO'][0][-1],outdic['Beta_MO'][0][-1])*Eh2eV
+                Delta_EA = outdic['vea'][0] + min(outdic['Alpha_MO'][1][0],outdic['Beta_MO'][1][0])*Eh2eV
 
                 square_diff_satkoopmans = -Delta_IP**2 
             else:
@@ -599,7 +599,7 @@ class GamessDFTRun:
         else:
             run_type = 'ENERGY'
 
-        self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, Mol_atom, X, Y, Z, TDDFT=False, datfile=None)
+        self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, Mol_atom, X, Y, Z, TDDFT=False, datfile=None, solvent=self.solvent)
         job_state = gamess_run.Exe_Gamess.exe_Gamess(jobname, self.gamessversion, self.nproc)
 
 #for uv computation
@@ -610,7 +610,7 @@ class GamessDFTRun:
             exjobname = jobname + '_TD'
             GamInputName = exjobname +'.inp'    
 
-            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, TDDFT=True, datfile=GSdatfile)
+            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, TDDFT=True, datfile=GSdatfile, solvent=self.solvent)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(exjobname, self.gamessversion, self.nproc)
 
         if 'fluor' in  option_dict:
@@ -620,7 +620,7 @@ class GamessDFTRun:
             exoptjobname = jobname + '_TDopt'
             GamInputName = exoptjobname +'.inp'    
 
-            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, TDDFT=True, target=[targetstate, SpinMulti], datfile=GSdatfile)
+            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, TDDFT=True, target=[targetstate, SpinMulti], datfile=GSdatfile, solvent=self.solvent)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(exoptjobname, self.gamessversion, self.nproc)
 
         if 'vip' in option_dict:
@@ -637,7 +637,7 @@ class GamessDFTRun:
             else:
                 IPSpinMulti = SpinMulti - 1
 
-            self.make_input(run_type, IPTotalCharge, IPSpinMulti, GamInputName, datfile=GSdatfile)
+            self.make_input(run_type, IPTotalCharge, IPSpinMulti, GamInputName, datfile=GSdatfile, solvent=self.solvent)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(vipjobname, self.gamessversion, self.nproc)
 
         if 'vea' in option_dict:
@@ -654,7 +654,7 @@ class GamessDFTRun:
             else:
                 EASpinMulti = SpinMulti - 1
 
-            self.make_input(run_type, EATotalCharge, EASpinMulti, GamInputName, datfile=GSdatfile)
+            self.make_input(run_type, EATotalCharge, EASpinMulti, GamInputName, datfile=GSdatfile, solvent=self.solvent)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(veajobname, self.gamessversion, self.nproc)
 
         if 'aip' in option_dict:
@@ -664,7 +664,7 @@ class GamessDFTRun:
             aipjobname = jobname + '_AIP'
             GamInputName = aipjobname + '.inp'
 
-            self.make_input(run_type, IPTotalCharge, IPSpinMulti, GamInputName, datfile=VIPdatfile)
+            self.make_input(run_type, IPTotalCharge, IPSpinMulti, GamInputName, datfile=VIPdatfile, solvent=self.solvent)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(aipjobname, self.gamessversion, self.nproc)
 
         if 'aea' in option_dict:
@@ -674,7 +674,7 @@ class GamessDFTRun:
             aeajobname = jobname + '_AEA'
             GamInputName = aeajobname + '.inp'
 
-            self.make_input(run_type, EATotalCharge, EASpinMulti, GamInputName, datfile=VEAdatfile)
+            self.make_input(run_type, EATotalCharge, EASpinMulti, GamInputName, datfile=VEAdatfile, solvent=self.solvent)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(aeajobname, self.gamessversion, self.nproc)
 
         if 'freq' in  option_dict:
@@ -684,7 +684,7 @@ class GamessDFTRun:
             freqjobname = jobname + '_freq'
             GamInputName = freqjobname +'.inp'    
 
-            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=GSdatfile)
+            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=GSdatfile, solvent=self.solvent)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(freqjobname, self.gamessversion, self.nproc)
 
             run_type= 'RAMAN'
@@ -693,7 +693,7 @@ class GamessDFTRun:
             ramanjobname = jobname + '_raman'
             GamInputName = ramanjobname + '.inp'
 
-            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=freqdatfile)
+            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=freqdatfile, solvent=self.solvent)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(ramanjobname, self.gamessversion, self.nproc)
 
 #        output_dic = self.Extract_values(jobname, option_dict)
