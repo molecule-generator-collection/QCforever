@@ -64,7 +64,7 @@ class xTBObject():
             OSError: if xtbin.mol not present in the working directory
         """
         #for defining OMP_STACKSIZE
-        os.environ["OMP_STACKSIZE"] = "5GB"
+        os.environ["OMP_STACKSIZE"] = "5G"
 
         success = False
         if os.path.exists('xtbin.xyz') is False:
