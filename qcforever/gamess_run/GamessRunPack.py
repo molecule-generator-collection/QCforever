@@ -261,6 +261,8 @@ class GamessDFTRun:
 
         if TDDFT and run_type=='OPTIMIZE' and target[1]==1:
             scftype = "RHF"
+        elif TDDFT and solvent != '0':
+            scftype = "RHF"
         else:
             scftype = "UHF"
 
@@ -292,6 +294,7 @@ class GamessDFTRun:
                 else:
                     pass
                 line_input += f' $END\n'
+            # Solvent effect cannot be combined with the analytical vibrational analsysis
             line_input += CPCM # for solvent effect line
             line_input += ' $SCF damp=.TRUE.'
             if run_type == 'HESSIAN' or run_type == 'RAMAN':
@@ -591,11 +594,11 @@ class GamessDFTRun:
         if re.match('KTLC-', self.functional):
             base_functional = self.functional.split('-')
             self.functional = "LC-" + base_functional[1]
-            self.para_functional = self.LC_para_BOopt(jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti)
-            #try:
-            #    self.para_functional = [self.LC_para_BOopt(jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti)]
-            #except: 
-            #    self.para_functional = []
+            #self.para_functional = self.LC_para_BOopt(jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti)
+            try:
+                self.para_functional = self.LC_para_BOopt(jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti)
+            except: 
+                self.para_functional = []
 
 #setting of run type for the ground state
         if 'opt' in  option_dict:
@@ -688,7 +691,8 @@ class GamessDFTRun:
             freqjobname = jobname + '_freq'
             GamInputName = freqjobname +'.inp'    
 
-            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=GSdatfile, solvent=self.solvent)
+            #self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=GSdatfile, solvent=self.solvent)
+            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=GSdatfile, solvent='0')
             job_state = gamess_run.Exe_Gamess.exe_Gamess(freqjobname, self.gamessversion, self.nproc)
 
             run_type= 'RAMAN'
@@ -697,7 +701,8 @@ class GamessDFTRun:
             ramanjobname = jobname + '_raman'
             GamInputName = ramanjobname + '.inp'
 
-            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=freqdatfile, solvent=self.solvent)
+            #self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=freqdatfile, solvent=self.solvent)
+            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=freqdatfile, solvent='0')
             job_state = gamess_run.Exe_Gamess.exe_Gamess(ramanjobname, self.gamessversion, self.nproc)
 
 #        output_dic = self.Extract_values(jobname, option_dict)

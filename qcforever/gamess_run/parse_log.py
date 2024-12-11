@@ -95,6 +95,8 @@ class parse_log:
                 #print(ll)
                 sline = ll.split()
                 SpinSqu.append(sline[-1])
+            else:
+                SpinSqu.append(0.0)
 
         Computed_SS = float(SpinSqu[-1]) 
 
