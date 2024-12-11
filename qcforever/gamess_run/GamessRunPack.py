@@ -339,9 +339,13 @@ class GamessDFTRun:
         from bayes_opt import BayesianOptimization
         from bayes_opt import UtilityFunction
 
-
         def KTLC_BB(mu):
-            self.para_functional = [mu]
+
+            print("mu parameter:", mu)
+            if mu == 0.:
+                self.para_functional = []
+            else:
+                self.para_functional = [mu]
 
             #Calculating the ground state
             GamInputName = jobname +'.inp'
