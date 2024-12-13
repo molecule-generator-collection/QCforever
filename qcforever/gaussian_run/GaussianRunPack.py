@@ -635,7 +635,7 @@ class GaussianDFTRun:
                                     geom_spec=Is_geom_spec, solvent=self.solvent) 
                 else:
                     self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
-                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate, optoption=optpotion, 
+                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate, optoption=optoption, 
                                     Newinput=True, 
                                     Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
                                     geom_spec=Is_geom_spec, solvent=self.solvent) 
@@ -940,12 +940,16 @@ class GaussianDFTRun:
         # Setting options
         for i in range(len(options)):
             option = options[i]
-            if option.lower() == 'opt':
+            if re.match(r'^opt(?:=|$)',  option.lower()):
+            #if 'optgeom' in option.lower():
                 option_dict['opt'] = True
                 job_eachState[0]['opt'] = True
                 if '=' in option:
                     in_target = option.split('=')
                     optoption = in_target[-1]
+                    print(f'Use {optoption} for geometry optimization in the ground state.')
+                else:
+                    optoption = ''
             elif 'optconf' in option.lower():
                 option_dict['optconf'] = True
                 if '=' in option:
@@ -1438,9 +1442,14 @@ class GaussianDFTRun:
             if ('stable' not in option_dict) or AttmptStable:
                 check_logfile = JobName+'.log'
                 scf_need = self.check_scf_need(job_thisstate)
+                #self.chain_job(JobNameState, scf_need, job_thisstate, TotalCharge, SpinMulti, 
+                #                    targetstate, ReadFrom, 
+                #                    element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=TDstate_info)
+
                 self.chain_job(JobNameState, scf_need, job_thisstate, TotalCharge, SpinMulti, 
                                     targetstate, ReadFrom, 
-                                    element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=TDstate_info)
+                                    element=atm, atomX=X, atomY=Y, atomZ=Z, optoption=optoption, TDstate_info=TDstate_info)
+
             
                 job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe)
                 print (job_state)
