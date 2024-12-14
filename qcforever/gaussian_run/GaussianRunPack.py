@@ -923,6 +923,7 @@ class GaussianDFTRun:
             ReadFrom = 'chk' 
         else:
             print("Invalid input file")
+            exit()
 
         # Specify the electronic structure (spin multiplicity and charge) of the target state
         Is_ChargeSpec = False
@@ -938,6 +939,7 @@ class GaussianDFTRun:
         TargetSpinMulti.append(SpinMulti)
 
         # Setting options
+        optoption = ''
         for i in range(len(options)):
             option = options[i]
             if re.match(r'^opt(?:=|$)',  option.lower()):
@@ -1442,9 +1444,6 @@ class GaussianDFTRun:
             if ('stable' not in option_dict) or AttmptStable:
                 check_logfile = JobName+'.log'
                 scf_need = self.check_scf_need(job_thisstate)
-                #self.chain_job(JobNameState, scf_need, job_thisstate, TotalCharge, SpinMulti, 
-                #                    targetstate, ReadFrom, 
-                #                    element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=TDstate_info)
 
                 self.chain_job(JobNameState, scf_need, job_thisstate, TotalCharge, SpinMulti, 
                                     targetstate, ReadFrom, 

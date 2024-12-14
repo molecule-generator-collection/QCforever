@@ -109,7 +109,7 @@ class GamessDFTRun:
             dval = parselog.getDipoleMoment(dd[-1])
             output['dipole'] = dval
 
-        if is_dipole_specified:
+        if is_cden_specified:
             output['cden'] = parselog.getChargeSpin()
 
         if is_uv_specified:
@@ -273,7 +273,7 @@ class GamessDFTRun:
 
 #make input
         with open(GamInputName ,'w') as ofile:
-            line_input = f' $CONTRL SCFTYP={scftype} RUNTYP={run_type} DFTTYP={functional}'
+            line_input = f' $CONTRL SCFTYP={scftype} RUNTYP={run_type} DFTTYP={functional} MAXIT=100'
             if TDDFT == True:
                 line_input += ' TDDFT=EXCITE \n' 
             elif TDDFT == 'SPNFLP':
@@ -499,6 +499,7 @@ class GamessDFTRun:
             Bondpair2 = []
         else:
             print("Invalid input file")
+            exit()
 
         # Setting electronic structure
         if np.isnan(self.SpecTotalCharge) !=  True:
@@ -712,7 +713,6 @@ class GamessDFTRun:
             job_state = "error"
             print(e)
             pass
-
 
         if self.para_functional != []:
             output_dic['functional_param'] = self.para_functional
