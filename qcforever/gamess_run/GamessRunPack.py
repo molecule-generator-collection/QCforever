@@ -105,7 +105,10 @@ class GamessDFTRun:
             output['Beta_MO'] = [beta_values[:num_occu_beta],alpha_values[num_occu_beta:]]
 
         if is_dipole_specified:
-            dd = parselog.getBlock("ELECTROSTATIC MOMENTS")    
+            if self.solvent == '0':
+                dd = parselog.getBlock("ELECTROSTATIC MOMENTS")    
+            else:
+                dd = parselog.getBlock("SYSTEM ELECTROSTATIC MOMENTS")    
             dval = parselog.getDipoleMoment(dd[-1])
             output['dipole'] = dval
 

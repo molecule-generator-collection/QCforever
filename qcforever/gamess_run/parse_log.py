@@ -302,8 +302,8 @@ class parse_log:
                     if(ipt[pp] == r"/D/"):#/D/
                         ret =float(vpt[pp])
             ii += 1
-#    if(ret == None):
-#        raise Exception("??? data pasing error?"+"\n".join(block));
+        #if(ret == None):
+        #    raise Exception("??? data pasing error?"+"\n".join(block));
     
         return ret
 
@@ -438,6 +438,8 @@ if __name__ == '__main__':
     #alpha_values, beta_values = getMO_set(bb[-1])
     alpha_gap, beta_gap = parselog.gethomolumogap(alpha_values, beta_values, num_occu_alpha, num_occu_beta)
     dd = parselog.getBlock("ELECTROSTATIC MOMENTS")    
+    #dd = parselog.getBlock("SYSTEM ELECTROSTATIC MOMENTS")    
+    print(dd)
     dval = parselog.getDipoleMoment(dd[-1])
     #print("HOMO:\t"+str(hval[0]))
     #print("LUMO:\t"+str(hval[1]))
