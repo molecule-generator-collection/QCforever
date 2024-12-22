@@ -10,7 +10,8 @@ import numpy as np
 
 from qcforever import gaussian_run
 from qcforever.util import read_mol_file, check_resource, UV_similarity
-from qcforever.laqa_fafoom import laqa_confopt_sdf
+#from qcforever.laqa_fafoom import laqa_confopt_sdf
+from qcforever.laqa_fafoom import laqa_confopt_QCforever
 
 
 Eh2kJmol = 2625.5
@@ -1161,17 +1162,19 @@ class GaussianDFTRun:
         #Conformation search
         if 'optconf' in option_dict:
             print('Try to find stable conformation...')
-            if ReadFrom == 'sdf':
-                print('The input is a sdf file, OK...')
-                original_sdf = '../' + infilename
+            if ReadFrom == 'sdf' or ReadFrom == 'xyz':
+                print('The input is ready for the conformation search...')
+                #original_sdf = '../' + infilename
+                original_file = '../' + infilename
                 try:
-                    laqa_confopt_sdf.LAQA_confopt_main(original_sdf, TotalCharge, SpinMulti, 
+                    #laqa_confopt_sdf.LAQA_confopt_main(original_sdf, TotalCharge, SpinMulti, 
+                    laqa_confopt_QCforever.LAQA_confopt_main(original_file, TotalCharge, SpinMulti, 
                                                         optconfoption, self.nproc, self.mem)
                 except:
                     reconf = False
                     pass
             else:
-                print('Conformation search is only possible when the input file is sdf.')
+                print('Conformation search is only possible when the input file is sdf or xyz.')
                 reconf = False
                 pass
 

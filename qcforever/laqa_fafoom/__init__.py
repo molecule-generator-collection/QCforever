@@ -1,4 +1,5 @@
 from . import (
+    laqa_confopt_QCforever,
     laqa_confopt_sdf,
     initgeom,
     laqa_optgeom,
