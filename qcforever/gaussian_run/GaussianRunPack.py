@@ -452,7 +452,10 @@ class GaussianDFTRun:
             
             if run_type == 'opt':
                 if TDDFT:
-                    input_s += 'Opt=(Maxcycles=60)\n'
+                    if optoption == '':
+                        input_s += 'Opt=( Maxcycles=100)\n'
+                    else:
+                        input_s += f'Opt=({optoption}, MaxCycles=100)\n'
                 else:
                     if optoption == '':
                         input_s += 'Opt=(MaxCycles=100)\n'
@@ -601,7 +604,7 @@ class GaussianDFTRun:
                                         run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate, 
                                         Newinput=True, geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
                     else:
-                        self.make_input(JobName, TotalCharge, SpinMulti, 
+                        self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
                                         run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate, 
                                         optoption=optoption, 
                                         Newinput=True, geom_spec=Is_geom_spec, readchk='all', solvent=self.solvent) 
