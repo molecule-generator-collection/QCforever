@@ -48,9 +48,19 @@ class parse_log:
         text = '\n'.join(lines)
         pattern_block = r"Standard orientation:(?:\s+(-+\n\s+Center\s+Atomic\s+Atomic\s+Coordinates \(Angstroms\)\n\s+Number\s+Number\s+Type\s+X\s+Y\s+Z\n\s+(-+\n\s+\d+\s+\d+\s+\d+\s+[-.\d\s]+\n)+)(?=\s+-+\n))"
         Coord_blocks = re.findall(pattern_block, text)
-        #print(Coord_blocks)
+        try:
+            Coord_blocks
+        except:
+            pattern_block = r"Input orientation:(?:\s+(-+\n\s+Center\s+Atomic\s+Atomic\s+Coordinates \(Angstroms\)\n\s+Number\s+Number\s+Type\s+X\s+Y\s+Z\n\s+(-+\n\s+\d+\s+\d+\s+\d+\s+[-.\d\s]+\n)+)(?=\s+-+\n))"
+            Coord_blocks = re.findall(pattern_block, text)
 
-        print ('Atom coordinates are found.')
+        try:
+            Coord_blocks
+            print ('Atom coordinates are found.')
+        except:
+            print ('Atom coordinates are not found!')
+            exit()
+
         for block in Coord_blocks:
             #CentNum = []
             #atomicNum = []
