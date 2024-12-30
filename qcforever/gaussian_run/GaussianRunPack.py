@@ -453,9 +453,9 @@ class GaussianDFTRun:
             if run_type == 'opt':
                 if TDDFT:
                     if optoption == '':
-                        input_s += 'Opt=( Maxcycles=100)\n'
+                        input_s += 'Opt=(Maxcycles=100) NoSymm\n'
                     else:
-                        input_s += f'Opt=({optoption}, MaxCycles=100)\n'
+                        input_s += f'Opt=({optoption}, MaxCycles=100) NoSymm\n'
                 else:
                     if optoption == '':
                         input_s += 'Opt=(MaxCycles=100)\n'

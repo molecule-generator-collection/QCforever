@@ -46,18 +46,15 @@ class parse_log:
 
     def extract_MolCoordlog(self, lines):
         text = '\n'.join(lines)
-        pattern_block = r"Standard orientation:(?:\s+(-+\n\s+Center\s+Atomic\s+Atomic\s+Coordinates \(Angstroms\)\n\s+Number\s+Number\s+Type\s+X\s+Y\s+Z\n\s+(-+\n\s+\d+\s+\d+\s+\d+\s+[-.\d\s]+\n)+)(?=\s+-+\n))"
-        Coord_blocks = re.findall(pattern_block, text)
-        try:
-            Coord_blocks
-        except:
+        if re.search(r"Standard orientation:", text):
+            pattern_block = r"Standard orientation:(?:\s+(-+\n\s+Center\s+Atomic\s+Atomic\s+Coordinates \(Angstroms\)\n\s+Number\s+Number\s+Type\s+X\s+Y\s+Z\n\s+(-+\n\s+\d+\s+\d+\s+\d+\s+[-.\d\s]+\n)+)(?=\s+-+\n))"
+            Coord_blocks = re.findall(pattern_block, text)
+            print ('Standard orientation is used!')
+        elif re.search(r"Input orientation:", text):
             pattern_block = r"Input orientation:(?:\s+(-+\n\s+Center\s+Atomic\s+Atomic\s+Coordinates \(Angstroms\)\n\s+Number\s+Number\s+Type\s+X\s+Y\s+Z\n\s+(-+\n\s+\d+\s+\d+\s+\d+\s+[-.\d\s]+\n)+)(?=\s+-+\n))"
             Coord_blocks = re.findall(pattern_block, text)
-
-        try:
-            Coord_blocks
-            print ('Atom coordinates are found.')
-        except:
+            print ('Input orientation is used!')
+        else:
             print ('Atom coordinates are not found!')
             exit()
 
