@@ -864,7 +864,9 @@ class GaussianDFTRun:
         else:
             i = 3 
             acquisition_function = UtilityFunction(kind="ei", xi=1e-4)
+            rough_convergence = False  # Rough convergence flag: mu did not change beyond 4 decimal places
             while diff_koopmans > 0.01:
+                last_mu_rounded = round(optimizer.max['params']['mu'], 4)  # Round to 4 decimal places
                 optimizer.maximize(
                     init_points=0,
                     n_iter=1,
@@ -875,19 +877,28 @@ class GaussianDFTRun:
                 if i > 51:
                     break
 
+                current_mu = optimizer.max['params']['mu']
+                if last_mu_rounded == round(current_mu, 4):  # Compare rounded values
+                    rough_convergence = True
+                    print(f"Rough convergence detected at iteration {i}: mu = {current_mu}.")
+                    break
+
+            if rough_convergence:
+                print(f"Optimization stopped due to rough convergence (mu did not change beyond 4 decimal places).")
+            else:
+                print("Optimization did not converge in the allowed iterations.")
+
         if diff_koopmans > 0.01:
-            print("The prameter optimization failed!")
+            print("The parameter optimization failed!")
             print("The default parameter will be used!")
             return []
         else:
             print("Successful parameter optimization!")
-
             for i, res in enumerate(optimizer.res):
                 print(f"Iteration {i}: {res}")
 
             diff_koopmans = np.sqrt(abs(optimizer.max['target']))
             print(f"Optimized mu is {optimizer.max['params']['mu']} with the difference {diff_koopmans}.")
-
             return [optimizer.max['params']['mu']]
 
     def run_gaussian(self):
