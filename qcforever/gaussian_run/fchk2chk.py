@@ -23,7 +23,7 @@ def Get_fchk(jobname):
     fchkfile = f"{jobname}.fchk"
     TotalCharge, SpinMulti = ChargeSpin_fchk(fchkfile)
     try:
-        subprocess.run(['unfchk', fchkfile])
+        subprocess.run(['unfchk', fchkfile], check=True)
     except:
         print ("Failed converting fchk to chk!")            
     return TotalCharge, SpinMulti

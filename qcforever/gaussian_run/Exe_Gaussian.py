@@ -39,9 +39,9 @@ def count_Finishjob(jobname):
     fcount = 0
     is_error = 0
     for line in lines:
-        if line.find("Normal termination") >= 0:
+        if line.find(r"Normal termination") >= 0:
             fcount += 1
-        if line.find("Error termination request processed by") >= 0:
+        if line.find(r"Error termination") >= 0:
             print("Error is detected!")
             is_error += 1
             pass
@@ -70,7 +70,7 @@ def exe_Gaussian(jobname, exe_time):
             print(f)
             os.remove(os.path.join('.', f))
     NFinishedJob, is_error = count_Finishjob(jobname)
-    print (f'Successful Job: {NFinishedJob} Error Job: {is_error}')
+    print (f'Success Job: {NFinishedJob} Error Job: {is_error}')
     if Njob == NFinishedJob and is_error == 0:
         job_state = "normal"
     elif job_state != "timeout" or is_error != 0:

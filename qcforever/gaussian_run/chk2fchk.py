@@ -7,7 +7,7 @@ def Get_chklist(remove):
     for f in glob.glob('./*.chk'):
         print(f)
         try:
-            subprocess.run(['formchk', f])
+            subprocess.run(['formchk', f], check=True)
         except:
             print("Failed converting chk to fchk!")            
         if remove == 1:

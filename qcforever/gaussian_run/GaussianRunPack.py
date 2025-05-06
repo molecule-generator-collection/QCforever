@@ -1549,6 +1549,7 @@ class GaussianDFTRun:
             try:
                 gaussian_run.Get_MolCoordinate_fchk.Get_fchklist2xyz()
             except:
+                print('There is error in fchk')
                 pass
 
         os.chdir(pwd)
