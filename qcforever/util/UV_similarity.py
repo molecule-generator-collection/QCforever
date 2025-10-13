@@ -1,6 +1,10 @@
 import math
-
 import numpy as np
+
+from scipy.stats import wasserstein_distance
+from scipy.signal import correlate
+from scipy import integrate
+
 
 #from qcforever import gaussian_run
 from qcforever import util
@@ -46,22 +50,42 @@ def broadening(peak, intensity, lower, upper, step):
     y_broaden = [lorentian(j, 25.0, peak, intensity) for j in x]
     return x, y_broaden
 
+def get_wasser_vect(ref_x, target_x):
+    d = wasserstein_distance(ref_x, target_x)
+    return d
+
 
 def smililarity_dissimilarity(ref_UV_peak, ref_UV_int, target_UV_peak, target_UV_int):
     step = 10
-    lower = min(ref_UV_peak) - 50.0
-    upper = max(ref_UV_peak) + 50.0
+    lower = min(min(ref_UV_peak), min(target_UV_peak)) - 5.0
+    upper = max(max(ref_UV_peak), max(target_UV_peak)) + 5.0
+
     ref_x, ref_broaden = broadening(ref_UV_peak, ref_UV_int, lower, upper, step)
     target_x, target_broaden = broadening(target_UV_peak, target_UV_int, lower, upper, step)
-    CF_refx, CF_ref = util.CF_1D.Corr_func(ref_x, ref_broaden)
-    CF_targetx, CF_target = util.CF_1D.Corr_func(target_x, target_broaden)
-    CrossCFx, CrossCF = util.CF_1D.Corr_func(ref_x, ref_broaden, target_x, target_broaden)
-    Int_ref = util.CF_1D.Integral(CF_refx, CF_ref)
-    Int_target = util.CF_1D.Integral(CF_targetx, CF_target)
-    Int_Cross = util.CF_1D.Integral(CrossCFx, CrossCF)
+
+    scipyCF_ref = correlate(ref_broaden, ref_broaden,'same')
+    scipyCF_target = correlate(target_broaden, target_broaden,'same')
+    scipyCrossCF = correlate(ref_broaden, target_broaden,'same')
+
+    #CF_refx, CF_ref = util.CF_1D.Corr_func(ref_x, ref_broaden)
+    #CF_targetx, CF_target = util.CF_1D.Corr_func(target_x, target_broaden)
+    #CrossCFx, CrossCF = util.CF_1D.Corr_func(ref_x, ref_broaden, target_x, target_broaden)
+
+    Int_ref = integrate.simpson(scipyCF_ref, x=ref_x, dx=step)
+    Int_target = integrate.simpson(scipyCF_target, x=ref_x, dx=step)
+    Int_Cross = integrate.simpson(scipyCrossCF, x=ref_x, dx=step)
+
+    #Int_ref = util.CF_1D.Integral(CF_refx, CF_ref)
+    #Int_target = util.CF_1D.Integral(CF_targetx, CF_target)
+    #Int_Cross = util.CF_1D.Integral(CrossCFx, CrossCF)
+
     S = Int_Cross / math.sqrt(Int_ref*Int_target)
     D = Int_ref + Int_target - 2*Int_Cross
 
+    wass_dist = get_wasser_vect(ref_UV_peak, target_UV_peak)
+
+    print("Wasserstein: ", wass_dist)
     print ("Similaliry: ", S)
     print ("Dissimilaliry: ", D)
-    return S, D
+
+    return S, D, wass_dist
