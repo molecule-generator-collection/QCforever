@@ -67,17 +67,9 @@ def smililarity_dissimilarity(ref_UV_peak, ref_UV_int, target_UV_peak, target_UV
     scipyCF_target = correlate(target_broaden, target_broaden,'same')
     scipyCrossCF = correlate(ref_broaden, target_broaden,'same')
 
-    #CF_refx, CF_ref = util.CF_1D.Corr_func(ref_x, ref_broaden)
-    #CF_targetx, CF_target = util.CF_1D.Corr_func(target_x, target_broaden)
-    #CrossCFx, CrossCF = util.CF_1D.Corr_func(ref_x, ref_broaden, target_x, target_broaden)
-
     Int_ref = integrate.simpson(scipyCF_ref, x=ref_x, dx=step)
     Int_target = integrate.simpson(scipyCF_target, x=ref_x, dx=step)
     Int_Cross = integrate.simpson(scipyCrossCF, x=ref_x, dx=step)
-
-    #Int_ref = util.CF_1D.Integral(CF_refx, CF_ref)
-    #Int_target = util.CF_1D.Integral(CF_targetx, CF_target)
-    #Int_Cross = util.CF_1D.Integral(CrossCFx, CrossCF)
 
     S = Int_Cross / math.sqrt(Int_ref*Int_target)
     D = Int_ref + Int_target - 2*Int_Cross
