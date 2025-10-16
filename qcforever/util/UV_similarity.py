@@ -54,6 +54,15 @@ def get_wasser_vect(ref_x, target_x):
     d = wasserstein_distance(ref_x, target_x)
     return d
 
+def delete_peak(position, intensity):
+
+    A = np.array(position)
+    B = np.array(intensity)
+    
+    A = A[A*B != 0]
+
+    return A 
+
 
 def smililarity_dissimilarity(ref_UV_peak, ref_UV_int, target_UV_peak, target_UV_int):
     step = 10
@@ -74,7 +83,8 @@ def smililarity_dissimilarity(ref_UV_peak, ref_UV_int, target_UV_peak, target_UV
     S = Int_Cross / math.sqrt(Int_ref*Int_target)
     D = Int_ref + Int_target - 2*Int_Cross
 
-    wass_dist = get_wasser_vect(ref_UV_peak, target_UV_peak)
+    active_peak = delete_peak(target_UV_peak, target_UV_int)
+    wass_dist = get_wasser_vect(ref_UV_peak, active_peak)
 
     print("Wasserstein: ", wass_dist)
     print ("Similaliry: ", S)
