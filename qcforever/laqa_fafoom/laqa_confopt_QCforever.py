@@ -6,7 +6,7 @@ import datetime
 import shutil
 
 from rdkit import rdBase, Chem
-from rdkit.Chem import AllChem, rdDetermineBonds
+from rdkit.Chem import AllChem, rdDetermineBonds, rdMolDescriptors
 
 from qcforever import laqa_fafoom
 
@@ -27,9 +27,12 @@ def LAQA_confopt_main(infilename, TotalCharge, SpinMulti, method, nproc, mem):
     else:
         exit()
 
+    #get the number of rotatable bonds
+    RotBond = Chem.rdMolDescriptors.CalcNumRotatableBonds(mol)
+
     SMILES = Chem.MolToSmiles(mol)
 
-    make_laqa_input(SMILES, SpinMulti, TotalCharge, method, nproc, mem)
+    make_laqa_input(SMILES, SpinMulti, TotalCharge, RotBond, method, nproc, mem)
 
     laqa_fafoom.initgeom.LAQA_initgeom('laqa_setting.inp', SMILES)
     laqa_fafoom.laqa_optgeom.LAQA_optgeom('laqa_setting.inp')
@@ -39,12 +42,17 @@ def LAQA_confopt_main(infilename, TotalCharge, SpinMulti, method, nproc, mem):
     print(f"Wall time of LAQA conformation optimization job: {t_laqaopt_end - t_laqaopt_bgn:20.2f} sec.")
 
 
-def make_laqa_input(SMILES, SpinMulti, TotalCharge, method, nproc, mem):
+def make_laqa_input(SMILES, SpinMulti, TotalCharge, RotBond, method, nproc, mem):
+
+    Num_popsize = 3*RotBond
 
     input_s = ''
 
     input_s += '[Molecule]\n'
     input_s += f'\nsmiles = "{SMILES}"\n'
+
+    input_s += f'\n[Initial geometry]\n'
+    input_s += f'popsize = {Num_popsize}\n'
 
     input_s += '\n[LAQA settings]\n'
 
