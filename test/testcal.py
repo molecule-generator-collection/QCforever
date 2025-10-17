@@ -8,7 +8,7 @@ option = "symm pka opt homolumo energy dipole deen stable2o2 uv=/home/sumita/QCf
 
 infilename = 'ch2o.xyz'
 
-test = GaussianRunPack.GaussianDFTRun('B3LYP', 'STO-3G', 10, option, infilename, solvent='water', restart=False)
+test = GaussianRunPack.GaussianDFTRun('B3LYP', 'STO-3G', 10, option, infilename, solvent='water', restart=False, pklsave=True)
 
 test.mem = '2GB'
 test.timexe = 12*60*60
