@@ -90,4 +90,4 @@ def smililarity_dissimilarity(ref_UV_peak, ref_UV_int, target_UV_peak, target_UV
     print ("Similaliry: ", S)
     print ("Dissimilaliry: ", D)
 
-    return S, D, wass_dist
+    return float(S), float(D), float(wass_dist)
