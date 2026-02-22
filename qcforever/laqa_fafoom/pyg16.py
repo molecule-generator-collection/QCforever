@@ -14,7 +14,7 @@ class g16Object():
     '''Create and handle Gaussian 16 objects.'''
     def __init__(self, sdf_string, gauss_exedir, gauss_scrdir=os.getcwd(),
                  nprocs=1, memory='1GB', jobtype='opt', charge=0, mult=1,
-                 qcmethod='pm6', optsteps=200, solvmethod=None, solvent='water',
+                 qcmethod='pm6', optsteps=200, solvmethod=None, solvent=None,
                  sdf_out='optimized_structures.sdf'):
         """Initialize the g16Object.
 
@@ -31,7 +31,7 @@ class g16Object():
             qcmethod     (default='pm6')
             optsteps     (default=500)
             solvmethod   (default=None)
-            solvent      (default='water')
+            solvent      (default=None)
             sdf_out      (default='optimized_structures.sdf')
         Raises:
             KeyError: if the commandline or memory is not defined
@@ -232,7 +232,7 @@ class g16Object():
 
 def g16_exec(sdf_string, gauss_exedir, gauss_scrdir=os.getcwd(),
              nprocs=1, memory='1GB', jobtype='opt', charge=0, mult=1,
-             qcmethod='pm6', optsteps=200, solvmethod=None, solvent='water',
+             qcmethod='pm6', optsteps=200, solvmethod=None, solvent=None,
              sdf_out='optimized_structures.sdf'):
 
     g16_object = g16Object(sdf_string, gauss_exedir, gauss_scrdir, nprocs, memory,
