@@ -56,7 +56,6 @@ class parse_log:
             print ('Input orientation is used!')
         else:
             print ('Atom coordinates are not found!')
-            exit()
 
         for block in Coord_blocks:
             #CentNum = []
@@ -660,11 +659,14 @@ class parse_log:
             spinmulti.append(spinmulti_link)
             Links_split.append(lines)
 
-            AtomNum_tmp, Mol_tmpX, Mol_tmpY, Mol_tmpZ = self.extract_MolCoordlog(lines)
-            AtomNum.append(AtomNum_tmp)
-            MolX.append(Mol_tmpX)
-            MolY.append(Mol_tmpY)
-            MolZ.append(Mol_tmpZ)
+            try:
+                AtomNum_tmp, Mol_tmpX, Mol_tmpY, Mol_tmpZ = self.extract_MolCoordlog(lines)
+                AtomNum.append(AtomNum_tmp)
+                MolX.append(Mol_tmpX)
+                MolY.append(Mol_tmpY)
+                MolZ.append(Mol_tmpZ)
+            except ValueError:
+                print('There are some mistakes in mol coordinate')
 
 
         print (AtomNum)
