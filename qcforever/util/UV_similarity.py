@@ -47,7 +47,7 @@ def lorentian(x, gamma, center, intensity):
 
 def broadening(peak, intensity, lower, upper, step):
     x = np.arange(lower, upper, step)
-    y_broaden = [lorentian(j, 25.0, peak, intensity) for j in x]
+    y_broaden = [lorentian(j, 5.0, peak, intensity) for j in x]
     return x, y_broaden
 
 def get_wasser_vect(ref_x, target_x):
