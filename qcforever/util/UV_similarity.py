@@ -27,9 +27,8 @@ def read_data(inputdata):
         uvdata = [peak, intensity]
     except:
         print ("There are some errors in the process of reading uv data!")
-        exit()
+        uvdata = [peak, intensity]
     return uvdata
-
 
 def gaussian(x, sigma, center, intensity):
     y = 0
@@ -37,32 +36,34 @@ def gaussian(x, sigma, center, intensity):
         y += intensity[i]*math.exp(-math.pow((x-center[i])/sigma,2)/2)/math.sqrt(2*pi*sigma*sigma)
     return y
 
-
 def lorentian(x, gamma, center, intensity):
     y = 0
     for i in range(len(center)):
         y += intensity[i]/(pi*gamma*(1+math.pow((x-center[i])/gamma,2)))
     return y
 
-
 def broadening(peak, intensity, lower, upper, step):
     x = np.arange(lower, upper, step)
-    y_broaden = [lorentian(j, 25.0, peak, intensity) for j in x]
+    y_broaden = [lorentian(j, 10.0, peak, intensity) for j in x]
     return x, y_broaden
 
-def get_wasser_vect(ref_x, target_x):
-    d = wasserstein_distance(ref_x, target_x)
+def get_wasser_vect(ref_x, target_x, w_ref_x, w_target_x):
+    d = wasserstein_distance(ref_x, target_x, w_ref_x, w_target_x)
     return d
 
 def delete_peak(position, intensity):
-
     A = np.array(position)
     B = np.array(intensity)
-    
-    A = A[A*B != 0]
+    mask = (B != 0)
 
-    return A 
+    A_filtered = A[mask]
+    B_filtered = B[mask]
 
+    return A_filtered, B_filtered
+
+def normalize_intensity(intensity):
+    A = np.array(intensity)
+    return A/np.sum(A)
 
 def smililarity_dissimilarity(ref_UV_peak, ref_UV_int, target_UV_peak, target_UV_int):
     step = 10
@@ -83,8 +84,10 @@ def smililarity_dissimilarity(ref_UV_peak, ref_UV_int, target_UV_peak, target_UV
     S = Int_Cross / math.sqrt(Int_ref*Int_target)
     D = Int_ref + Int_target - 2*Int_Cross
 
-    active_peak = delete_peak(target_UV_peak, target_UV_int)
-    wass_dist = get_wasser_vect(ref_UV_peak, active_peak)
+    active_peak, active_int = delete_peak(target_UV_peak, target_UV_int)
+    normalized_active_int = normalize_intensity(active_int)
+    normalized_ref_UV_int = normalize_intensity(ref_UV_int)
+    wass_dist = get_wasser_vect(ref_UV_peak, active_peak, normalized_ref_UV_int, normalized_active_int)
 
     print("Wasserstein: ", wass_dist)
     print ("Similaliry: ", S)
