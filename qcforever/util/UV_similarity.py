@@ -44,7 +44,7 @@ def lorentian(x, gamma, center, intensity):
 
 def broadening(peak, intensity, lower, upper, step):
     x = np.arange(lower, upper, step)
-    y_broaden = [lorentian(j, 10.0, peak, intensity) for j in x]
+    y_broaden = [lorentian(j, 5.0, peak, intensity) for j in x]
     return x, y_broaden
 
 def get_wasser_vect(ref_x, target_x, w_ref_x, w_target_x):
@@ -90,7 +90,7 @@ def smililarity_dissimilarity(ref_UV_peak, ref_UV_int, target_UV_peak, target_UV
     wass_dist = get_wasser_vect(ref_UV_peak, active_peak, normalized_ref_UV_int, normalized_active_int)
 
     print("Wasserstein: ", wass_dist)
-    print ("Similaliry: ", S)
-    print ("Dissimilaliry: ", D)
+    print ("Similalirty: ", S)
+    print ("Dissimilalirty: ", D)
 
     return float(S), float(D), float(wass_dist)
