@@ -30,7 +30,7 @@ class GamessDFTRun:
                 solvent="0",
                 error=0, 
                 pklsave=False):
-        self.in_file = in_file
+        self.in_file = os.path.basename(in_file)
         self.functional = functional
         self.basis = basis
         self.nproc = check_resource.respec_cores(nproc)

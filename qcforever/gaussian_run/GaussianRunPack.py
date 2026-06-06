@@ -29,7 +29,8 @@ class GaussianDFTRun:
                 error=0, 
                 restart=True, 
                 pklsave=False):
-        self.in_file = in_file
+        self.in_file = os.path.basename(in_file)
+        print("__init__", self.in_file)
         self.functional = functional.lower()
         self.basis = basis.lower()
         self.nproc = check_resource.respec_cores(nproc)
@@ -1108,7 +1109,7 @@ class GaussianDFTRun:
 
         # Make work directory and move to the directory
         pwd = os.getcwd()
-        print(pwd)
+        print(f'Current dir: {pwd}')
         if os.path.isdir(JobName):
             shutil.rmtree(JobName)
         os.mkdir(JobName)
@@ -1116,6 +1117,7 @@ class GaussianDFTRun:
             inchkfile = JobName + '.chk'
             shutil.move(inchkfile, JobName) 
         os.chdir(JobName)
+        print(f'Calculation dir: {os.getcwd()}')
 
         # Initialization of otuput dictionary.
         output_dic = []
@@ -1455,7 +1457,6 @@ class GaussianDFTRun:
                 self.chain_job(JobNameState, scf_need, job_thisstate, TotalCharge, SpinMulti, 
                                     targetstate, ReadFrom, 
                                     element=atm, atomX=X, atomY=Y, atomZ=Z, optoption=optoption, TDstate_info=TDstate_info)
-
             
                 job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe)
                 print (job_state)
