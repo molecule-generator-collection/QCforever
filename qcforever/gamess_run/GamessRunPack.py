@@ -579,7 +579,7 @@ class GamessDFTRun:
             print('Try to find stable conformation...')
             if ReadFrom == 'sdf' or ReadFrom == 'xyz':
                 print('The input is ready for the conformation search...')
-                original_file = '../' + infilename
+                original_file = Path('..') / infilename
                 try:
                     #laqa_confopt_sdf.LAQA_confopt_main(original_sdf, TotalCharge, SpinMulti, 
                     laqa_confopt_QCforever.LAQA_confopt_main(original_file, TotalCharge, SpinMulti, 
