@@ -1,7 +1,9 @@
 import json
 import os
 
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
 
 
 def AtomicWeight(Element):
@@ -59,7 +61,7 @@ def ImportDFTdata(filepath, Functional, Basis):
 
 
 def One_Atom_Energy(Element, Functional, Basis):
-    datadir = os.path.join(BASE_DIR, "AtomInfo.json")
+    datadir = BASE_DIR / "AtomInfo.json"
     Atom_Energies = ImportDFTdata(datadir, Functional, Basis)
     if (Element in Atom_Energies):
         s = Atom_Energies[Element]
@@ -70,7 +72,7 @@ def One_Atom_Energy(Element, Functional, Basis):
 
 
 def One_TMS_refer(Element, Functional, Basis):
-    datadir = os.path.join(BASE_DIR, "NMRInfo.json")
+    datadir = BASE_DIR / "NMRInfo.json"
     Atom_ref = ImportDFTdata(datadir, Functional, Basis)
     if (Element in Atom_ref):
         s = Atom_ref[Element]
@@ -81,6 +83,6 @@ def One_TMS_refer(Element, Functional, Basis):
 
 
 def O2_MO_refer(Functional, Basis):
-    datadir = os.path.join(BASE_DIR, "OxInfo.json")
+    datadir = BASE_DIR / "OxInfo.json"
     O2_MO = ImportDFTdata(datadir, Functional, Basis)
     return float(O2_MO['SOMO_a']), float(O2_MO['LUMO_b'])

@@ -7,6 +7,8 @@ import pickle
 
 import numpy as np
 
+from pathlib import Path
+
 from qcforever import gamess_run
 from qcforever.util import read_mol_file, check_resource
 #from qcforever.laqa_fafoom import laqa_confopt_sdf
@@ -30,7 +32,8 @@ class GamessDFTRun:
                 solvent="0",
                 error=0, 
                 pklsave=False):
-        self.in_file = os.path.basename(in_file)
+        #self.in_file = os.path.basename(in_file)
+        self.in_file = Path(in_file).name
         self.functional = functional
         self.basis = basis
         self.nproc = check_resource.respec_cores(nproc)
@@ -488,15 +491,15 @@ class GamessDFTRun:
         #option_dict_Ex = np.zeros(19)  # not used
         #option_dict_pka = np.zeros(19) # not used
         targetstate = 1
-        PreGamInput = infilename.split('.')
-        jobname = PreGamInput[0]
+        p = Path(infilename)
+        jobname, jobnameSuffix  = p.stem, p.suffix 
         GamInputName = jobname +'.inp'    
         # File type of input?
         ReadFrom = '' 
-        if PreGamInput[1] == "sdf":
+        if jobnameSuffix == ".sdf":
             ReadFrom = "sdf" 
             Mol_atom, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf(infilename)
-        elif PreGamInput[1] == "xyz":
+        elif jobnameSuffix == ".xyz":
             ReadFrom = "xyz" 
             Mol_atom, X, Y, Z, TotalCharge, SpinMulti = read_mol_file.read_xyz(infilename)
             Bondpair1 = []
@@ -562,11 +565,14 @@ class GamessDFTRun:
         # Make work directory and move to the directory
         pwd = os.getcwd()
         print(pwd)
-        if os.path.isdir(PreGamInput[0]):
-            shutil.rmtree(PreGamInput[0])
-        os.mkdir(PreGamInput[0])
-        #shutil.move(GamInputName, PreGamInput[0])
-        os.chdir(PreGamInput[0])
+
+        job_dir = Path(jobname)
+        if job_dir.is_dir():
+            shutil.rmtree(job_dir)
+
+        job_dir.mkdir()
+        os.chdir(job_dir)
+
 
         #Conformation search
         if 'optconf' in option_dict:

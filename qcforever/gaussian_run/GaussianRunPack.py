@@ -8,6 +8,8 @@ import pickle
 
 import numpy as np
 
+from pathlib import Path
+
 from qcforever import gaussian_run
 from qcforever.util import read_mol_file, check_resource, UV_similarity
 #from qcforever.laqa_fafoom import laqa_confopt_sdf
@@ -29,8 +31,7 @@ class GaussianDFTRun:
                 error=0, 
                 restart=True, 
                 pklsave=False):
-        self.in_file = os.path.basename(in_file)
-        print("__init__", self.in_file)
+        self.in_file = Path(in_file).name
         self.functional = functional.lower()
         self.basis = basis.lower()
         self.nproc = check_resource.respec_cores(nproc)
@@ -429,7 +430,7 @@ class GaussianDFTRun:
         if Newinput == True:
             Input_mode = 'w'
         else:
-            if not os.path.isfile(GauInputName):
+            if not Path(GauInputName).is_file():
                 Input_mode = 'w'
             else:
                 Input_mode = 'a'
@@ -906,26 +907,24 @@ class GaussianDFTRun:
         TargetStates = [0]
         TargetSpinMulti = []
         TargetTotalCharge = []
-        PreGauInput = infilename.split('.')
-        JobName = PreGauInput[0]
-        #GauInputName = PreGauInput[0]+'.com'    
-        # File type of input?
+        p = Path(infilename)
+        JobName, JobNameSuffix = p.stem, p.suffix
         ReadFrom = None
         # Initialization of molecular coordinate
         atm, X, Y, Z = [], [], [], []
         Bondpair1 = []
         Bondpair2 = []
         # Classify input
-        if PreGauInput[1] == "sdf":
+        if JobNameSuffix == ".sdf":
             ReadFrom = 'sdf' 
             atm, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf(infilename)
-        elif PreGauInput[1] == "xyz":
+        elif JobNameSuffix == ".xyz":
             ReadFrom = 'xyz' 
             atm, X, Y, Z, TotalCharge, SpinMulti = read_mol_file.read_xyz(infilename)
-        elif PreGauInput[1] == "chk":
+        elif JobNameSuffix == ".chk":
             ReadFrom = 'chk' 
-        elif PreGauInput[1] == "fchk":
-            TotalCharge, SpinMulti = gaussian_run.fchk2chk.Get_fchk(PreGauInput[0])
+        elif JobNameSuffix == ".fchk":
+            TotalCharge, SpinMulti = gaussian_run.fchk2chk.Get_fchk(JobName)
             ReadFrom = 'chk' 
         else:
             print("Invalid input file")
@@ -1110,7 +1109,7 @@ class GaussianDFTRun:
         # Make work directory and move to the directory
         pwd = os.getcwd()
         print(f'Current dir: {pwd}')
-        if os.path.isdir(JobName):
+        if Path(JobName).is_dir():
             shutil.rmtree(JobName)
         os.mkdir(JobName)
         if ReadFrom == 'chk':
@@ -1466,7 +1465,8 @@ class GaussianDFTRun:
                     gaussian_run.chk2fchk.Get_chklist(1)
                 elif scf_need != True and ReadFrom != 'chk':
                     for f in glob.glob('./*.chk'):
-                        os.remove(os.path.join('.', f))
+                        #os.remove(os.path.join('.', f))
+                        Path(f).unlink()
 
                 #output_prop = self.Extract_values(JobName, option_dict, Bondpair1, Bondpair2)
                 #output_dic[i].update(output_prop)
