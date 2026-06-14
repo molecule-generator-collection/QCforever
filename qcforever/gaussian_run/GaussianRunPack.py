@@ -1458,7 +1458,7 @@ class GaussianDFTRun:
                                     targetstate, ReadFrom, 
                                     element=atm, atomX=X, atomY=Y, atomZ=Z, optoption=optoption, TDstate_info=TDstate_info)
             
-                job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe)
+                job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe, self.error)
                 print (job_state)
                 # When the scf is performed, the obtained wavefunction is saved to chk file.
                 # But for 'symm' and 'volume' that information is emply except for when the input is chk or fchk files.
@@ -1477,7 +1477,7 @@ class GaussianDFTRun:
                     output_dic[i][f'log_{i}'] = job_state
                 except Exception as e:
                     print(e)
-                    job_state = "error"
+                    job_state = f"{e}"
                     output_dic[i][f'log_{i}'] = job_state
                     break
                     #pass
@@ -1488,12 +1488,23 @@ class GaussianDFTRun:
                     E_dH = output_dic[i]["Energy"][0]
                     output_dic[i]["pka"] = (E_dH - E_pH)*Eh2kJmol
 
+                if 'fluor' in job_thisstate:
+                    if job_state == 'transition':
+                        output_dic[i]["fluorescence"] = 'Unlikely'
+                    else:
+                        output_dic[i]["fluorescence"] = 'Likely'
+                        
+
                 if 'tadf' in job_thisstate:
-                    TADF_Eng = 0.0
-                    S_Eext = output_dic[i-1]["MinEtarget"]
-                    T_Eext = output_dic[i]["T_Min"]
-                    TADF_Eng = S_Eext - T_Eext
-                    output_dic[i]["Delta(S-T)"] = TADF_Eng
+                    if job_state == 'transition':
+                        output_dic[i]["phosphorescence"] = 'Unlikely'
+                    else:
+                        output_dic[i]["phosphorescence"] = 'Likely'
+                        TADF_Eng = 0.0
+                        S_Eext = output_dic[i-1]["MinEtarget"]
+                        T_Eext = output_dic[i]["T_Min"]
+                        TADF_Eng = S_Eext - T_Eext
+                        output_dic[i]["Delta(S-T)"] = TADF_Eng
 
         output_sum = {}
         for i, j in enumerate(output_dic):

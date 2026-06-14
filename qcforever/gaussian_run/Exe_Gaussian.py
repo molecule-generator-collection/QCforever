@@ -5,6 +5,11 @@ import sys
 import subprocess
 import time
 
+from pathlib import Path
+
+from qcforever import gaussian_run
+from qcforever.util import ConvergenceJudge
+
 
 def get_pid(jobname):
     Gau_logfile = f"{jobname}.log"
@@ -49,7 +54,14 @@ def count_Finishjob(jobname):
     return fcount, is_error
 
 
-def exe_Gaussian(jobname, exe_time):
+def job_termination(proc):
+    proc.kill()
+    for f in glob.glob("./Gau-*"):    
+        print(f)
+        Path(f).unlink(missing_ok=True)
+
+
+def exe_Gaussian(jobname, exe_time, error=0):
     job_state = ""
     print(f"Time for Gaussian: {exe_time}")
     Njob = count_Njob(jobname)
@@ -57,24 +69,62 @@ def exe_Gaussian(jobname, exe_time):
     print(os.getcwd())
     os.environ["GAUSS_SCRDIR"] = os.getcwd()
 
+    print (f'Error monitering level: {error}')
+    
+    if error > 0:
+        print (f'Terminate the job if the optimization is unlikely to converge.')
+    elif error == 0:
+        print(f'Any action will not be performed!')
+
     GaussianPros = subprocess.Popen(["g16", jobname])
-    for _ in range(exe_time):
+
+    for sec in range(exe_time):
         time.sleep(1)
+
         if GaussianPros.poll() != None:
             break
+
+        if error == 1 and sec > 0 and sec % 300 == 0:
+            try:
+                tmp_log = gaussian_run.MoniteringEnergy.Monitor_log(jobname+".log") 
+                Index_TState, Eprofile, OSprofile = tmp_log.Extract_ConversionProcess()
+                Values_ForceDisp = tmp_log.Extract_ConversionCriterion()
+                #print(Values_ForceDisp)
+                if len(Eprofile) > 10: 
+                    #
+                    #For Judge convergence possibility
+                    #
+                    Judge = ConvergenceJudge.ConvergenceJudge(Index_TState, Eprofile, Values_ForceDisp)
+                    Score_Judge = Judge.judge()
+        
+                    if Score_Judge[1] < 0.5:
+                        job_state = f'{Score_Judge[0]}' 
+                        job_termination(GaussianPros)
+                    else:
+                        pass
+                else:
+                    pass
+
+            except Exception as e:
+                print(f'Monitoring failed: {e}')
+                pass
+
     if GaussianPros.poll() == None:
         job_state = "timeout"
         print(GaussianPros.poll())
-        GaussianPros.kill()
-        for f in glob.glob("./Gau-*"):    
-            print(f)
-            os.remove(os.path.join('.', f))
+        job_termination(GaussianPros)
+        #GaussianPros.kill()
+        #for f in glob.glob("./Gau-*"):    
+        #    print(f)
+        #    Path(f).unlink(missing_ok=True)
+
     NFinishedJob, is_error = count_Finishjob(jobname)
     print (f'Success Job: {NFinishedJob} Error Job: {is_error}')
     if Njob == NFinishedJob and is_error == 0:
         job_state = "normal"
     elif job_state != "timeout" or is_error != 0:
-        job_state = "abnormal"
+#        job_state = "abnormal"
+        pass
 
     print (GaussianPros)
     del GaussianPros
