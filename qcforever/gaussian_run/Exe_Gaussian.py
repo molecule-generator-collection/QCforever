@@ -84,7 +84,7 @@ def exe_Gaussian(jobname, exe_time, error=0):
         if GaussianPros.poll() != None:
             break
 
-        if error == 1 and sec > 0 and sec % 300 == 0:
+        if error == 1 and sec > 0 and sec % 150 == 0:
             try:
                 tmp_log = gaussian_run.MoniteringEnergy.Monitor_log(jobname+".log") 
                 Index_TState, Eprofile, OSprofile = tmp_log.Extract_ConversionProcess()
@@ -98,6 +98,7 @@ def exe_Gaussian(jobname, exe_time, error=0):
                     Score_Judge = Judge.judge()
         
                     if Score_Judge[1] < 0.5:
+                        print ("No hope for geometry optimization! Job will be killed")
                         job_state = f'{Score_Judge[0]}' 
                         job_termination(GaussianPros)
                     else:
@@ -111,20 +112,19 @@ def exe_Gaussian(jobname, exe_time, error=0):
 
     if GaussianPros.poll() == None:
         job_state = "timeout"
+        print ("Timeout! Job will be killed")
         print(GaussianPros.poll())
         job_termination(GaussianPros)
-        #GaussianPros.kill()
-        #for f in glob.glob("./Gau-*"):    
-        #    print(f)
-        #    Path(f).unlink(missing_ok=True)
 
     NFinishedJob, is_error = count_Finishjob(jobname)
     print (f'Success Job: {NFinishedJob} Error Job: {is_error}')
     if Njob == NFinishedJob and is_error == 0:
         job_state = "normal"
     elif job_state != "timeout" or is_error != 0:
-#        job_state = "abnormal"
-        pass
+        if job_state == '':
+            job_state = "abnormal"
+        else:
+            pass
 
     print (GaussianPros)
     del GaussianPros

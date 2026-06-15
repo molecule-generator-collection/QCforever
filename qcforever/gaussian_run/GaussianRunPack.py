@@ -1488,23 +1488,23 @@ class GaussianDFTRun:
                     E_dH = output_dic[i]["Energy"][0]
                     output_dic[i]["pka"] = (E_dH - E_pH)*Eh2kJmol
 
-                if 'fluor' in job_thisstate:
-                    if job_state == 'transition':
-                        output_dic[i]["fluorescence"] = 'Unlikely'
-                    else:
+                if 'fluor' in job_thisstate :
+                    if job_state == 'normal':
                         output_dic[i]["fluorescence"] = 'Likely'
+                    else:
+                        output_dic[i]["fluorescence"] = 'Unlikely'
                         
 
                 if 'tadf' in job_thisstate:
-                    if job_state == 'transition':
-                        output_dic[i]["phosphorescence"] = 'Unlikely'
-                    else:
+                    if job_state == 'normal':
                         output_dic[i]["phosphorescence"] = 'Likely'
                         TADF_Eng = 0.0
                         S_Eext = output_dic[i-1]["MinEtarget"]
                         T_Eext = output_dic[i]["T_Min"]
                         TADF_Eng = S_Eext - T_Eext
                         output_dic[i]["Delta(S-T)"] = TADF_Eng
+                    else:
+                        output_dic[i]["phosphorescence"] = 'Unlikely'
 
         output_sum = {}
         for i, j in enumerate(output_dic):
@@ -1525,25 +1525,31 @@ class GaussianDFTRun:
     
         #Decide the log state        
         keylist = list(output_sum.keys())
-        for i in range(len(keylist)):
-            if re.match('log', keylist[i]):    
-                if output_sum[keylist[i]] == 'error':
-                    if 'log' in output_sum.keys() and output_sum['log'] != 'normal':
-                        output_sum['log'] += 'Value extraction failed! '
-                    else:
-                        output_sum['log'] = 'Value extraction failed! '
-                elif output_sum[keylist[i]] == 'abnormal':
-                    if 'log' in output_sum.keys() and output_sum['log'] != 'normal':
-                        output_sum['log'] += 'Gaussian computation failed! '
-                    else:
-                        output_sum['log'] = 'Gaussian computation failed! '
-                elif output_sum[keylist[i]] == 'timeout':
-                    if 'log' in output_sum.keys() and output_sum['log'] != 'normal':
-                        output_sum['log'] += 'Not enough time for Gaussian calculations! '
-                    else:
-                        output_sum['log'] = 'Not enough time for Gaussian calculations! '
-                else:
-                    output_sum['log'] = 'normal'
+
+        messages = {
+            'error': 'Value extraction failed! ',
+            'abnormal': 'Gaussian computation failed! ',
+            'timeout': 'Not enough time for Gaussian calculations! ',
+            'transition': 'Optimization may not succeed! ',
+            'stagnation': 'Optimization may not succeed! ',
+            'divergence': 'Optimization may not succeed! ',
+            'oscillation': 'Optimization may not succeed! ',
+            '': 'Wrong point is not identified! ',
+        }
+
+        logs = []
+
+        for key in keylist:
+            if not re.match(r'log', key):
+                continue
+
+            status = output_sum[key]
+
+            if status in messages:
+                logs.append(messages[status])
+
+        output_sum['log'] = ''.join(logs) if logs else 'normal'
+
 
         if output_sum['log'] == 'normal' and 'fluor' in option_dict and 'opt' in option_dict and 'energy' in option_dict:
             print(output_sum['MinEtarget'])
