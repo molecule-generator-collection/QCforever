@@ -1,7 +1,6 @@
 import re
 import numpy as np
 
-
 eV2Eh = 0.03674932
 
 class Monitor_log:
@@ -65,20 +64,36 @@ class Monitor_log:
         for line in self.lines:
             if line.find("Maximum Force") >=0:
                 line_MaxForce = re.split(r"\s+", line) 
-                MaxForce.append(float(line_MaxForce[3]))
-                MaxForce_threshold.append(float(line_MaxForce[4]))
+                if line_MaxForce[3] == '********':
+                    line_MaxForce[3] = 10.000000
+                    MaxForce_threshold.append(float(line_MaxForce[4]))
+                else:
+                    MaxForce.append(float(line_MaxForce[3]))
+                    MaxForce_threshold.append(float(line_MaxForce[4]))
             if line.find("RMS     Force") >=0:
                 line_RMSForce = re.split(r"\s+", line) 
-                RMSForce.append(float(line_RMSForce[3]))
-                RMSForce_threshold.append(float(line_RMSForce[4]))
+                if line_RMSForce[3] == '********':
+                    line_RMSForce[3] = 10.000000
+                    RMSForce_threshold.append(float(line_RMSForce[4]))
+                else:
+                    RMSForce.append(float(line_RMSForce[3]))
+                    RMSForce_threshold.append(float(line_RMSForce[4]))
             if line.find("Maximum Displacement") >=0:
                 line_MaxDisp = re.split(r"\s+", line) 
-                MaxDisp.append(float(line_MaxDisp[3]))
-                MaxDisp_threshold.append(float(line_MaxDisp[4]))
+                if line_MaxDisp[3] == '********':
+                    line_MaxDisp[3] = 10.000000
+                    MaxDisp_threshold.append(float(line_MaxDisp[4]))
+                else:
+                    MaxDisp.append(float(line_MaxDisp[3]))
+                    MaxDisp_threshold.append(float(line_MaxDisp[4]))
             if line.find("RMS     Displacement") >=0:
                 line_RMSDisp = re.split(r"\s+", line) 
-                RMSDisp.append(float(line_RMSDisp[3]))
-                RMSDisp_threshold.append(float(line_RMSDisp[4]))
+                if line_RMSDisp ==  '********':
+                    line_RMSDisp = 10.000000
+                    RMSDisp_threshold.append(float(line_RMSDisp[4]))
+                else:
+                    RMSDisp.append(float(line_RMSDisp[3]))
+                    RMSDisp_threshold.append(float(line_RMSDisp[4]))
     
         return (MaxForce, 
                 RMSForce, 

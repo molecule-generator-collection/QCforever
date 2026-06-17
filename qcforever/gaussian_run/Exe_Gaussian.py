@@ -84,16 +84,16 @@ def exe_Gaussian(jobname, exe_time, error=0):
         if GaussianPros.poll() != None:
             break
 
-        if error == 1 and sec > 0 and sec % 150 == 0:
+        if error == 1 and sec > 0 and sec % 180 == 0:
             try:
                 tmp_log = gaussian_run.MoniteringEnergy.Monitor_log(jobname+".log") 
                 Index_TState, Eprofile, OSprofile = tmp_log.Extract_ConversionProcess()
-                Values_ForceDisp = tmp_log.Extract_ConversionCriterion()
                 #print(Values_ForceDisp)
                 if len(Eprofile) > 10: 
                     #
                     #For Judge convergence possibility
                     #
+                    Values_ForceDisp = tmp_log.Extract_ConversionCriterion()
                     Judge = ConvergenceJudge.ConvergenceJudge(Index_TState, Eprofile, Values_ForceDisp)
                     Score_Judge = Judge.judge()
         
@@ -101,6 +101,7 @@ def exe_Gaussian(jobname, exe_time, error=0):
                         print ("No hope for geometry optimization! Job will be killed")
                         job_state = f'{Score_Judge[0]}' 
                         job_termination(GaussianPros)
+                        break
                     else:
                         pass
                 else:
@@ -108,7 +109,7 @@ def exe_Gaussian(jobname, exe_time, error=0):
 
             except Exception as e:
                 print(f'Monitoring failed: {e}')
-                pass
+                break
 
     if GaussianPros.poll() == None:
         job_state = "timeout"
@@ -118,6 +119,16 @@ def exe_Gaussian(jobname, exe_time, error=0):
 
     NFinishedJob, is_error = count_Finishjob(jobname)
     print (f'Success Job: {NFinishedJob} Error Job: {is_error}')
+
+    all_finished = (Njob == NFinishedJob)
+    no_error = (is_error == 0)
+
+    if all_finished and no_error:
+        job_state = "normal"
+    elif not job_state:
+        job_state = "abnormal"
+
+    '''
     if Njob == NFinishedJob and is_error == 0:
         job_state = "normal"
     elif job_state != "timeout" or is_error != 0:
@@ -125,6 +136,7 @@ def exe_Gaussian(jobname, exe_time, error=0):
             job_state = "abnormal"
         else:
             pass
+    '''
 
     print (GaussianPros)
     del GaussianPros
