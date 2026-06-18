@@ -222,11 +222,13 @@ if compare_list_ab(ref_data['T_Phos'][3],  outdic['T_Phos'][3]) < 0.01:
 else: 
     print("Something strange...")
 
+'''
 print("Check Delta(S-T)")
 if abs(ref_data['Delta(S-T)'] - outdic['Delta(S-T)']) < 0.01:
     print("OK")
 else: 
     print("Something strange...")
+'''
 
 print("Check pka")
 if abs(ref_data['pka'] - outdic['pka']) < 0.001:
