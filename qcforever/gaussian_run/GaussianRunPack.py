@@ -58,6 +58,19 @@ class GaussianDFTRun:
 
         return scf_need
 
+    @staticmethod
+    def _normal_termination(jobname):
+        """Return whether the final Gaussian Link1 job terminated normally."""
+        try:
+            with open(f"{jobname}.log", encoding="utf-8", errors="replace") as logfile:
+                logtext = logfile.read()
+            return (
+                logtext.rfind("Normal termination of Gaussian")
+                > logtext.rfind("Error termination")
+            )
+        except OSError:
+            return False
+
     def Extract_values(self, jobname, option_dict, Bondpair1, Bondpair2):
         """
         MEMO: Bondpair1 and Bondpair2 are not used
@@ -73,6 +86,7 @@ class GaussianDFTRun:
         is_deen = option_dict['deen'] if 'deen' in option_dict else False
         is_stable2o2 = option_dict['stable2o2'] if 'stable2o2' in option_dict else False
         is_fluor = option_dict['fluor'] if 'fluor' in option_dict else False
+        is_nac = option_dict['nac'] if 'nac' in option_dict else False
         is_tadf = option_dict['tadf'] if 'tadf' in option_dict else False
         is_vip = option_dict['vip'] if 'vip' in option_dict else False
         is_vea = option_dict['vea'] if 'vea' in option_dict else False
@@ -331,6 +345,19 @@ class GaussianDFTRun:
             #   TADF_Eng = S_Eext - T_Eext
             #output["Delta(S-T)"] = TADF_Eng
 
+        if is_nac:
+            # parse_log.classify_task stores the final NAC Link1 under the
+            # uppercase ``NAC`` key and Extract_NAC returns (max, rms).
+            # Keep errors local so the fluorescence data remains serializable.
+            try:
+                nac_lines = Links_split[job_index['NAC']]
+                nac_max, nac_rms = parse_log.Extract_NAC(nac_lines)
+                if nac_max is None or nac_rms is None:
+                    raise ValueError('NAC values were not found in the NAC Link1 output.')
+                output['NAC'] = [nac_max, nac_rms]
+            except (AttributeError, IndexError, KeyError, ValueError) as error:
+                output['NAC_error'] = str(error)
+
         return output
 
     def MakeSolventLine(self):
@@ -355,7 +382,7 @@ class GaussianDFTRun:
         self, JobName, TotalCharge, SpinMulti, 
         scf='open', run_type=None, optoption='', Newinput=False, 
         Mol_atom=[], X=[], Y=[], Z=[], geom_spec=False,
-        TDDFT=False, TDstate=None, target=1,
+        TDDFT=False, TDstate=None, target=1, nac=False,
         readchk=None, oldchk=None, newchk=None, solvent='0'):
 
         #Section for system control 
@@ -397,7 +424,13 @@ class GaussianDFTRun:
 
         if TDDFT:
             NState = target+4 if (run_type == 'opt' or run_type == 'freq') else 20
-            line_method += f'TD(Nstate={NState}, root={target})\n'if TDstate == None else f'TD(Nstate={NState}, {TDstate}, root={target})\n'
+            td_options = f'NStates={NState},root={target}'
+            if TDstate is not None:
+                td_options = f'NStates={NState},{TDstate},root={target}'
+            if nac:
+                td_options += ',NAC'
+            line_method += f'TD({td_options})\n'
+#            line_method += f'TD(Nstate={NState}, root={target})\n'if TDstate == None else f'TD(Nstate={NState}, {TDstate}, root={target})\n'
         
         #Section for solvent
         SCRF = ''
@@ -529,6 +562,8 @@ class GaussianDFTRun:
 
         option_dict = copy.deepcopy(job_dict)
 
+        print (option_dict)
+
         print(f'Target state: {targetstate}, Charge: {TotalCharge}, Spin Multiplicity: {SpinMulti}')
 
         # Setting molecular charge and multiplicity
@@ -551,6 +586,7 @@ class GaussianDFTRun:
         scf_tag='open'
         td_tag = False
         TDstate_tag = None 
+        run_nac = False
         if targetstate != 0:
             td_tag = True
             if SpinMulti == 1:
@@ -571,6 +607,9 @@ class GaussianDFTRun:
         if 'fluor' in option_dict:
                del option_dict['fluor'] 
                option_dict['opt'] = True
+        if 'nac' in option_dict:
+                del option_dict['nac']
+                run_nac = True
         if 'tadf' in option_dict:
                del option_dict['tadf'] 
                option_dict['opt'] = True
@@ -733,6 +772,17 @@ class GaussianDFTRun:
                 self.make_input(JobName, TotalCharge, SpinMulti, 
                                 run_type='', TDDFT=True, 
                                 readchk='all', solvent=self.solvent) 
+
+            if run_nac:
+                self.make_input(
+                JobName, TotalCharge, SpinMulti, scf=scf_tag,
+                run_type='nac',
+                TDDFT=True, TDstate=TDstate_tag, target=targetstate,
+                nac=True,
+                Newinput=False, readchk='all',
+                solvent=self.solvent,
+                )
+
 
     def SpinMulti_scan(self, JobName,  ReadFrom, GivenSpinMulti, TotalCharge, atm, X, Y, Z, targetstate=0, TDstate_info=[]):
         print('Try to optimize the spin state of the ground state!')
@@ -1015,6 +1065,11 @@ class GaussianDFTRun:
                     TargetStates.append(1)
                     TargetSpinMulti.append(SpinMulti)
                     TargetTotalCharge.append(TotalCharge)
+            elif option.lower() == 'nac':
+                option_dict['nac'] = True
+                if len(job_eachState) < 2 or 'fluor' not in job_eachState[-1]:
+                    raise ValueError("'nac' requires 'fluor' (e.g. fluor=1 nac).")
+                job_eachState[len(job_eachState)-1]['nac'] = True
             elif option.lower() == 'tadf':
                 option_dict['uv'] = True
                 job_eachState[0]['uv'] = True
@@ -1459,6 +1514,11 @@ class GaussianDFTRun:
                                     element=atm, atomX=X, atomY=Y, atomZ=Z, optoption=optoption, TDstate_info=TDstate_info)
             
                 job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe, self.error)
+                # Exe_Gaussian may return the final Link1 job type (e.g. "nac")
+                # although Gaussian completed successfully.  Keep status and
+                # job type separate so fluorescence is not marked unsuccessful.
+                if self._normal_termination(JobNameState):
+                    job_state = "normal"
                 print (job_state)
                 # When the scf is performed, the obtained wavefunction is saved to chk file.
                 # But for 'symm' and 'volume' that information is emply except for when the input is chk or fchk files.
@@ -1604,5 +1664,3 @@ if __name__ == '__main__':
 
     newchk = JobName+'_exopt'
     test_sdf.make_input(JobName, 0, 1, run_type='opt', Newinput=False, TDDFT=True, TDstate=None, target=3, readchk='all', newchk=newchk)
-
-

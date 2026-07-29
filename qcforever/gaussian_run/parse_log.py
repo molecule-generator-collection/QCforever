@@ -533,6 +533,23 @@ class parse_log:
     
         return polar_tens, iso_values, aniso_values
 
+    def Extract_NAC(self, lines):
+    
+        pattern = r"Cartesian Nonad\. Coup\.\s*:\s*Max\s+([0-9.]+)\s+RMS\s+([0-9.]+)"
+
+        max_val = None
+        rms_val = None
+        for line in lines:
+            match = re.search(pattern, line)
+            if match:
+                print('NAC information was found!')
+                max_val = float(match.group(1))
+                rms_val = float(match.group(2))
+            else:
+                pass
+
+        return max_val, rms_val
+
     def classify_task(self, lines, charge, spinmulti):
         count = 0
         GScharge = 0
@@ -563,30 +580,28 @@ class parse_log:
                         job_index['state_0'] = i
                     if re.search(r'\sOpt', lines[i]) and re.search(r'\sTD', lines[i]) and re.search('Singlet', lines[i]):
                         is_fluor = True
-                        match_root = re.search(r'\s+root=\d+', lines[i])
+                        match_root = re.search(r'root=(\d+)', lines[i])
                         if match_root:    
-                            root_line = match_root.group().split('=')
-                            target = root_line[1]
+                            target = match_root.group(1)
                         #job_index[f'relaxAEstate{target}_line'] = i
                         job_index['ts'] = i
                         job_index['relaxAEstate'] = i
                         job_index[f'state_{target}'] = i
                     if re.search(r'\sOpt', lines[i]) and re.search(r'\sTD', lines[i]) and re.search('Triplet', lines[i]):
                         is_tadf = True
-                        match_root = re.search(r'\s+root=\d+', lines[i])
+                        match_root = re.search(r'root=(\d+)', lines[i])
                         if match_root:    
-                            root_line = match_root.group().split('=')
-                            target = root_line[1]
+                            target = match_root.group(1)
                         #job_index[f'relaxFEstate{target}_line'] = i
                         job_index['ts'] = i
                         job_index['relaxFEstate'] = i
                         job_index[f'state_{target}'] = i
                     if re.search(r'\sOpt', lines[i]) and re.search(r'\sTD', lines[i]) and re.search('Singlet', lines[i]) == None and re.search('Triplet', lines[i]) == None: 
                         is_fluor = True
-                        match_root = re.search(r'\s+root=', lines[i])
+                        match_root = re.search(r'root=(\d+)', lines[i])
                         if match_root:    
-                            root_line = match_root.group().split('=')
-                            target = root_line[1]
+                            target = match_root.group(1)
+                            print(target)
                         job_index['ts'] = i
                         job_index['relaxAEstate'] = i
                         job_index[f'state_{target}'] = i
@@ -626,6 +641,14 @@ class parse_log:
                 if re.search(r'\sTD', lines[i]) and re.search(r'\sOpt', lines[i]) == None:
                     is_uv = True
                     job_index['uv_line'] = i
+                if re.search(r'\sTD', lines[i]) and re.search('NAC', lines[i]):
+                    is_nac = True
+                    match_root = re.search(r'root=(\d+)', lines[i])
+                    if match_root:    
+                        target = match_root.group(1)
+                    job_index['ts'] = i
+                    job_index['NAC'] = i
+                    job_index[f'state_{target}'] = i
     
         count = 0
     
@@ -703,7 +726,7 @@ if __name__ == '__main__':
         lines = Links_split[job_index['uv_line']] 
         _, _, _, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
             CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden, \
-            mu_allowed, mu_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden = parselog.Extract_ExcitedState(lines)
+            mu_allowed, mu_forbidden, mm_allowed, mm_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden = parselog.Extract_ExcitedState(lines)
         output["uv"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
         output["state_index"] = [State_allowed, State_forbidden]
         output["CD_mu"] = [mu_allowed, mu_forbidden]
@@ -712,9 +735,11 @@ if __name__ == '__main__':
 
     if 'relaxAEstate' in job_index:
         lines = Links_split[job_index['relaxAEstate']] 
+
+
         S_Found, S_Egrd, S_Eext, State_allowed, State_forbidden, WL_allowed, WL_forbidden, OS_allowed, OS_forbidden, \
             CD_L_allowed, CD_L_forbidden, CD_OS_allowed, CD_OS_forbidden, \
-            mu_allowed, mu_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden = parselog.Extract_ExcitedState(lines)
+            mu_allowed, mu_forbidden, mm_allowed, mm_forbidden, theta_allowed, theta_forbidden, g_allowed, g_forbidden = parselog.Extract_ExcitedState(lines)
         # For Check internal coordinate
         output["MinEtarget"] = S_Eext
         output["fluor"] = [WL_allowed, OS_allowed, CD_L_allowed, CD_OS_allowed]
@@ -722,6 +747,12 @@ if __name__ == '__main__':
         output["CPL_mu"] = mu_allowed 
         output["CPL_theta"] = theta_allowed
         output["CPL_g"] = g_allowed
+
+
+    if 'NAC' in job_index:
+        lines = Links_split[job_index['NAC']] 
+        NAC_Max, NAC_rms = parselog.Extract_NAC(lines)
+        output["NAC"] = [NAC_Max, NAC_rms ]
 
     print (output)
 
