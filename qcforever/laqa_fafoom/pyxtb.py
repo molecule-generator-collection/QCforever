@@ -26,7 +26,7 @@ class xTBObject():
             jobtype    (default='opt')
             gfn        (default=2)
             charge     (default=0)
-            mult       (default=0)
+            mult       (default=1)
             optsteps   (default=500)
             solvmethod (default=None)
             solvent    (default='water')
@@ -96,7 +96,7 @@ class xTBObject():
         else:
             com_xtb = self.xtb_call \
                       + ' --gfn{:>2} xtbin.xyz --chrg {} --uhf {} --opt --cycles {}'\
-                          .format(self.gfn, self.charge, self.mult, self.optsteps)
+                          .format(self.gfn, self.charge, self.mult-1, self.optsteps)
             if self.solvmethod is not None :
                 com_xtb += ' --alpb {}'.format(self.solvent)
             xtb = subprocess.Popen(com_xtb, stdout=subprocess.PIPE, shell=True)
