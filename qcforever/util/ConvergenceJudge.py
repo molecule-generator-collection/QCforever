@@ -89,6 +89,14 @@ class ConvergenceJudge:
         force_ratio = recent_F[-1] / recent_F[0]
         disp_ratio = recent_D[-1] / recent_D[0]
 
+        # Geometry optimizations do not necessarily improve monotonically.
+        # Allow one temporary increase in the five-step window and regard the
+        # displacement as decreasing only when the total decrease is meaningful.
+        disp_decrease_fraction = np.mean(np.diff(recent_D) < 0)
+        displacement_is_decreasing = (
+            disp_ratio < 0.7 and disp_decrease_fraction >= 0.75
+        )
+
 
         if self.NStates > 1:
            PossibleCIX =  self.StateCross()
@@ -97,9 +105,27 @@ class ConvergenceJudge:
 
 
         #
-        # 1. Stagnation
+        # 1. Good progress
         #
-        if recent_F[-1] < 2e-4 and recent_D[-1] > 1e-3:
+        # Check this before stagnation: close to a minimum, both energy and
+        # force can already be small while the optimizer is still reducing
+        # the displacement.
+        #
+        if force_ratio < 0.5 and displacement_is_decreasing:
+
+            return (
+                "converging",
+                0.8,
+                "Force and displacement show sustained decrease."
+            )
+
+        #
+        # 2. Stagnation
+        #
+        # A small energy change alone is not stagnation.  Only report it when
+        # the displacement has failed to make meaningful recent progress.
+        if (recent_F[-1] < 2e-4 and recent_D[-1] > 1e-3
+                and not displacement_is_decreasing):
 
             if mean_dE < 1e-5:
 
@@ -110,7 +136,7 @@ class ConvergenceJudge:
                 )
 
         #
-        # 2. Diverse
+        # 3. Diverse
         #
         if force_ratio > 2.0 and np.any(np.sign(dE[:-1]) != np.sign(dE[1:])) :
 
@@ -121,7 +147,7 @@ class ConvergenceJudge:
             )
 
         #
-        # 3. Vibration
+        # 4. Vibration
         #
         if np.std(recent_E) > 1e-3 and force_ratio > 0.8:
 
@@ -129,17 +155,6 @@ class ConvergenceJudge:
                 "oscillation",
                 0.3,
                 "Energy oscillation detected."
-            )
-
-        #
-        # 4. Good
-        #
-        if force_ratio < 0.5 and disp_ratio < 0.5:
-
-            return (
-                "converging",
-                0.8,
-                "Force and displacement are decreasing."
             )
 
         #
