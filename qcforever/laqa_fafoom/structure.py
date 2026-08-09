@@ -54,6 +54,8 @@ class MoleculeDescription:
         dict_default = {'rmsd_type': "cartesian", 'distance_cutoff_1': 1.3,
                         'distance_cutoff_2': 2.15, 'rmsd_cutoff_uniq': 0.2,
                         'chiral': True, 'optimize_torsion': True,
+                        'template_max_attempts': 20,
+                        'template_opt_steps': 200,
                         'smarts_torsion':
                         "[*]~[!$(*#*)&!D1]-&!@[!$(*#*)&!D1]~[*]"}
 
@@ -125,11 +127,14 @@ class MoleculeDescription:
                     print(f"The degree to optimize: {str(type_of_dof)} hasn't been found.")
         setattr(self, "dof_names", dof_names)
 
-    def create_template_sdf(self):
+    def create_template_sdf(self, random_seed=None):
         """Assign new attribute (template_sdf_string) to the object."""
         self.template_sdf_string = laqa_fafoom.get_parameters.template_sdf(self.smiles,
                                                 self.distance_cutoff_1,
-                                                self.distance_cutoff_2)
+                                                self.distance_cutoff_2,
+                                                self.template_max_attempts,
+                                                self.template_opt_steps,
+                                                random_seed)
 
 
 class Structure:

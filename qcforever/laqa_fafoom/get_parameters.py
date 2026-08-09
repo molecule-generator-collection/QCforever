@@ -102,30 +102,58 @@ def create_dof_object(type_of_deg, positions):
         return laqa_fafoom.deg_of_freedom.PyranoseRing(positions)
 
 
-def template_sdf(smiles, distance_cutoff_1, distance_cutoff_2):
-    """Create a template sdf string and writes it to file.
+def template_sdf(smiles, distance_cutoff_1, distance_cutoff_2,
+                 max_attempts=20, opt_steps=200, random_seed=None):
+    """Create and return a validated 3D template as an SDF string.
 
     Args(required):
         smiles (str): one-line representation of the molecule
     Args(optional):
         distance_cutoff_1 (float): min distance between non-bonded atoms [A]
         distance_cutoff_2 (float): max distance between bonded atoms [A]
+        max_attempts (int): maximum number of embedding attempts
+        opt_steps (int): maximum UFF steps after each successful embedding
+        random_seed (int): base seed used for reproducible embedding
     Returns:
         sdf string
     """
-    cnt = 0
-    sdf_check = True
-    while sdf_check:
-        mol = Chem.MolFromSmiles(smiles)
-        mol = Chem.AddHs(mol)
-        AllChem.EmbedMolecule(mol,useRandomCoords=True)
-        AllChem.UFFOptimizeMolecule(mol, maxIters=1000)
-        Chem.SDWriter('mol.sdf').write(mol)
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be at least 1")
+    if opt_steps < 0:
+        raise ValueError("opt_steps must not be negative")
+
+    base_mol = Chem.MolFromSmiles(smiles)
+    if base_mol is None:
+        raise ValueError("The smiles is invalid")
+    base_mol = Chem.AddHs(base_mol)
+
+    # ETKDG normally produces a chemically sensible starting geometry much
+    # faster than unconstrained random coordinates.  Random coordinates are
+    # retained as a fallback for difficult macrocycles and crowded molecules.
+    for attempt in range(max_attempts):
+        mol = Chem.Mol(base_mol)
+        embed_params = AllChem.ETKDGv3()
+        embed_params.useRandomCoords = attempt > 0
+        if random_seed is not None:
+            embed_params.randomSeed = (int(random_seed) + attempt) % 2147483647
+
+        if AllChem.EmbedMolecule(mol, embed_params) != 0:
+            continue
+
+        if opt_steps:
+            try:
+                AllChem.UFFOptimizeMolecule(mol, maxIters=int(opt_steps))
+            except (RuntimeError, ValueError):
+                # Some atom types are unsupported by UFF.  The embedded
+                # geometry can still be usable, so validate it below.
+                pass
+
         sdf_string = Chem.MolToMolBlock(mol)
-        check = laqa_fafoom.utilities.check_geo_sdf(sdf_string, distance_cutoff_1, distance_cutoff_2)
-        if check:
-            sdf_check = False
-            Chem.SDWriter('mol.sdf').write(mol)
-        else:
-            cnt += 1
-    return sdf_string
+        if laqa_fafoom.utilities.check_geo_sdf(
+                sdf_string, distance_cutoff_1, distance_cutoff_2):
+            return sdf_string
+
+    raise RuntimeError(
+        "Could not generate a valid 3D template after "
+        f"{max_attempts} attempts for SMILES: {smiles}"
+    )

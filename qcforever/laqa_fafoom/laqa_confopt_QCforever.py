@@ -42,9 +42,15 @@ def LAQA_confopt_main(infilename, TotalCharge, SpinMulti, method, nproc, mem):
     print(f"Wall time of LAQA conformation optimization job: {t_laqaopt_end - t_laqaopt_bgn:20.2f} sec.")
 
 
-def make_laqa_input(SMILES, SpinMulti, TotalCharge, RotBond, method, nproc, mem):
+def make_laqa_input(SMILES, SpinMulti, TotalCharge, RotBond, method, nproc, mem,
+                    max_popsize=30):
 
-    Num_popsize = 3*RotBond
+    if max_popsize < 1:
+        raise ValueError("max_popsize must be at least 1")
+    # The former 3*N rule was unbounded and made initialization prohibitively
+    # expensive for flexible molecules.  Keep the rule for small molecules,
+    # but guarantee a population for rigid molecules and cap its growth.
+    Num_popsize = min(max(3 * RotBond, 1), max_popsize)
 
     input_s = ''
 
@@ -78,5 +84,3 @@ def make_laqa_input(SMILES, SpinMulti, TotalCharge, RotBond, method, nproc, mem)
     with open('laqa_setting.inp', 'w') as laqa_infile:
         
             laqa_infile.write(input_s)
-
-

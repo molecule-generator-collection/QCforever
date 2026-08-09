@@ -25,7 +25,7 @@ def LAQA_initgeom(param_file, SMILES=""):
                     'iter_limit_conv': 20, 'energy_diff_conv': 0.001,
                     'cnt_max': 500, 'seed': None,
                     'energy_function': 'ff',
-                    'force_field': 'uff', 'optsteps': 1000,
+                    'force_field': 'uff', 'optsteps': 200,
                     'energy_tol': 1.0e-6, 'force_tol': 1.0e-4,
                     'xtb_call': 'xtb', 'gfn': '2',
                     'gauss_exedir': '~/bin/g16', 'gauss_scrdir': os.getcwd(),
@@ -65,7 +65,7 @@ def LAQA_initgeom(param_file, SMILES=""):
     # Assign the permanent attributes to the molecule.
 
     mol.get_parameters()
-    mol.create_template_sdf()
+    mol.create_template_sdf(random_seed=seed)
     if printlevel > 0:
         print(mol.template_sdf_string)
 
