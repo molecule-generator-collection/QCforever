@@ -58,18 +58,18 @@ class GaussianDFTRun:
 
         return scf_need
 
-    @staticmethod
-    def _normal_termination(jobname):
-        """Return whether the final Gaussian Link1 job terminated normally."""
-        try:
-            with open(f"{jobname}.log", encoding="utf-8", errors="replace") as logfile:
-                logtext = logfile.read()
-            return (
-                logtext.rfind("Normal termination of Gaussian")
-                > logtext.rfind("Error termination")
-            )
-        except OSError:
-            return False
+    #@staticmethod
+    #def _normal_termination(jobname):
+    #    """Return whether the final Gaussian Link1 job terminated normally."""
+    #    try:
+    #        with open(f"{jobname}.log", encoding="utf-8", errors="replace") as logfile:
+    #            logtext = logfile.read()
+    #        return (
+    #            logtext.rfind("Normal termination of Gaussian")
+    #            > logtext.rfind("Error termination")
+    #        )
+    #    except OSError:
+    #        return False
 
     def Extract_values(self, jobname, option_dict, Bondpair1, Bondpair2):
         """
@@ -1517,9 +1517,9 @@ class GaussianDFTRun:
                 # Exe_Gaussian may return the final Link1 job type (e.g. "nac")
                 # although Gaussian completed successfully.  Keep status and
                 # job type separate so fluorescence is not marked unsuccessful.
-                if self._normal_termination(JobNameState):
-                    job_state = "normal"
-                print (job_state)
+                #if self._normal_termination(JobNameState):
+                #    job_state = "normal"
+                #print (job_state)
                 # When the scf is performed, the obtained wavefunction is saved to chk file.
                 # But for 'symm' and 'volume' that information is emply except for when the input is chk or fchk files.
                 if scf_need or ReadFrom=='chk':
@@ -1535,12 +1535,18 @@ class GaussianDFTRun:
                     output_prop = self.Extract_values(JobNameState, job_thisstate, Bondpair1, Bondpair2)
                     output_dic[i].update(output_prop)
                     output_dic[i][f'log_{i}'] = job_state
+                #except Exception as e:
+                #    print(e)
+                #    job_state = f"{e}"
+                #    output_dic[i][f'log_{i}'] = job_state
+                #    break
                 except Exception as e:
                     print(e)
-                    job_state = f"{e}"
-                    output_dic[i][f'log_{i}'] = job_state
+                    output_dic[i][f"log_{i}"] = "error"
+                    output_dic[i][f"error_{i}"] = (
+                        f"{type(e).__name__}: {e}"
+                    )
                     break
-                    #pass
             
                 # for pka computation
                 if 'pka' in job_thisstate:
@@ -1599,24 +1605,67 @@ class GaussianDFTRun:
 
         logs = []
 
+        #for key in keylist:
+        #    if not re.match(r'log', key):
+        #        continue
+        #
+        #    status = output_sum[key]
+        #
+        #    if status in messages:
+        #        logs.append(messages[status])
+
         for key in keylist:
-            if not re.match(r'log', key):
+            if not re.fullmatch(r"log_\d+", key):
                 continue
 
             status = output_sum[key]
 
-            if status in messages:
-                logs.append(messages[status])
+            if status == "normal":
+                continue
+
+            logs.append(
+                messages.get(
+                    status,
+                    f"Unexpected job state: {status}! "
+                )
+            )
 
         output_sum['log'] = ''.join(logs) if logs else 'normal'
 
 
-        if output_sum['log'] == 'normal' and 'fluor' in option_dict and 'opt' in option_dict and 'energy' in option_dict:
-            print(output_sum['MinEtarget'])
-            print(output_sum['Energy'][0])
-            output_sum['E0-0'] = Eh2eV*(output_sum['MinEtarget']-output_sum['Energy'][0])
+        #if output_sum['log'] == 'normal' and 'fluor' in option_dict and 'opt' in option_dict and 'energy' in option_dict:
+        #    print(output_sum['MinEtarget'])
+        #    print(output_sum['Energy'][0])
+        #    output_sum['E0-0'] = Eh2eV*(output_sum['MinEtarget']-output_sum['Energy'][0])
+        #else:
+        #    pass
+
+        needs_e00 = (
+            "fluor" in option_dict
+            and "opt" in option_dict
+            and "energy" in option_dict
+        )
+
+        if output_sum["log"] == "normal" and needs_e00:
+            missing = [
+                key for key in ("MinEtarget", "Energy")
+                if key not in output_sum
+            ]
+
+        if missing:
+                output_sum["log"] = (
+                    "Value extraction failed! "
+                    f"Missing result: {', '.join(missing)}"
+                )
+        elif not output_sum["Energy"]:
+                output_sum["log"] = (
+                "Value extraction failed! Energy is empty."
+                )
         else:
-            pass
+            output_sum["E0-0"] = Eh2eV * (
+            output_sum["MinEtarget"]
+            - output_sum["Energy"][0]
+            )
 
         #Save as pickle
         if self.pklsave:

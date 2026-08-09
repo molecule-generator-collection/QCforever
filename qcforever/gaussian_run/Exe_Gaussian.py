@@ -123,10 +123,11 @@ def exe_Gaussian(jobname, exe_time, error=0):
     all_finished = (Njob == NFinishedJob)
     no_error = (is_error == 0)
 
-    if all_finished and no_error:
-        job_state = "normal"
-    elif not job_state:
-        job_state = "abnormal"
+    if not job_state:
+        if all_finished and no_error:
+            job_state = "normal"
+        else:
+            job_state = "abnormal"
 
     '''
     if Njob == NFinishedJob and is_error == 0:
