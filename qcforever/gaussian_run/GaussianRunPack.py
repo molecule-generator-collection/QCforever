@@ -1652,20 +1652,20 @@ class GaussianDFTRun:
                 if key not in output_sum
             ]
 
-        if missing:
+            if missing:
                 output_sum["log"] = (
                     "Value extraction failed! "
                     f"Missing result: {', '.join(missing)}"
                 )
-        elif not output_sum["Energy"]:
+            elif not output_sum["Energy"]:
                 output_sum["log"] = (
-                "Value extraction failed! Energy is empty."
+                    "Value extraction failed! Energy is empty."
                 )
-        else:
-            output_sum["E0-0"] = Eh2eV * (
-            output_sum["MinEtarget"]
-            - output_sum["Energy"][0]
-            )
+            else:
+                output_sum["E0-0"] = Eh2eV * (
+                    output_sum["MinEtarget"]
+                    - output_sum["Energy"][0]
+                )
 
         #Save as pickle
         if self.pklsave:
