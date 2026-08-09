@@ -561,6 +561,15 @@ class GamessDFTRun:
             else:
                 print('invalid option: ', option)
 
+        self.mem = check_resource.respec_memory(
+            spec_memory=self.mem,
+            atoms=Mol_atom,
+            basis=self.basis,
+            total_charge=TotalCharge,
+            nproc=self.nproc,
+            options=option_dict.keys(),
+        )
+
         output_dic = {}
         # Make work directory and move to the directory
         pwd = os.getcwd()
@@ -759,5 +768,3 @@ if __name__ == '__main__':
     test_sdf = GamessDFTRun('B3LYP', '3-21g*',8, 'opt',infilename,0)
 
     test_sdf.run_gamess()
-
-

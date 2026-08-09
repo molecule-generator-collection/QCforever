@@ -67,6 +67,11 @@ and [KTLC- series](https://doi.org/10.1021/acs.jctc.3c00764) (`KTLC-BLYP-BO`, `K
 
 - ***ncore*** is an integer to specify the number of core for QC with Gaussian.
 
+- Memory is estimated from the molecular basis functions, number of electrons,
+  calculation options, and available system memory. The estimate is written to
+  the Gaussian or GAMESS input automatically. To override it, set a value such
+  as `test.mem = "4GB"` before calling `run_gaussian()` or `run_gamess()`.
+
 - ***option*** is a string for specifying molecular properties as explained later.
 
 - ***input_file*** is a string to specify the input file.

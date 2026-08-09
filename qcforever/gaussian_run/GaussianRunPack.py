@@ -1161,6 +1161,15 @@ class GaussianDFTRun:
             else:
                 print('Invalid option: ', option)
 
+        self.mem = check_resource.respec_memory(
+            spec_memory=self.mem,
+            atoms=atm,
+            basis=self.basis,
+            total_charge=TotalCharge,
+            nproc=self.nproc,
+            options=option_dict.keys(),
+        )
+
         # Make work directory and move to the directory
         pwd = os.getcwd()
         print(f'Current dir: {pwd}')
