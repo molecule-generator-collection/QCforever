@@ -2,7 +2,7 @@
 
 ![Robot2+PC](https://user-images.githubusercontent.com/46772738/188896764-65ab12c1-3cc9-421d-8d87-ed33c932380a.png)
 
-QCforever (https://doi.org/10.1021/acs.jcim.2c00812) is a wrapper of Gaussian (https://gaussian.com) or GAMESS (https://www.msg.chem.iastate.edu/gamess/). 
+QCforever (https://doi.org/10.1021/acs.jcim.2c00812, https://doi.org/10.1002/jcc.70017) is a wrapper of Gaussian (https://gaussian.com) or GAMESS (https://www.msg.chem.iastate.edu/gamess/). 
 To compute obsevable properties of a molecule through quantum chemical computation (QC),
 multi step computation is demanded. 
 QCforever automates this process and calculates multiple physical properties of molecules simultaneously.
@@ -23,6 +23,7 @@ Grey-box optimisation (LAQA (https://doi.org/10.1021/acs.jctc.1c00301)) can also
 ## Optional
 
 1. [xtb](https://github.com/grimme-lab/xtb/tree/v6.6.1)==6.6.1
+2. [basis-set-exchange](https://pypi.org/project/basis-set-exchange/)=0.12
 
 ## How to use
 
@@ -114,6 +115,7 @@ Following options are currently available:
 |aip| adiabatic ionization energy (in eV)|:white_check_mark:|:white_check_mark:|
 |aea| adiabatic electronic affinity (in eV)|:white_check_mark:|:white_check_mark:|
 |fluor| wavelength (in nm) of fluorescence are computed. if you want to specify the state that emits fluorescence, you can specify the index of state like “fluor=#” (# is an integer, default is “fluor=1”)|:white_check_mark:|:white_check_mark:|
+|nac| Max and rms values of non adiabatic coupling vector (use with fluor option) |:white_check_mark:||
 |tadf| Compute the energy gap (in Eh) between minimum in the spin allowed state and the spin forbidden state.|:white_check_mark:||
 |freq| Compute the variable related to the vibrational analysis of a molecule. IR, Raman, etc|:white_check_mark:|:white_check_mark:|
 |pka| Compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species. The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydrogen.|:white_check_mark:||
