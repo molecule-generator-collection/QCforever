@@ -8,12 +8,15 @@ def _write(path, text="data"):
     path.write_text(text)
 
 
-def test_gaussian_cleanup_keeps_only_restart_and_requested_pickle(tmp_path):
+def test_gaussian_cleanup_keeps_restart_input_output_and_requested_pickle(tmp_path):
     job_directory = tmp_path / "molecule"
     _write(job_directory / "state.chk")
     _write(job_directory / "state.fchk")
     _write(job_directory / "state.log")
+    _write(job_directory / "state.out")
     _write(job_directory / "state.com")
+    _write(job_directory / "state.gjf")
+    _write(job_directory / "fort.7")
     _write(job_directory / "molecule.pkl")
     _write(job_directory / "conformer" / "xtbopt.xyz")
 
@@ -22,6 +25,10 @@ def test_gaussian_cleanup_keeps_only_restart_and_requested_pickle(tmp_path):
     assert {path.name for path in job_directory.iterdir()} == {
         "state.chk",
         "state.fchk",
+        "state.log",
+        "state.out",
+        "state.com",
+        "state.gjf",
         "molecule.pkl",
     }
 
@@ -32,6 +39,7 @@ def test_gamess_cleanup_collects_dat_and_cleans_both_scratch_dirs(tmp_path):
     userscr = tmp_path / "userscr"
     _write(job_directory / "molecule.inp")
     _write(job_directory / "molecule.log")
+    _write(job_directory / "molecule.out")
     _write(job_directory / "molecule.pkl")
     _write(scr / "molecule.F05")
     _write(userscr / "molecule.dat", "restart")
@@ -49,6 +57,9 @@ def test_gamess_cleanup_collects_dat_and_cleans_both_scratch_dirs(tmp_path):
     assert {path.name for path in job_directory.iterdir()} == {
         "molecule.dat",
         "molecule_TD.dat",
+        "molecule.inp",
+        "molecule.log",
+        "molecule.out",
         "molecule.pkl",
     }
     assert not (scr / "molecule.F05").exists()
@@ -73,7 +84,10 @@ def test_gaussian_xyz_is_kept_only_when_selected_for_geometry_restart(tmp_path):
 
     job_cleanup.cleanup_gaussian(job_directory, preserve_xyz=True)
 
-    assert [path.name for path in job_directory.iterdir()] == ["state.xyz"]
+    assert {path.name for path in job_directory.iterdir()} == {
+        "state.xyz",
+        "state.log",
+    }
 
 
 def test_gamess_scratch_directories_use_final_assignment(tmp_path, monkeypatch):

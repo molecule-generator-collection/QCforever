@@ -31,15 +31,15 @@ def _clean_job_directory(job_directory, restart_suffixes, preserve_pickle=False)
 
 
 def cleanup_gaussian(job_directory, preserve_pickle=False, preserve_xyz=False):
-    """Keep Gaussian restart files and remove all other generated files."""
-    restart_suffixes = {".chk", ".fchk"}
+    """Keep Gaussian restart, input, and output files."""
+    preserved_suffixes = {".chk", ".fchk", ".com", ".gjf", ".log", ".out"}
     if preserve_xyz:
         # ``restart=False`` intentionally retains geometry rather than the
         # electronic checkpoint; an xyz can restart QCforever geometrically.
-        restart_suffixes.add(".xyz")
+        preserved_suffixes.add(".xyz")
     _clean_job_directory(
         job_directory,
-        restart_suffixes=restart_suffixes,
+        restart_suffixes=preserved_suffixes,
         preserve_pickle=preserve_pickle,
     )
 
@@ -113,6 +113,6 @@ def cleanup_gamess(
 
     _clean_job_directory(
         job_directory,
-        restart_suffixes={".dat"},
+        restart_suffixes={".dat", ".inp", ".log", ".out"},
         preserve_pickle=preserve_pickle,
     )
