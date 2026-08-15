@@ -1,0 +1,185 @@
+SMILES,Epsilon,Gaussian_Name,PubChem_Name,CID
+O,78.3553,Water,Water,962
+CC#N,35.688,Acetonitrile,Acetonitrile,6342
+CO,32.613,Methanol,Methanol,887
+CCO,24.852,Ethanol,Ethanol,702
+C1=CC=C2C=NC=CC2=C1,11.00,IsoQuinoline,Isoquinoline,8405
+C1=CC=C2C(=C1)C=CC=N2,9.16,Quinoline,Quinoline,7047
+C(Cl)(Cl)Cl,4.7113,Chloroform,Chloroform,6212
+CCOCC,4.2400,DiethylEther,Diethyl Ether,3283
+C(Cl)Cl,8.93,Dichloromethane,Dichloromethane,6344
+CC(Cl)Cl,10.125,DiChloroEthane,"1,1-Dichloroethane",6365
+C(Cl)(Cl)(Cl)Cl,2.2280,CarbonTetraChloride,Carbon Tetrachloride,5943
+C1=CC=CC=C1,2.2706,Benzene,Benzene,241
+CC1=CC=CC=C1,2.3741,Toluene,Toluene,1140
+C1=CC=C(C=C1)Cl,5.6968,ChloroBenzene,Chlorobenzene,7964
+C[N+](=O)[O-],36.562,NitroMethane,Nitromethane,6375
+CCCCCCC,1.9113,Heptane,Heptane,8900
+C1CCCCC1,2.0165,CycloHexane,Cyclohexane,8078
+C1=CC=C(C=C1)N,6.8882,Aniline,Aniline,6115
+CC(=O)C,20.493,Acetone,Acetone,180
+C1CCOC1,7.4257,TetraHydroFuran,Tetrahydrofuran,8028
+CS(=O)C,46.826,DiMethylSulfoxide,Dimethyl Sulfoxide,679
+[Ar],1.430,Argon,Argon,23968
+[Kr],1.519,Krypton,Krypton,5416
+[Xe],1.706,Xenon,Xenon,23991
+CCCCCCCCO,9.8629,n-Octanol,1-Octanol,957
+CC(Cl)(Cl)Cl,7.0826,"1,1,1-TriChloroEthane","1,1,1-Trichloroethane",6278
+C(C(Cl)Cl)Cl,7.1937,"1,1,2-TriChloroEthane","1,1,2-Trichloroethane",6574
+CC1=CC(=C(C=C1)C)C,2.3653,"1,2,4-TriMethylBenzene","1,2,4-Trimethylbenzene",7247
+C(CBr)Br,4.9313,"1,2-DiBromoEthane","1,2-Dibromoethane",7839
+C(CO)O,40.245,"1,2-EthaneDiol",Ethylene Glycol,174
+C1COCCO1,2.2099,"1,4-Dioxane","1,4-Dioxane",31275
+CC(C)CBr,7.7792,1-Bromo-2-MethylPropane,1-Bromo-2-methylpropane,6555
+CCCCCCCCBr,5.0244,1-BromoOctane,1-Bromooctane,8140
+CCCCCBr,6.269,1-BromoPentane,1-Bromopentane,8057
+CCCBr,8.0496,1-BromoPropane,1-Bromopropane,7840
+CCCCO,17.332,1-Butanol,1-Butanol,263
+CCCCCCCl,5.9491,1-ChloroHexane,1-Chlorohexane,10992
+CCCCCCl,6.5022,1-ChloroPentane,1-Chloropentane,10977
+CCCCl,8.3548,1-ChloroPropane,1-Chloropropane,10899
+CCCCCCCCCCO,7.5305,1-Decanol,1-Decanol,8174
+CCCCCCCCF,3.89,1-FluoroOctane,1-Fluorooctane,10027
+CCCCCCCO,11.321,1-Heptanol,Heptanol,8129
+CCCCCCO,12.51,1-Hexanol,1-Hexanol,8103
+CCCCC=C,2.0717,1-Hexene,1-Hexene,11597
+CCCCC#C,2.615,1-Hexyne,1-Hexyne,12732
+CCCCI,6.173,1-IodoButane,Butyl iodide,10962
+CCCCCCCCCCCCCCCCI,3.5338,1-IodoHexaDecane,1-Iodohexadecane,11007
+CCCCCI,5.6973,1-IodoPentane,1-Iodopentane,12335
+CCCI,6.9626,1-IodoPropane,1-Iodopropane,33643
+CCC[N+](=O)[O-],23.73,1-NitroPropane,1-Nitropropane,7903
+CCCCCCCCCO,8.5991,1-Nonanol,1-Nonanol,8914
+CCCCCO,15.13,1-Pentanol,1-Pentanol,6276
+CCCC=C,1.9905,1-Pentene,1-Pentene,8004
+CCCO,20.524,1-Propanol,1-Propanol,1031
+C(C(F)(F)F)O,26.726,"2,2,2-TriFluoroEthanol","2,2,2-Trifluoroethanol",6409
+CC(C)CC(C)(C)C,1.9358,"2,2,4-TriMethylPentane","2,2,4-Trimethylpentane",10907
+CC(C)CC(C)C,1.8939,"2,4-DiMethylPentane","2,4-Dimethylpentane",7907
+CC1=CC(=NC=C1)C,9.4176,"2,4-DiMethylPyridine","2,4-Dimethylpyridine",7936
+CC1=NC(=CC=C1)C,7.1735,"2,6-DiMethylPyridine","2,6-Lutidine",7937
+CC(C)Br,9.3610,2-BromoPropane,2-Bromopropane,6358
+CCC(C)O,15.944,2-Butanol,(+-)-2-Butanol,6568
+CCC(C)Cl,8.3930,2-ChloroButane,2-Chlorobutane,6563
+CCCCCC(=O)C,11.658,2-Heptanone,2-Heptanone,8051
+CCCCC(=O)C,14.136,2-Hexanone,2-Hexanone,11583
+COCCO,17.2,2-MethoxyEthanol,2-Methoxyethanol,8019
+CC(C)CO,16.777,2-Methyl-1-Propanol,Isobutanol,6560
+CC(C)(C)O,12.47,2-Methyl-2-Propanol,tert-Butanol,6386
+CCCC(C)C,1.89,2-MethylPentane,2-Methylpentane,7892
+CC1=CC=CC=N1,9.9533,2-MethylPyridine,2-Methylpyridine,7975
+CC(C)[N+](=O)[O-],25.654,2-NitroPropane,2-Nitropropane,398
+CCCCCCC(=O)C,9.4678,2-Octanone,2-Octanone,8093
+CCCC(=O)C,15.200,2-Pentanone,2-Pentanone,7895
+CC(C)O,19.264,2-Propanol,Isopropanol,3776
+C=CCO,19.011,2-Propen-1-ol,Allyl Alcohol,7858
+CC1=CN=CC=C1,11.645,3-MethylPyridine,3-Methylpyridine,7970
+CCC(=O)CC,16.78,3-Pentanone,Ethyl ketone,7288
+CCCC(=O)CCC,12.257,4-Heptanone,4-Heptanone,31246
+CC(C)CC(=O)C,12.887,4-Methyl-2-Pentanone,Methyl Isobutyl Ketone,7909
+CC1=CC=NC=C1,11.957,4-MethylPyridine,4-Methylpyridine,7963
+CCCCC(=O)CCCC,10.6,5-Nonanone,5-Nonanone,10405
+CC(=O)O,6.2528,AceticAcid,Acetic Acid,176
+CC(=O)C1=CC=CC=C1,17.44,AcetoPhenone,Acetophenone,7410
+C1=CC=C(C=C1)CCl,6.7175,a-ChloroToluene,Benzyl Chloride,7503
+COC1=CC=CC=C1,4.2247,Anisole,Anisole,7519
+C1=CC=C(C=C1)C=O,18.220,Benzaldehyde,Benzaldehyde,240
+C1=CC=C(C=C1)C#N,25.592,BenzoNitrile,Benzonitrile,7505
+C1=CC=C(C=C1)CO,12.457,BenzylAlcohol,Benzyl Alcohol,244
+C1=CC=C(C=C1)Br,5.3954,BromoBenzene,Bromobenzene,7961
+CCBr,9.01,BromoEthane,Ethyl Bromide,6332
+C(Br)(Br)Br,4.2488,Bromoform,Bromoform,5558
+CCCC=O,13.45,Butanal,Butanal,261
+C1=CN=C(C=C1CO)C2=NC=CC(=C2)CO,2.9931,ButanoicAcid,"4,4'-Bis(hydroxymethyl)-2,2'-bipyridine",11160239
+CCC(=O)C,18.246,Butanone,Methyl Ethyl Ketone,6569
+CCCC#N,24.291,ButanoNitrile,Butyronitrile,8008
+CCCCN,4.6178,ButylAmine,Butylamine,8007
+CCCCOC(=O)C,4.9941,ButylEthanoate,Butyl Acetate,31272
+C(=S)=S,2.6105,CarbonDiSulfide,Carbon Disulfide,6348
+CC1CCCCC1C,2.06,"Cis-1,2-DiMethylCycloHexane","1,2-Dimethylcyclohexane, cis-",16628
+C1CC[C@H]2CCCC[C@@H]2C1,2.2139,Cis-Decalin,Decalin,7044
+C1CCC(=O)CC1,15.619,CycloHexanone,Cyclohexanone,7967
+C1CCCC1,1.9608,CycloPentane,Cyclopentane,9253
+C1CCC(C1)O,16.989,CycloPentanol,Cyclopentanol,7298
+C1CCC(=O)C1,13.58,CycloPentanone,Cyclopentanone,8452
+C1CCC2CCCCC2C1,2.196,Decalin-mixture,None,None
+C(Br)Br,7.2273,DiBromomEthane,Dibromomethane,3024
+CCCCOCCCC,3.0473,DiButylEther,Butyl ether,8909
+CCNCC,3.5766,DiEthylAmine,Diethylamine,8021
+CCSCC,5.723,DiEthylSulfide,Ethyl sulfide,9609
+C(I)I,5.32,DiIodoMethane,Diiodomethane,6346
+CC(C)OC(C)C,3.38,DiIsoPropylEther,Diisopropyl Ether,7914
+CSSC,9.6,DiMethylDiSulfide,Dimethyl Disulfide,12232
+C1=CC=C(C=C1)OC2=CC=CC=C2,3.73,DiPhenylEther,Diphenyl Ether,7583
+CCCNCCC,2.9112,DiPropylAmine,Dipropylamine,8902
+C(=CCl)Cl,2.14,"e-1,2-DiChloroEthene","Trans-1,2-Dichloroethylene",638186
+CCC=CC,2.051,e-2-Pentene,trans-2-Pentene,5326161
+CCS,6.667,EthaneThiol,Ethanethiol,6343
+CCC1=CC=CC=C1,2.4339,EthylBenzene,Ethylbenzene,7500
+CCOC(=O)C,5.9867,EthylEthanoate,Ethyl Acetate,8857
+CCOC=O,8.3310,EthylMethanoate,Ethyl formate,8025
+CCOC1=CC=CC=C1,4.1797,EthylPhenylEther,Phenetole,7674
+C1=CC=C(C=C1)F,5.42,FluoroBenzene,Fluorobenzene,10008
+C(=O)N,108.94,Formamide,Formamide,713
+C(=O)O,51.1,FormicAcid,Formic Acid,284
+CCCCCC(=O)O,2.6,HexanoicAcid,Hexanoic Acid,8892
+C1=CC=C(C=C1)I,4.5470,IodoBenzene,Iodobenzene,11575
+CCI,7.6177,IodoEthane,Iodoethane,6340
+CI,6.8650,IodoMethane,Methyl iodide,6328
+CC(C)C1=CC=CC=C1,2.3712,IsoPropylBenzene,Cumene,7406
+CC1=CC(=CC=C1)O,12.44,m-Cresol,M-Cresol,342
+CC1=CC(=CC(=C1)C)C,2.2650,Mesitylene,Mesitylene,7947
+COC(=O)C1=CC=CC=C1,6.7367,MethylBenzoate,Methyl Benzoate,7150
+CCCC(=O)OC,5.5607,MethylButanoate,Methyl butyrate,12180
+CC1CCCCC1,2.024,MethylCycloHexane,Methylcyclohexane,7962
+CC(=O)OC,6.8615,MethylEthanoate,Methyl Acetate,6584
+COC=O,8.8377,MethylMethanoate,Methyl formate,7865
+CCC(=O)OC,6.0777,MethylPropanoate,Methyl propionate,11124
+CC1=CC(=CC=C1)C,2.3478,m-Xylene,M-Xylene,7929
+CCCCC1=CC=CC=C1,2.36,n-ButylBenzene,Butylbenzene,7705
+CCCCCCCCCC,1.9846,n-Decane,Decane,15600
+CCCCCCCCCCCC,2.0060,n-Dodecane,Dodecane,8182
+CCCCCCCCCCCCCCCC,2.0402,n-Hexadecane,Hexadecane,11006
+CCCCCC,1.8819,n-Hexane,Hexane,8058
+C1=CC=C(C=C1)[N+](=O)[O-],34.809,NitroBenzene,Nitrobenzene,7416
+CC[N+](=O)[O-],28.29,NitroEthane,Nitroethane,6587
+CNC1=CC=CC=C1,5.9600,n-MethylAniline,N-Methylaniline,7515
+CNC=O,181.56,n-MethylFormamide-mixture,None,None
+CC(=O)N(C)C,37.781,"n,n-DiMethylAcetamide",Dimethylacetamide,31374
+CN(C)C=O,37.219,"n,n-DiMethylFormamide",Dimethylformamide,6228
+CCCCCCCCC,1.9605,n-Nonane,Nonane,8141
+CCCCCCCC,1.9406,n-Octane,Octane,356
+CCCCCCCCCCCCCCC,2.0333,n-Pentadecane,Pentadecane,12391
+CCCCC,1.8371,n-Pentane,Pentane,8003
+CCCCCCCCCCC,1.9910,n-Undecane,Undecane,14257
+CC1=CC=CC=C1Cl,4.6331,o-ChloroToluene,2-Chlorotoluene,7238
+CC1=CC=CC=C1O,6.76,o-Cresol,O-Cresol,335
+C1=CC=C(C(=C1)Cl)Cl,9.9949,o-DiChloroBenzene,"1,2-Dichlorobenzene",7239
+CC1=CC=CC=C1[N+](=O)[O-],25.669,o-NitroToluene,2-Nitrotoluene,6944
+CC1=CC=CC=C1C,2.5454,o-Xylene,O-Xylene,7237
+CCCCC=O,10.0,Pentanal,Pentanal,8063
+CCCCC(=O)O,2.6924,PentanoicAcid,Pentanoic Acid,7991
+CCCCCN,4.2010,PentylAmine,Pentylamine,8060
+CCCCCOC(=O)C,4.7297,PentylEthanoate,Amyl Acetate,12348
+C1(=C(C(=C(C(=C1F)F)F)F)F)F,2.029,PerFluoroBenzene,Hexafluorobenzene,9805
+CC1=CC=C(C=C1)C(C)C,2.2322,p-IsoPropylToluene,P-Cymene,7463
+CCC=O,18.5,Propanal,Propanal,527
+CCC(=O)O,3.44,PropanoicAcid,Propionic Acid,1032
+CCC#N,29.324,PropanoNitrile,Propionitrile,7854
+CCCN,4.9912,PropylAmine,Propylamine,7852
+CCCOC(=O)C,5.5205,PropylEthanoate,Propyl Acetate,7997
+CC1=CC=C(C=C1)C,2.2705,p-Xylene,P-Xylene,7809
+C1=CC=NC=C1,12.978,Pyridine,Pyridine,1049
+CCC(C)C1=CC=CC=C1,2.3446,sec-ButylBenzene,Sec-Butylbenzene,8680
+CC(C)(C)C1=CC=CC=C1,2.3447,tert-ButylBenzene,Tert-Butylbenzene,7366
+C(=C(Cl)Cl)(Cl)Cl,2.268,TetraChloroEthene,Tetrachloroethylene,31373
+C1CCS(=O)(=O)C1,43.962,"TetraHydroThiophene-s,s-dioxide",Sulfolane,31347
+C1CCC2=CC=CC=C2C1,2.771,Tetralin,Tetralin,8404
+C1=CSC=C1,2.7270,Thiophene,Thiophene,8030
+C1=CC=C(C=C1)S,4.2728,Thiophenol,Thiophenol,7969
+C1CC[C@H]2CCCC[C@H]2C1,2.1781,trans-Decalin,Decalin,7044
+CCCCOP(=O)(OCCCC)OCCCC,8.1781,TriButylPhosphate,Tributyl Phosphate,31357
+C(=C(Cl)Cl)Cl,3.422,TriChloroEthene,Trichloroethylene,6575
+CCN(CC)CC,2.3832,TriEthylAmine,Triethylamine,8471
+Cc1ccccc1C.Cc1cccc(C)c1.Cc1ccc(C)cc1,2.3879,Xylene-mixture,None,None
+C(=CCl)Cl,9.2,"z-1,2-DiChloroEthene","cis-1,2-Dichloroethylene",643833

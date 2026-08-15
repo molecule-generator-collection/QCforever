@@ -21,7 +21,7 @@ PACKAGES = [
     'qcforever.util',
     'qcforever.laqa_fafoom']
 PACKAGE_DATA = {
-    'qcforever': ['gaussian_run/*.json'],
+    'qcforever': ['gaussian_run/*.json', 'gaussian_run/*.csv'],
 }
 CLASSIFIERS = [           
     'Intended Audience :: Science/Research',

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from qcforever import gaussian_run
 from qcforever.util import read_mol_file, check_resource, UV_similarity
+from qcforever.gaussian_run.solvent import resolve_gaussian_solvent
 #from qcforever.laqa_fafoom import laqa_confopt_sdf
 from qcforever.laqa_fafoom import laqa_confopt_QCforever
 
@@ -27,7 +28,7 @@ class GaussianDFTRun:
                 nproc, 
                 value, 
                 in_file, 
-                solvent="0", 
+                solvent=None,
                 error=0, 
                 restart=True, 
                 pklsave=False):
@@ -36,7 +37,10 @@ class GaussianDFTRun:
         self.basis = basis.lower()
         self.nproc = check_resource.respec_cores(nproc)
         self.value = value
-        self.solvent = solvent.lower()
+        # Validate before any Gaussian input or process can be created. Named
+        # solvents are normalized to the exact spelling expected by Gaussian;
+        # mapped SMILES are converted to that same name.
+        self.solvent = resolve_gaussian_solvent(solvent)
         self.restart = restart
         self.error = error
         self.pklsave = pklsave
@@ -363,19 +367,18 @@ class GaussianDFTRun:
     def MakeSolventLine(self):
         s = ''
         s_solvent = ''
+        if self.solvent is None or self.solvent == '0':
+            return s, s_solvent
         try:
             float(self.solvent)
         except ValueError:
             print('Solvent effect is included by PCM')
             s += f'SCRF=(PCM, solvent={self.solvent})\n'
         else:
-            if self.solvent == '0':
-                return s, s_solvent
-            else:
-                print('Solvent effect is included by PCM')
-                s += 'SCRF=(PCM, solvent=Generic, Read)\n'
-                s_solvent += f'EPS={self.solvent}\n'
-                s_solvent += f'Radii=UA0\n\n'
+            print('Solvent effect is included by PCM')
+            s += 'SCRF=(PCM, solvent=Generic, Read)\n'
+            s_solvent += f'EPS={self.solvent}\n'
+            s_solvent += f'Radii=UA0\n\n'
         return s, s_solvent
 
     def make_input(
@@ -383,7 +386,7 @@ class GaussianDFTRun:
         scf='open', run_type=None, optoption='', Newinput=False, 
         Mol_atom=[], X=[], Y=[], Z=[], geom_spec=False,
         TDDFT=False, TDstate=None, target=1, nac=False,
-        readchk=None, oldchk=None, newchk=None, solvent='0'):
+        readchk=None, oldchk=None, newchk=None, solvent=None):
 
         #Section for system control 
         line_system = ''
@@ -435,7 +438,8 @@ class GaussianDFTRun:
         #Section for solvent
         SCRF = ''
         SCRF_read = ''
-        if solvent != '0':
+        solvent = resolve_gaussian_solvent(solvent)
+        if solvent is not None and solvent != '0':
             self.solvent = solvent
             SCRF, SCRF_read = self.MakeSolventLine()
 
@@ -507,7 +511,7 @@ class GaussianDFTRun:
             if run_type == 'nmr':
                 input_s += 'NMR\n'
 
-            if solvent != '0':
+            if solvent is not None and solvent != '0':
                 input_s += SCRF
             
             #Get geometry and guess information
@@ -549,7 +553,7 @@ class GaussianDFTRun:
                 for j in range(len(Mol_atom)):
                     input_s += f'{Mol_atom[j]:4s} {X[j]: 10.5f}  {Y[j]: 10.5f} {Z[j]: 10.5f}\n'
                 input_s += '\n'
-            if solvent != '0':
+            if solvent is not None and solvent != '0':
                 input_s += SCRF_read
             if geom_spec:
                 input_s += line_GeomConstrainSpec

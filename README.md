@@ -19,11 +19,11 @@ Grey-box optimisation (LAQA (https://doi.org/10.1021/acs.jctc.1c00301)) can also
 4. [rdkit-pypi](https://anaconda.org/rdkit/rdkit)==2023.09.1
 5. [bayesian-optimization](https://github.com/bayesian-optimization/BayesianOptimization)==1.4.3
 6. [psutil](https://github.com/giampaolo/psutil)
+7. [basis-set-exchange](https://pypi.org/project/basis-set-exchange/)=0.12
 
 ## Optional
 
 1. [xtb](https://github.com/grimme-lab/xtb/tree/v6.6.1)==6.6.1
-2. [basis-set-exchange](https://pypi.org/project/basis-set-exchange/)=0.12
 
 ## How to use
 
@@ -79,7 +79,7 @@ and [KTLC- series](https://doi.org/10.1021/acs.jctc.3c00764) (`KTLC-BLYP-BO`, `K
   QCforever accepts a sdf, xyz, Gaussian chk, or a Gaussian fchk file.
 
 - ***solvent*** is to include the solvent effect through PCM.
-  The default value is "0", in vacuo.
+  The default value is `None`, in vacuo. The legacy value `"0"` is also accepted.
 
 - ***restart*** is to control to save molecular information as fchk or xyz.
   The Default value is True that means molecular information is saved as a Gaussian fchk file (electronic structure is also saved.),
