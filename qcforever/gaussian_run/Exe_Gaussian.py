@@ -2,13 +2,12 @@ import glob
 import os
 import gc
 import sys
-import subprocess
 import time
 
 from pathlib import Path
 
 from qcforever import gaussian_run
-from qcforever.util import ConvergenceJudge
+from qcforever.util import ConvergenceJudge, job_timeout
 
 
 def get_pid(jobname):
@@ -55,7 +54,7 @@ def count_Finishjob(jobname):
 
 
 def job_termination(proc):
-    proc.kill()
+    job_timeout.terminate_process(proc)
     for f in glob.glob("./Gau-*"):    
         print(f)
         Path(f).unlink(missing_ok=True)
@@ -76,7 +75,7 @@ def exe_Gaussian(jobname, exe_time, error=0):
     elif error == 0:
         print(f'Any action will not be performed!')
 
-    GaussianPros = subprocess.Popen(["g16", jobname])
+    GaussianPros = job_timeout.popen(["g16", jobname])
 
     for sec in range(exe_time):
         time.sleep(1)

@@ -4,6 +4,8 @@ import glob
 import os
 import subprocess
 
+from qcforever.util import job_timeout
+
 from qcforever import laqa_fafoom
 
 hartree2eV = 27.21138602
@@ -91,14 +93,14 @@ class g16Object():
         os.environ['GAUSS_SCRDIR'] = self.gauss_scrdir
         print(os.environ['GAUSS_EXEDIR'])
         print(os.environ['GAUSS_SCRDIR'])
-        g16 = subprocess.Popen(     \
+        g16 = job_timeout.popen(     \
            "$GAUSS_EXEDIR/g16 Gau_molecule.com", \
             stdout=subprocess.PIPE, shell=True)
-        out = subprocess.Popen( \
+        out = job_timeout.popen( \
             ['cat'], stdin=g16.stdout, \
             stdout=open('result.out', 'w'), shell=True) 
-        g16.wait()
-        out.wait()
+        job_timeout.wait(g16)
+        job_timeout.wait(out)
 
         with open('Gau_molecule.log', 'r') as f:
             searchfile = f.readlines()

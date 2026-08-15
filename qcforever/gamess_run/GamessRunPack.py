@@ -10,7 +10,7 @@ import numpy as np
 from pathlib import Path
 
 from qcforever import gamess_run
-from qcforever.util import read_mol_file, check_resource
+from qcforever.util import read_mol_file, check_resource, job_cleanup, job_timeout
 #from qcforever.laqa_fafoom import laqa_confopt_sdf
 from qcforever.laqa_fafoom import laqa_confopt_QCforever
 
@@ -44,6 +44,9 @@ class GamessDFTRun:
         self.gamessversion = '00'
         self.mem = ''
         self.timeexe = 60 * 60 * 80
+        # Overall QCforever wall-clock limit in seconds.  None means unlimited.
+        # ``timeexe`` remains the value written to GAMESS input files.
+        self.timejob = None
         self.SpecTotalCharge = np.nan
         self.SpecSpinMulti = np.nan
 #        self.ref_uv_path = ''
@@ -484,6 +487,28 @@ class GamessDFTRun:
 
 
     def run_gamess(self):
+        """Run the complete workflow, enforcing ``timejob`` when configured."""
+        original_directory = os.getcwd()
+        self._active_job_directory = None
+        self._active_job_name = None
+        try:
+            with job_timeout.overall_timeout(self.timejob):
+                return self._run_gamess()
+        except job_timeout.QCforeverTimeoutError as exc:
+            print(exc)
+            return {"log": "timeout", "error": str(exc)}
+        finally:
+            os.chdir(original_directory)
+            if self._active_job_directory is not None:
+                job_cleanup.cleanup_gamess(
+                    self._active_job_directory,
+                    self._active_job_name,
+                    preserve_pickle=self.pklsave,
+                )
+            self._active_job_directory = None
+            self._active_job_name = None
+
+    def _run_gamess(self):
         infilename = self.in_file
         option_line = self.value    
         options = option_line.split()
@@ -580,6 +605,8 @@ class GamessDFTRun:
             shutil.rmtree(job_dir)
 
         job_dir.mkdir()
+        self._active_job_directory = Path(pwd) / job_dir
+        self._active_job_name = jobname
         os.chdir(job_dir)
 
 

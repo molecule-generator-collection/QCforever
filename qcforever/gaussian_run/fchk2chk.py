@@ -1,5 +1,6 @@
 import sys
-import subprocess
+
+from qcforever.util import job_timeout
 import re
 
 
@@ -23,7 +24,7 @@ def Get_fchk(jobname):
     fchkfile = f"{jobname}.fchk"
     TotalCharge, SpinMulti = ChargeSpin_fchk(fchkfile)
     try:
-        subprocess.run(['unfchk', fchkfile], check=True)
+        job_timeout.run(['unfchk', fchkfile], check=True)
     except:
         print ("Failed converting fchk to chk!")            
     return TotalCharge, SpinMulti

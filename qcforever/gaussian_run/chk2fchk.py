@@ -1,13 +1,14 @@
 import glob
 import os
-import subprocess
+
+from qcforever.util import job_timeout
 
 
 def Get_chklist(remove):
     for f in glob.glob('./*.chk'):
         print(f)
         try:
-            subprocess.run(['formchk', f], check=True)
+            job_timeout.run(['formchk', f], check=True)
         except:
             print("Failed converting chk to fchk!")            
         if remove == 1:

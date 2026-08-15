@@ -73,6 +73,20 @@ and [KTLC- series](https://doi.org/10.1021/acs.jctc.3c00764) (`KTLC-BLYP-BO`, `K
   the Gaussian or GAMESS input automatically. To override it, set a value such
   as `test.mem = "4GB"` before calling `run_gaussian()` or `run_gamess()`.
 
+- The total QCforever wall-clock time can be limited in seconds with
+  `test.timejob = 24 * 60 * 60`.  When this limit is reached, QCforever stops
+  the active external process tree (including xTB, Gaussian, or GAMESS) and
+  returns a result whose `log` is `"timeout"`.  The existing `timexe`
+  (Gaussian) and `timeexe` (GAMESS) settings remain independent per-calculation
+  limits; GAMESS continues to write `timeexe` into its input file.
+
+- After the workflow finishes (normally, with an error, or by `timejob`), the
+  calculation directory is cleaned automatically. Gaussian keeps only `.chk`
+  and `.fchk` restart files (or the selected geometry `.xyz` output when
+  `restart=False`); GAMESS first moves matching `.dat` restart files from
+  SCR/USERSCR into the calculation directory and keeps only those files.
+  If `pklsave=True`, the explicitly requested `.pkl` result is also retained.
+
 - ***option*** is a string for specifying molecular properties as explained later.
 
 - ***input_file*** is a string to specify the input file.

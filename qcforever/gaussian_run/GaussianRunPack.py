@@ -11,7 +11,13 @@ import numpy as np
 from pathlib import Path
 
 from qcforever import gaussian_run
-from qcforever.util import read_mol_file, check_resource, UV_similarity
+from qcforever.util import (
+    read_mol_file,
+    check_resource,
+    UV_similarity,
+    job_cleanup,
+    job_timeout,
+)
 from qcforever.gaussian_run.solvent import resolve_gaussian_solvent
 #from qcforever.laqa_fafoom import laqa_confopt_sdf
 from qcforever.laqa_fafoom import laqa_confopt_QCforever
@@ -46,6 +52,9 @@ class GaussianDFTRun:
         self.pklsave = pklsave
         self.mem = ''
         self.timexe = 60 * 60 * 80
+        # Overall QCforever wall-clock limit in seconds.  None means unlimited.
+        # ``timexe`` remains the per-Gaussian-calculation limit.
+        self.timejob = None
         self.SpecTotalCharge = np.nan
         self.SpecSpinMulti = np.nan
         self.ref_uv_path = ''
@@ -952,6 +961,26 @@ class GaussianDFTRun:
             return [optimizer.max['params']['mu']]
 
     def run_gaussian(self):
+        """Run the complete workflow, enforcing ``timejob`` when configured."""
+        original_directory = os.getcwd()
+        self._active_job_directory = None
+        try:
+            with job_timeout.overall_timeout(self.timejob):
+                return self._run_gaussian()
+        except job_timeout.QCforeverTimeoutError as exc:
+            print(exc)
+            return {"log": "timeout", "error": str(exc)}
+        finally:
+            os.chdir(original_directory)
+            if self._active_job_directory is not None:
+                job_cleanup.cleanup_gaussian(
+                    self._active_job_directory,
+                    preserve_pickle=self.pklsave,
+                    preserve_xyz=not self.restart,
+                )
+            self._active_job_directory = None
+
+    def _run_gaussian(self):
         infilename = self.in_file
         option_line = self.value    
         options = option_line.split()
@@ -1180,6 +1209,7 @@ class GaussianDFTRun:
         if Path(JobName).is_dir():
             shutil.rmtree(JobName)
         os.mkdir(JobName)
+        self._active_job_directory = Path(pwd) / JobName
         if ReadFrom == 'chk':
             inchkfile = JobName + '.chk'
             shutil.move(inchkfile, JobName) 

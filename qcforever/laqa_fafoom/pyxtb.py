@@ -4,6 +4,8 @@ import glob
 import os
 import subprocess
 
+from qcforever.util import job_timeout
+
 from qcforever import laqa_fafoom
 
 hartree2eV = 27.21138602
@@ -76,11 +78,11 @@ class xTBObject():
                           .format(self.gfn, self.charge, self.mult-1)
             if self.solvmethod is not None :
                 com_xtb += ' --alpb {}'.format(self.solvent)
-            xtb = subprocess.Popen(com_xtb, stdout=subprocess.PIPE, shell=True)
-            out = subprocess.Popen(['cat'], stdin=xtb.stdout,
+            xtb = job_timeout.popen(com_xtb, stdout=subprocess.PIPE, shell=True)
+            out = job_timeout.popen(['cat'], stdin=xtb.stdout,
                                    stdout=open('result.out', 'w'), shell=True)
-            xtb.wait()
-            out.wait()
+            job_timeout.wait(xtb)
+            job_timeout.wait(out)
 
             with open('gradient', 'r') as f:
                 searchfile = f.readlines()
@@ -99,11 +101,11 @@ class xTBObject():
                           .format(self.gfn, self.charge, self.mult-1, self.optsteps)
             if self.solvmethod is not None :
                 com_xtb += ' --alpb {}'.format(self.solvent)
-            xtb = subprocess.Popen(com_xtb, stdout=subprocess.PIPE, shell=True)
-            out = subprocess.Popen(['cat'], stdin=xtb.stdout,
+            xtb = job_timeout.popen(com_xtb, stdout=subprocess.PIPE, shell=True)
+            out = job_timeout.popen(['cat'], stdin=xtb.stdout,
                                    stdout=open('result.out', 'w'), shell=True)
-            xtb.wait()
-            out.wait()
+            job_timeout.wait(xtb)
+            job_timeout.wait(out)
 
             with open('result.out', 'r') as f:
                 searchfile = f.readlines()

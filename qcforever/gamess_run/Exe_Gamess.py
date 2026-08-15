@@ -5,6 +5,8 @@ import glob
 import shutil
 import subprocess
 
+from qcforever.util import job_timeout
+
 
 def read_rungms(gmspath):
 
@@ -43,7 +45,10 @@ def exe_Gamess(jobname, gamessversion, nproc):
     outfile = jobname +'.log'
     datfile = jobname +'.dat'
 
-    GamessRes = subprocess.run(['rungms', infile, gamessversion, str(nproc)], stdout=subprocess.PIPE)
+    GamessRes = job_timeout.run(
+        ['rungms', infile, gamessversion, str(nproc)],
+        stdout=subprocess.PIPE,
+    )
     with open(outfile, 'w') as f:
         f.write(GamessRes.stdout.decode('utf-8'))
 
@@ -61,5 +66,4 @@ if __name__ == '__main__':
         print (usage); sys.exit()
 
     print(exe_Gamess(jobname, '00', 2))
-
 
