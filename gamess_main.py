@@ -17,7 +17,10 @@ test = GamessRunPack.GamessDFTRun('LC-BLYP', '3-21G', 8, option, infilename)
 #test = GamessRunPack.GamessDFTRun('BHHLYP', '3-21G', 8, option, infilename)
 
 test.mem = '5GB'
-test.timexe = 60*60 #second unit
+#Time for each QC calculation (in seconds)
+test.timexe = 60*60 
+#Time for QCforever job (in seconds)
+test.timejob = 48*60*60
 test.para_functional = [0.65]
 #test.SpecSpinMulti = 3
 #test.SpecTotalCharge = 3

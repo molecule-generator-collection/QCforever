@@ -49,7 +49,10 @@ def main():
     #if you want to set the parameter of LC-DFT.
     #test.para_functional = [0.1961]
     test.mem = '20GB'
-    test.timexe = 48*60*60
+    #Time for each QC calculation (in seconds).
+    test.timexe = 60*60  
+    #Time for QCforever job (in seconds)
+    test.timejob = 48*60*60
     #for geometric constrain
     #test.geom_spec = { '1 2 3 14': [180.0, 'F'], '6 5 4 13': [180.0, 'F'], '2 1 7 12': [180.0, 'F'], '5 6 8 9' : [180.0, 'F']}
     #Specify spin multiplicity and charge of the target
