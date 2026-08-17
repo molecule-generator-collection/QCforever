@@ -396,13 +396,18 @@ class Structure:
         # assign new attributes and update attribute values.
         g16_object = laqa_fafoom.pyg16.g16Object(self.sdf_string, gauss_exedir, **kwargs)
         g16_object.clean()
-        g16_object.generate_input()
-        g16_object.run_g16()
-        g16_object.clean()
+        try:
+            g16_object.generate_input()
+            g16_object.run_g16()
+        finally:
+            g16_object.clean()
         self.energy = g16_object.get_energy()
         self.force = g16_object.get_gradient()
         self.initial_sdf_string = self.sdf_string
         self.sdf_string = g16_object.get_sdf_string_opt()
+        if not self.is_geometry_valid():
+            raise ValueError(
+                "Gaussian returned a geometry with invalid interatomic distances")
         g16_object.save_to_file()
 
         for dof in self.dof:
@@ -415,19 +420,24 @@ class Structure:
         # new attributes and update attribute values.
         xtb_object = laqa_fafoom.pyxtb.xTBObject(self.sdf_string, xtb_call, jobtype, **kwargs)
         xtb_object.clean()
-        xtb_object.generate_input()
-        xtb_object.run_xtb()
-        self.energy = xtb_object.get_energy()
-        if jobtype == 'gradient':
-            self.force = xtb_object.get_gradient()
-        else:
-            self.initial_sdf_string = self.sdf_string
-            self.sdf_string = xtb_object.get_sdf_string_opt()
-            xtb_object.save_to_file()
-            for dof in self.dof:
-                setattr(dof, "initial_values", dof.values)
-                dof.update_values(self.sdf_string)
-        xtb_object.clean()
+        try:
+            xtb_object.generate_input()
+            xtb_object.run_xtb()
+            self.energy = xtb_object.get_energy()
+            if jobtype == 'gradient':
+                self.force = xtb_object.get_gradient()
+            else:
+                self.initial_sdf_string = self.sdf_string
+                self.sdf_string = xtb_object.get_sdf_string_opt()
+                if not self.is_geometry_valid():
+                    raise ValueError(
+                        "xTB returned a geometry with invalid interatomic distances")
+                xtb_object.save_to_file()
+                for dof in self.dof:
+                    setattr(dof, "initial_values", dof.values)
+                    dof.update_values(self.sdf_string)
+        finally:
+            xtb_object.clean()
 
     def perform_ff(self, **kwargs):
         # Generate the force-field input, run force_field calculation, assign
@@ -437,6 +447,10 @@ class Structure:
         self.energy = ff_object.get_energy()
         self.initial_sdf_string = self.sdf_string
         self.sdf_string = ff_object.get_sdf_string_opt()
+        if not self.is_geometry_valid():
+            raise ValueError(
+                "The force field returned a geometry with invalid "
+                "interatomic distances")
         ff_object.save_to_file()
 
         for dof in self.dof:

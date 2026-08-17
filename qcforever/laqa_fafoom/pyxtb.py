@@ -218,20 +218,21 @@ def xtb_exec(sdf_string, xtb_call, jobtype='opt', gfn='2',
                            gfn, charge, mult, optsteps,
                            solvmethod, solvent, sdf_out)
     xtb_object.clean()
-    xtb_object.generate_input()
-    xtb_object.run_xtb()
-    if jobtype == 'gradient':
-        unit = 'hartree'
-        energy = xtb_object.get_energy(unit)
-        grad = xtb_object.get_gradient()
-        xtb_object.clean() 
-        return energy, grad
-    else:
-        unit = 'hartree'
-        energy = xtb_object.get_energy(unit)
-        sdf_string_opt = xtb_object.get_sdf_string_opt()
+    try:
+        xtb_object.generate_input()
+        xtb_object.run_xtb()
+        if jobtype == 'gradient':
+            unit = 'hartree'
+            energy = xtb_object.get_energy(unit)
+            grad = xtb_object.get_gradient()
+            return energy, grad
+        else:
+            unit = 'hartree'
+            energy = xtb_object.get_energy(unit)
+            sdf_string_opt = xtb_object.get_sdf_string_opt()
+            return energy, sdf_string_opt
+    finally:
         xtb_object.clean()
-        return energy, sdf_string_opt
 
 
 if __name__ == '__main__':

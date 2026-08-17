@@ -8,6 +8,8 @@ from qcforever import laqa_fafoom
 import random
 import numpy as np
 
+from qcforever.util import job_timeout
+
 
 def LAQA_initgeom(param_file, SMILES=""):
 
@@ -99,7 +101,22 @@ def LAQA_initgeom(param_file, SMILES=""):
                 # Perform the local optimization
 
                 name = "initial_%d" % (len(population))
-                laqa_fafoom.run_utilities.optimize(str3d, energy_function, params, name)
+                try:
+                    laqa_fafoom.run_utilities.optimize(
+                        str3d, energy_function, params, name)
+                except job_timeout.QCforeverTimeoutError:
+                    # An overall user-specified deadline must still stop the
+                    # complete calculation rather than only one conformer.
+                    raise
+                except Exception as exc:
+                    print(
+                        "Skipping {} because its local optimization failed: "
+                        "{}: {}".format(
+                            str(str3d), type(exc).__name__, exc
+                        )
+                    )
+                    cnt += 1
+                    continue
                 laqa_fafoom.run_utilities.check_for_kill()
                 str3d.send_to_blacklist(blacklist)
                 population.append(str3d)

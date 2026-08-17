@@ -241,15 +241,17 @@ def g16_exec(sdf_string, gauss_exedir, gauss_scrdir=os.getcwd(),
                            jobtype, charge, mult, qcmethod, optsteps,
                            solvmethod, solvent)
     g16_object.clean()
-    g16_object.generate_input()
-    g16_object.run_g16()
-    g16_object.clean()
+    try:
+        g16_object.generate_input()
+        g16_object.run_g16()
 
-    energy = g16_object.get_energy()
-    grad = g16_object.get_gradient()
-    sdf_string_opt = g16_object.get_sdf_string_opt()
+        energy = g16_object.get_energy()
+        grad = g16_object.get_gradient()
+        sdf_string_opt = g16_object.get_sdf_string_opt()
 
-    return energy, grad, sdf_string_opt
+        return energy, grad, sdf_string_opt
+    finally:
+        g16_object.clean()
 
 
 if __name__ == '__main__':

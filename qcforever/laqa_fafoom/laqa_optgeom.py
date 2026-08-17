@@ -22,6 +22,7 @@ import numpy as np
 from rdkit import Chem
 
 from qcforever import laqa_fafoom
+from qcforever.util import job_timeout
 
 
 def LAQA_read_input(param_file):
@@ -54,7 +55,16 @@ def LAQA_read_input(param_file):
     # Read input SDF file to get RDKit mol objects
 
     sdf_inp_file_path = input_params['dir_inp'] + '/' + input_params['sdf_inp']
-    mols = [mol for mol in Chem.SDMolSupplier(sdf_inp_file_path, removeHs=False) if mol is not None]
+    if os.path.isfile(sdf_inp_file_path):
+        mols = [
+            mol for mol in Chem.SDMolSupplier(
+                sdf_inp_file_path, removeHs=False)
+            if mol is not None
+        ]
+    else:
+        print("Initial-structure file was not created because no conformer "
+              "was successfully evaluated: {}".format(sdf_inp_file_path))
+        mols = []
     if input_params['pool_begin'] is None or input_params['pool_end'] is None:
         input_params['pool_begin'] = 1
         input_params['pool_end'] = len(mols)
@@ -81,9 +91,20 @@ def LAQA_read_input(param_file):
     return input_params, mols
 
 
-def calc_mae_rms_max_force(force):
+def calc_mae_rms_max_force(force, expected_atoms=None):
 
-    norms = np.array([np.linalg.norm(fo) for fo in force])
+    force_array = np.asarray(force, dtype=float)
+    if force_array.ndim != 2 or force_array.shape[1] != 3 \
+            or force_array.shape[0] == 0 \
+            or not np.all(np.isfinite(force_array)):
+        raise ValueError("The calculation returned an invalid gradient")
+    if expected_atoms is not None and force_array.shape[0] != expected_atoms:
+        raise ValueError(
+            "The gradient contains {} atoms; expected {}".format(
+                force_array.shape[0], expected_atoms)
+        )
+
+    norms = np.linalg.norm(force_array, axis=1)
             
     mae_f = np.mean(norms)
     rms_f = np.sqrt(np.mean(norms**2))
@@ -120,6 +141,9 @@ def LAQA_do_opt(input_params, mols):
     # Read input SDF file to get RDKit mol objects
 
     pool = len(mols)
+    if pool == 0:
+        print("No valid input structures were found; LAQA is skipped.")
+        return mols, {}
     num_atoms = mols[0].GetNumAtoms()
     normfac_ene = 1.0 / float(num_atoms)
     print("\nStructure data\nNumber of structures: ", pool, "Number of atoms: ", num_atoms)
@@ -128,8 +152,10 @@ def LAQA_do_opt(input_params, mols):
 
     opt_struct_list = {}
 
-    energy_list = []
-    mae_f_list = []
+    energy_list = {}
+    mae_f_list = {}
+    initial_score = {}
+    failed_structures = set()
 
     score_idx_calced = []
     score_calced = np.array( [] )
@@ -148,49 +174,82 @@ def LAQA_do_opt(input_params, mols):
         # Perform simulation program (quantum chemistry or force field)
 
         sdf_string = Chem.MolToMolBlock(mols[j])
-        if energy_function == "g16" or energy_function == "gaussian":
-            energy, force, sdf_string_opt =laqa_fafoom.pyg16. g16_exec(sdf_string, gauss_exedir, gauss_scrdir,
-                                                     nprocs, memory, jobtype='gradient',
-                                                     charge=charge, mult=mult,
-                                                     qcmethod=qcmethod)
-        elif energy_function == "xtb":
-            jobtype='gradient'
-            energy, force = laqa_fafoom.pyxtb.xtb_exec(sdf_string, xtb_call, jobtype,
-                                     gfn, charge, mult, optsteps, solvmethod, solvent)
-        else:
-            print("NYI for code: ", energy_function)
-            sys.exit(1)
+        try:
+            if energy_function == "g16" or energy_function == "gaussian":
+                energy, force, sdf_string_opt = laqa_fafoom.pyg16.g16_exec(
+                    sdf_string, gauss_exedir, gauss_scrdir,
+                    nprocs, memory, jobtype='gradient',
+                    charge=charge, mult=mult, qcmethod=qcmethod)
+            elif energy_function == "xtb":
+                jobtype = 'gradient'
+                energy, force = laqa_fafoom.pyxtb.xtb_exec(
+                    sdf_string, xtb_call, jobtype,
+                    gfn, charge, mult, optsteps, solvmethod, solvent)
+            else:
+                print("NYI for code: ", energy_function)
+                sys.exit(1)
 
-        # Obtaion total energy E and MAE force F
-        
-        mae_f, rms_f, max_f = calc_mae_rms_max_force(force)
+            if not np.isfinite(energy):
+                raise ValueError("The calculation returned a non-finite energy")
+            mae_f, rms_f, max_f = calc_mae_rms_max_force(force, num_atoms)
+        except job_timeout.QCforeverTimeoutError:
+            raise
+        except Exception as exc:
+            failed_structures.add(j)
+            print(
+                "Skipping structure ID {} because its initial evaluation "
+                "failed: {}: {}".format(j, type(exc).__name__, exc)
+            )
+            continue
+
+        # Obtain total energy E and MAE force F
+
         print("Energy: {:>15.8}".format(energy))
         print("MAE force: {:>15.8e} RMS force: {:>15.8e} Max force: {:>15.8}"\
               .format(mae_f, rms_f, max_f))
-        energy_list.append(energy)
-        mae_f_list.append(mae_f)
+        energy_list[j] = energy
+        mae_f_list[j] = mae_f
 
         # Calculate scoreing function for LAQA optimization
 
         dF = 1.0
         score = energy * normfac_ene - 1.0 * mae_f**2 / (2.0 * dF)
+        if not np.isfinite(score):
+            failed_structures.add(j)
+            del energy_list[j]
+            del mae_f_list[j]
+            print(
+                "Skipping structure ID {} because its initial LAQA score "
+                "is not finite.".format(j)
+            )
+            continue
         print('E:', energy, 'F:', mae_f, 'dF:', dF, 'score:', score)
 
         score_pool = np.append(score_pool, score)
         score_idx_pool.append([j, 0])
         score_idx_calced.append([j, 0])
-        score_calced = np.append(score_calced, score_pool[j])
+        score_calced = np.append(score_calced, score)
+        initial_score[j] = score
 
     print("\nEnd initialization of LAQA geometry optimization\n\n")
 
     print("Summary of initialization of LAQA optimization\n"\
         + "[ image]           score           energy[au]        MAE force[au]")
-    for j in range(pool):
+    for j in sorted(initial_score):
         print("[{:>6}] {:>15.8f} {:>20.10f} {:>20.10f}"\
-            .format(j, score_pool[j], energy_list[j], mae_f_list[j]))
+            .format(j, initial_score[j], energy_list[j], mae_f_list[j]))
+
+    if len(score_pool) == 0:
+        print("All conformers failed during initial evaluation; LAQA is skipped.")
+        print("Total number of structures skipped after calculation errors: "
+              "{:>6}".format(len(failed_structures)))
+        return mols, opt_struct_list
 
     # Perform LAQA optimization (Main loop)
 
+    last_cycle = None
+    stopped_after_failure = False
+    cycle = -1
     for cycle in range(macro_opt_cycle):
 
         print("\nLAQA geometry optimization: {:>6} cycle ".format(cycle))
@@ -205,28 +264,52 @@ def LAQA_do_opt(input_params, mols):
         # Perform simulation program (quantum chemistry or force field)
 
         sdf_string = Chem.MolToMolBlock(mols[j])
-        if energy_function == "g16" or energy_function == "gaussian":
-            energy, force, sdf_string_opt = laqa_fafoom.pyg16.g16_exec(sdf_string, gauss_exedir, gauss_scrdir,
-                                                     nprocs, memory, jobtype='opt',
-                                                     charge=charge, mult=mult,
-                                                     qcmethod=qcmethod,
-                                                     optsteps=micro_opt_cycle)
-        elif energy_function == "xtb":
-            jobtype='opt'
-            energy, xyz_string_opt = laqa_fafoom.pyxtb.xtb_exec(sdf_string, xtb_call, jobtype,
-                            gfn, charge, mult, optsteps, solvmethod, solvent)
-            jobtype='gradient'
-            sdf_string_opt = laqa_fafoom.utilities.xyz2sdf(xyz_string_opt, sdf_string)
-            energy, force = laqa_fafoom.pyxtb.xtb_exec(sdf_string_opt, xtb_call, jobtype,
-                                     gfn, charge, mult, optsteps, solvmethod, solvent)
-        else:
-            print("NYI for computational chemistry code: ", energy_function)
-            sys.exit(1)
-        mols[j] = Chem.MolFromMolBlock(sdf_string_opt, removeHs=False)
+        try:
+            if energy_function == "g16" or energy_function == "gaussian":
+                energy, force, sdf_string_opt = laqa_fafoom.pyg16.g16_exec(
+                    sdf_string, gauss_exedir, gauss_scrdir,
+                    nprocs, memory, jobtype='opt',
+                    charge=charge, mult=mult, qcmethod=qcmethod,
+                    optsteps=micro_opt_cycle)
+            elif energy_function == "xtb":
+                jobtype = 'opt'
+                energy, xyz_string_opt = laqa_fafoom.pyxtb.xtb_exec(
+                    sdf_string, xtb_call, jobtype,
+                    gfn, charge, mult, optsteps, solvmethod, solvent)
+                jobtype = 'gradient'
+                sdf_string_opt = laqa_fafoom.utilities.xyz2sdf(
+                    xyz_string_opt, sdf_string)
+                energy, force = laqa_fafoom.pyxtb.xtb_exec(
+                    sdf_string_opt, xtb_call, jobtype,
+                    gfn, charge, mult, optsteps, solvmethod, solvent)
+            else:
+                print("NYI for computational chemistry code: ", energy_function)
+                sys.exit(1)
 
-        # Obtaion total energy E and MAE force F
+            mol_opt = Chem.MolFromMolBlock(sdf_string_opt, removeHs=False)
+            if mol_opt is None:
+                raise ValueError("The optimized geometry is not a valid SDF")
+            if not np.isfinite(energy):
+                raise ValueError("The calculation returned a non-finite energy")
+            mae_f, rms_f, max_f = calc_mae_rms_max_force(force, num_atoms)
+        except job_timeout.QCforeverTimeoutError:
+            raise
+        except Exception as exc:
+            failed_structures.add(j)
+            print(
+                "Skipping structure ID {} after its local evaluation "
+                "failed: {}: {}".format(j, type(exc).__name__, exc)
+            )
+            if len(score_pool) == 0:
+                last_cycle = cycle
+                stopped_after_failure = True
+                break
+            continue
 
-        mae_f, rms_f, max_f = calc_mae_rms_max_force(force)
+        mols[j] = mol_opt
+
+        # Obtain total energy E and MAE force F
+
         print("Energy: {:>15.8}".format(energy))
         print("MAE force: {:>15.8e} RMS force: {:>15.8e} Max force: {:>15.8}"\
               .format(mae_f, rms_f, max_f))
@@ -236,10 +319,20 @@ def LAQA_do_opt(input_params, mols):
         energy_m1 = energy_list[j]
         mae_f_m1 = mae_f_list[j]
 
-        dF = abs(mae_f - mae_f_m1)
-        dF = 1e-6 if dF == mae_f else dF
+        dF = max(abs(mae_f - mae_f_m1), 1.0e-6)
         #score = energy * normfac_ene - 1.0 * mae_f**2 / 2.0
         score = energy * normfac_ene - 1.0 * mae_f**2 / (2.0 * dF)
+        if not np.isfinite(score):
+            failed_structures.add(j)
+            print(
+                "Skipping structure ID {} because its updated LAQA score "
+                "is not finite.".format(j)
+            )
+            if len(score_pool) == 0:
+                last_cycle = cycle
+                stopped_after_failure = True
+                break
+            continue
         print('E:', energy, 'F:', mae_f, 'dF:', dF, 'score:', score)
 
         energy_list[j] = energy
@@ -266,13 +359,23 @@ def LAQA_do_opt(input_params, mols):
     
     # Post processing of LAQA optimization
 
-    if opt_count == struct_conv or len(score_pool) == 0:
+    if opt_count == struct_conv:
         print("\nLAQA global geometry optimization is converged at step {:>6}"\
-              .format(last_cycle))
+              .format(last_cycle if last_cycle is not None else cycle))
+    elif len(score_pool) == 0 and stopped_after_failure:
+        print("\nLAQA stopped at step {:>6} because no evaluable structures "
+              "remain.".format(last_cycle if last_cycle is not None else cycle))
+    elif len(score_pool) == 0:
+        print("\nLAQA global geometry optimization completed at step {:>6}; "
+              "all evaluable structures converged.".format(
+                  last_cycle if last_cycle is not None else cycle))
     else:
         print("\nLAQA global geometry optimization is not converged at step {:>6}"\
               .format(cycle))
     print("Total number of LAQA optimized structrure found: {:>6}".format(opt_count))
+    if failed_structures:
+        print("Total number of structures skipped after calculation errors: "
+              "{:>6}".format(len(failed_structures)))
 
     return mols, opt_struct_list
 
