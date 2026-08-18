@@ -30,7 +30,7 @@ class xTBObject():
             charge     (default=0)
             mult       (default=1)
             optsteps   (default=500)
-            solvmethod (default=None)
+            solvmethod (alpb or gbsa, default=None)
             solvent    (default='water')
             sdf_out    (default=optimized_structures.sdf)
         Raises:
@@ -77,7 +77,7 @@ class xTBObject():
                       + ' --gfn{:>2} xtbin.xyz --chrg {} --uhf {} --grad'\
                           .format(self.gfn, self.charge, self.mult-1)
             if self.solvmethod is not None :
-                com_xtb += ' --alpb {}'.format(self.solvent)
+                com_xtb += ' --{} {}'.format(self.solvmethod, self.solvent)
             xtb = job_timeout.popen(com_xtb, stdout=subprocess.PIPE, shell=True)
             out = job_timeout.popen(['cat'], stdin=xtb.stdout,
                                    stdout=open('result.out', 'w'), shell=True)
@@ -100,7 +100,7 @@ class xTBObject():
                       + ' --gfn{:>2} xtbin.xyz --chrg {} --uhf {} --opt --cycles {}'\
                           .format(self.gfn, self.charge, self.mult-1, self.optsteps)
             if self.solvmethod is not None :
-                com_xtb += ' --alpb {}'.format(self.solvent)
+                com_xtb += ' --{} {}'.format(self.solvmethod, self.solvent)
             xtb = job_timeout.popen(com_xtb, stdout=subprocess.PIPE, shell=True)
             out = job_timeout.popen(['cat'], stdin=xtb.stdout,
                                    stdout=open('result.out', 'w'), shell=True)
