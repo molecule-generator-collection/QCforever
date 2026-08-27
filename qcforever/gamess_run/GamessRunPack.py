@@ -10,7 +10,13 @@ import numpy as np
 from pathlib import Path
 
 from qcforever import gamess_run
-from qcforever.util import read_mol_file, check_resource, job_cleanup, job_timeout
+from qcforever.util import (
+    read_mol_file,
+    check_resource,
+    job_cleanup,
+    job_timeout,
+    Spectrum_similarity,
+)
 #from qcforever.laqa_fafoom import laqa_confopt_sdf
 from qcforever.laqa_fafoom import laqa_confopt_QCforever
 
@@ -50,6 +56,7 @@ class GamessDFTRun:
         self.SpecTotalCharge = np.nan
         self.SpecSpinMulti = np.nan
 #        self.ref_uv_path = ''
+        self.ref_spectrum_paths = {}
         self.para_functional = []
 
     def conversion_memory(self, mem_byte):
@@ -192,6 +199,17 @@ class GamessDFTRun:
             if freq_scfstate == True:
                 ff = parse_freqlog.getBlock("NORMAL COORDINATE ANALYSIS IN THE HARMONIC APPROXIMATION")
                 output['freq'], output['IR'], output['Raman'] = parse_freqlog.getFreq(ff[0])
+                for spectrum_type in ('IR', 'Raman'):
+                    reference_path = self.ref_spectrum_paths.get(spectrum_type)
+                    if reference_path:
+                        output.setdefault('Spectrum_similarity', {})[spectrum_type] = (
+                            Spectrum_similarity.compare_with_file(
+                                reference_path,
+                                output['freq'],
+                                output[spectrum_type],
+                                spectrum_type,
+                            )
+                        )
                 tt = parse_freqlog.getBlock("THERMOCHEMISTRY AT ")
                 E_0, U, H, G, Cv, Cp, S =  parse_freqlog.getThermo(tt[0])
                 output['Ezp'] = output['energy'][0] + E_0[0]
@@ -581,8 +599,18 @@ class GamessDFTRun:
                 option_dict['energy'] = True
                 option_dict['vea'] = True
                 option_dict['aea'] = True
-            elif option.lower() == 'freq':
+            elif re.match(r'^freq(?:=|$)', option.lower()):
                 option_dict['freq'] = True
+                if '=' in option:
+                    reference_paths = option.split('=', 1)[1].split(',')
+                    if not 1 <= len(reference_paths) <= 2 or any(
+                        not path for path in reference_paths
+                    ):
+                        raise ValueError("freq accepts IR[,Raman] reference files")
+                    for spectrum_type, path in zip(('IR', 'Raman'), reference_paths):
+                        self.ref_spectrum_paths[spectrum_type] = str(
+                            Path(path).expanduser().resolve()
+                        )
             else:
                 print('invalid option: ', option)
 

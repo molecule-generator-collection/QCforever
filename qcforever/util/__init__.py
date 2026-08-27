@@ -4,5 +4,6 @@ from . import (
     job_cleanup,
     job_timeout,
     read_mol_file,
-    UV_similarity
+    UV_similarity,
+    Spectrum_similarity,
 )

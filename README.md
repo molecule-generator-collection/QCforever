@@ -117,7 +117,7 @@ Following options are currently available:
 |symm| just specify symmetry of a molecule.|:white_check_mark:||
 |volume| Compute the volume (in cm**3/mol) of a molecule.|:white_check_mark:||
 |opt| just perform geometry optimization of a molecule.|:white_check_mark:|:white_check_mark:|
-|nmr| NMR chemical shift (ppm to TMS) of each atom is computed.|:white_check_mark:||
+|nmr| NMR chemical shift (ppm to TMS) of each atom is computed. `nmr=/absolute/path/to/nmr.dat` also compares it with a two-column `position intensity` reference spectrum.|:white_check_mark:||
 |uv| absorption wavelengths (nm) (for spin allowed states) are computed. If you add an absolute path of text file that specify peak positions and their peak like (uv=/ab/path2uv.dat), it is possible to the similarity and dissimilarity between the target and reference. |:white_check_mark:|:white_check_mark:|
 |energy| SCF energy (in Eh) is printed.|:white_check_mark:|:white_check_mark:|
 |cden| charge and spin densities on each atom are computed.|:white_check_mark:|:white_check_mark:|
@@ -133,7 +133,7 @@ Following options are currently available:
 |fluor| wavelength (in nm) of fluorescence are computed. if you want to specify the state that emits fluorescence, you can specify the index of state like “fluor=#” (# is an integer, default is “fluor=1”)|:white_check_mark:|:white_check_mark:|
 |nac| Max and rms values of non adiabatic coupling vector (use with fluor option) |:white_check_mark:||
 |tadf| Compute the energy gap (in Eh) between minimum in the spin allowed state and the spin forbidden state.|:white_check_mark:||
-|freq| Compute the variable related to the vibrational analysis of a molecule. IR, Raman, etc|:white_check_mark:|:white_check_mark:|
+|freq| Compute the variable related to the vibrational analysis of a molecule. `freq=IR.dat,Raman.dat` compares the calculated IR and Raman spectra with two-column `position intensity` reference files. For Gaussian, an optional third NMR file (`freq=IR.dat,Raman.dat,NMR.dat`) also enables NMR and compares all three spectra. Before comparison, peaks within 1.0 cm-1 (IR/Raman) or 0.01 ppm (NMR) are merged; intensities are summed and positions are averaged.|:white_check_mark:|:white_check_mark:|
 |pka| Compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species. The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydrogen.|:white_check_mark:||
 |stable| try to find a stable structure when the negative frequency is detected.|:white_check_mark:||
 |optspin| try to find a suitable spin multiplicity.|:white_check_mark:||

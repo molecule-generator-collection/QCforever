@@ -15,6 +15,7 @@ from qcforever.util import (
     read_mol_file,
     check_resource,
     UV_similarity,
+    Spectrum_similarity,
     job_cleanup,
     job_timeout,
 )
@@ -58,6 +59,7 @@ class GaussianDFTRun:
         self.SpecTotalCharge = np.nan
         self.SpecSpinMulti = np.nan
         self.ref_uv_path = ''
+        self.ref_spectrum_paths = {}
         self.geom_spec = {}
         self.para_functional = []
 
@@ -233,6 +235,14 @@ class GaussianDFTRun:
             output["Cv"] = Cv
             output["Si"] = St
             output["freqmode"] = [VibX, VibY, VibZ]
+            for spectrum_type, intensities in (("IR", IR), ("Raman", Raman)):
+                reference_path = self.ref_spectrum_paths.get(spectrum_type)
+                if reference_path:
+                    output.setdefault("Spectrum_similarity", {})[spectrum_type] = (
+                        Spectrum_similarity.compare_with_file(
+                            reference_path, Freq, intensities, spectrum_type
+                        )
+                    )
         
         if is_nmr:
             Element = []
@@ -249,6 +259,21 @@ class GaussianDFTRun:
                     ppm[i] = gaussian_run.AtomInfo.One_TMS_refer(Element[i], self.functional, self.basis) - ppm[i]
             # return Element, ppm 
             output["nmr"] = [Element, ppm]
+            reference_path = self.ref_spectrum_paths.get("NMR")
+            if reference_path:
+                nmr_shifts = [
+                    shift
+                    for element, shift in zip(Element, ppm)
+                    if element in ("H", "C", "Si")
+                ]
+                output.setdefault("Spectrum_similarity", {})["NMR"] = (
+                    Spectrum_similarity.compare_with_file(
+                        reference_path,
+                        nmr_shifts,
+                        [1.0] * len(nmr_shifts),
+                        "NMR",
+                    )
+                )
         
         if is_vip or is_vea:
             try:
@@ -1052,15 +1077,39 @@ class GaussianDFTRun:
                 option_dict['energy'] = True
                 job_eachState[0]['optspin'] = True
                 job_eachState[0]['energy'] = True
-            elif option.lower() == 'freq':
+            elif re.match(r'^freq(?:=|$)', option.lower()):
                 option_dict['freq'] = True
                 job_eachState[0]['freq'] = True
+                if '=' in option:
+                    reference_paths = option.split('=', 1)[1].split(',')
+                    if not 1 <= len(reference_paths) <= 3 or any(
+                        not path for path in reference_paths
+                    ):
+                        raise ValueError(
+                            "freq accepts IR[,Raman[,NMR]] reference files"
+                        )
+                    for spectrum_type, path in zip(
+                        ("IR", "Raman", "NMR"), reference_paths
+                    ):
+                        self.ref_spectrum_paths[spectrum_type] = str(
+                            Path(path).expanduser().resolve()
+                        )
+                    if len(reference_paths) == 3:
+                        option_dict['nmr'] = True
+                        job_eachState[0]['nmr'] = True
             elif option.lower() == 'polar':
                 option_dict['polar'] =  True
                 job_eachState[0]['polar'] = True
-            elif option.lower() == 'nmr':
+            elif re.match(r'^nmr(?:=|$)', option.lower()):
                 option_dict['nmr'] = True
                 job_eachState[0]['nmr'] = True
+                if '=' in option:
+                    reference_path = option.split('=', 1)[1]
+                    if not reference_path:
+                        raise ValueError("nmr requires a reference file after '='")
+                    self.ref_spectrum_paths["NMR"] = str(
+                        Path(reference_path).expanduser().resolve()
+                    )
             elif 'uv' in option.lower():
                 option_dict['uv'] = True
                 job_eachState[0]['uv'] = True
