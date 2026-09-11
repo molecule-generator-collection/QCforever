@@ -130,3 +130,6 @@ dmypy.json
 
 # vscode
 .vscode
+
+# Local spectrum comparison script
+/compare_top3_spectra.py
