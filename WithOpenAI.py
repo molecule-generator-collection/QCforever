@@ -87,7 +87,7 @@ def run_qcforever(
         pklsave=True
     )
 
-    test.mem = "20GB"
+#    test.mem = "20GB"
     test.timexe = 48 * 60 * 60
 
     print("Before:", os.getcwd())
