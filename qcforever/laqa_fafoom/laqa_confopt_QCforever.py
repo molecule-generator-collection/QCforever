@@ -11,11 +11,7 @@ from rdkit.Chem import AllChem, rdDetermineBonds, rdMolDescriptors
 from qcforever import laqa_fafoom
 
 
-def LAQA_confopt_main(infilename, TotalCharge, SpinMulti, method, nproc, mem, search_config=None):
-
-    if search_config is not None:
-        from qcforever.conformer_search.bridge import configured_confopt
-        return configured_confopt(infilename, TotalCharge, SpinMulti, method, nproc, mem, search_config)
+def LAQA_confopt_main(infilename, TotalCharge, SpinMulti, method, nproc, mem):
 
     PreInput = infilename.split('.')
 

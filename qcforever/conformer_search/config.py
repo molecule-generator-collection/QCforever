@@ -76,38 +76,42 @@ class ValidationSettings:
 
 @dataclass(frozen=True)
 class SearchConfig:
-    profile: str = 'light'
+    profile: str = 'low'
     candidate_retention: str = 'merge'
     schema_version: int = 1
     seed: int = 20261006
     threads: int = 4
     workers: int = 8
+    device: str = 'auto'
     mm_method: str = 'mmff94s'
-    relaxation: dict = field(default_factory=lambda: {'implementation': 'continuous', 'maximum_cycles': 1000, 'cores_per_calculation': 4})
+    relaxation: dict = field(default_factory=lambda: {'implementation': 'continuous', 'maximum_cycles': 1000})
     budget: CandidateBudget = field(default_factory=CandidateBudget)
     validation: ValidationSettings = field(default_factory=ValidationSettings)
     generators: dict = field(default_factory=dict)
     mm: dict = field(default_factory=dict)
 
     def __post_init__(self):
-        if self.schema_version != 1 or self.profile not in ('high', 'middle', 'light'):
-            raise ValueError('Unknown schema_version or profile')
+        if self.schema_version != 1:
+            raise ValueError('Unknown schema_version')
+        if self.profile not in ('low', 'medium', 'high'):
+            raise ValueError('profile must be low, medium, or high')
         if self.candidate_retention != 'merge':
             raise ValueError('Candidates from previous stages must be retained (merge)')
+        if self.device not in ('auto', 'cpu', 'gpu'):
+            raise ValueError('device must be auto, cpu or gpu')
         if self.workers < 1 or self.mm_method not in ('mmff94s', 'uff', 'none'):
             raise ValueError('Invalid worker count or MM method')
         if self.relaxation.get('implementation') != 'continuous':
             raise ValueError('Only continuous relaxation is enabled; LAQA remains under study')
         if self.threads < 1 or not 0 <= self.seed < 2**31:
             raise ValueError('threads must be positive and seed must fit a signed 32-bit integer')
-        allowed = {'implementation', 'maximum_cycles', 'xtb_executable', 'xtb_opt_level', 'cores_per_calculation'}
+        if 'cores_per_calculation' in self.relaxation:
+            raise ValueError('Remove relaxation.cores_per_calculation: xTB/PM6 use up to 4 cores per candidate, with workers derived from nproc')
+        allowed = {'implementation', 'maximum_cycles', 'xtb_executable', 'xtb_opt_level'}
         if set(self.relaxation)-allowed:
             raise ValueError('Unknown relaxation setting')
         if not isinstance(self.relaxation.get('maximum_cycles', 1000), int) or self.relaxation.get('maximum_cycles', 1000) < 1:
             raise ValueError('maximum_cycles must be a positive integer')
-        n = self.relaxation.get('cores_per_calculation', 4)
-        if isinstance(n, bool) or not isinstance(n, int) or n < 1:
-            raise ValueError('cores_per_calculation must be a positive integer')
 
     @classmethod
     def from_mapping(cls, value):
@@ -135,11 +139,13 @@ class SearchConfig:
         return asdict(self)
 
     @classmethod
-    def resolve(cls, profile='light', override=None):
-        """Packaged defaults -> option profile -> explicitly supplied overrides."""
+    def resolve(cls, profile='low', override=None):
+        """Defaults -> registered model commands -> profile -> explicit YAML."""
         from importlib.resources import files
         import yaml
         value = yaml.safe_load(files(__package__).joinpath('defaults.yaml').read_text())
+        from qcforever_model_workers.registry import read_registry
+        value['generators'].update(read_registry()['generators'])
         value['profile'] = profile
         if override is not None:
             if isinstance(override, cls):
@@ -167,5 +173,5 @@ class SearchConfig:
 
     def stages(self):
         names = {'high': ['ditmc', 'torsional_diffusion', 'etkdgv3'],
-                 'middle': ['torsional_diffusion', 'etkdgv3'], 'light': ['etkdgv3']}
+                 'medium': ['torsional_diffusion', 'etkdgv3'], 'low': ['etkdgv3']}
         return [(name, self.mm_method) for name in names[self.profile]]

@@ -30,8 +30,26 @@ Grey-box optimisation (LAQA (https://doi.org/10.1021/acs.jctc.1c00301)) can also
 ### Install
 
 ```bash
-pip install --upgrade git+https://github.com/molecule-generator-collection/QCforever.git
+pip install --upgrade git+https://github.com/molecule-generator-collection/QCforever.git@feature/conformer-search
 ```
+
+### Install (optional for detailed conformation search)
+
+To enable DiTMC and Torsional Diffusion for `optconf_medium` and `optconf_high`:
+
+```bash
+install-conformer-models
+```
+
+Requires Linux x86_64, Python 3.11 and a C/C++ compiler. This command creates
+separate model environments, downloads the official source/weights, and registers
+each model only after an ethanol generation/reuse test passes. No per-job YAML
+is needed. Existing Python environments are not changed. The first setup needs
+several GB of downloads/disk space (the DiTMC archive alone is about 1.9 GB).
+Setup uses a visible NVIDIA GPU when available, otherwise CPU; use `--device cpu`
+or `--device gpu` to choose explicitly. On a cluster, run the generation tests
+inside an appropriate CPU/GPU allocation, not on a login node.
+See [setup options, prerequisites and verification scope](docs/model_installation.md).
 
 ### Example
 
@@ -141,12 +159,14 @@ Following options are currently available:
 
 ### Configurable conformer search (development)
 
-`optconf=xtb` / `optconf=pm6` keep their syntax but use the new light route
-(ETKDGv3, MMFF94s, continuous native relaxation). Add `optconf_middle` or
+`optconf=xtb` / `optconf=pm6` keep their syntax. If no profile option is specified,
+the default is `optconf_low` (ETKDGv3, MMFF94s, continuous native relaxation).
+You can also specify `optconf_low` explicitly. Add `optconf_medium` or
 `optconf_high` to request the learned-generator fallback routes. Optional
 `job.conformer_config = 'conformer.yaml'` overrides packaged settings.
-Learned model execution requires separately configured environments/adapters;
-these adapters are not yet production-validated. See
+Learned model execution uses the optional setup above; explicit YAML settings
+override the registered models. Setup verifies basic inference, not performance
+or validity for every molecule. See
 [configuration, output and validation status](docs/conformer_search.md).
 
 ## License

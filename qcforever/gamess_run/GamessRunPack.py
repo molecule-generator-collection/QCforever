@@ -17,8 +17,6 @@ from qcforever.util import (
     job_timeout,
     Spectrum_similarity,
 )
-#from qcforever.laqa_fafoom import laqa_confopt_sdf
-from qcforever.laqa_fafoom import laqa_confopt_QCforever
 
 
 byte2words = 1/8
@@ -651,10 +649,10 @@ class GamessDFTRun:
                 print('The input is ready for the conformation search...')
                 original_file = str(Path('..') / infilename)
                 try:
-                    #laqa_confopt_sdf.LAQA_confopt_main(original_sdf, TotalCharge, SpinMulti, 
-                    self._conformer_summary = laqa_confopt_QCforever.LAQA_confopt_main(
+                    from qcforever.conformer_search.conformer_search import configured_confopt
+                    self._conformer_summary = configured_confopt(
                         original_file, TotalCharge, SpinMulti, optconfoption, self.nproc, self.mem,
-                        search_config=self._conformer_settings)
+                        config=self._conformer_settings)
                 except job_timeout.QCforeverTimeoutError:
                     raise
                 except Exception as exc:

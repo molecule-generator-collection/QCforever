@@ -1,0 +1,39 @@
+{
+  "ditmc": {
+    "source_version": "Zenodo record 15494821 (version-specific snapshot)",
+    "source_directory": "submission_zenodo",
+    "checkpoint_directory": "submission_zenodo/checkpoints",
+    "archives": [{
+      "name": "submission_zenodo.zip",
+      "url": "https://zenodo.org/api/records/15494821/files/submission_zenodo.zip/content",
+      "checksum": "md5:9faef692cb15a52e1ba183d9f1ee79c2",
+      "size": 1886054028,
+      "prefixes": ["submission_zenodo/dit_mc/", "submission_zenodo/tf_datasets/", "submission_zenodo/checkpoints/drugs/apeB/", "submission_zenodo/README.md", "submission_zenodo/LICENSE"]
+    }],
+    "files": []
+  },
+  "torsional_diffusion": {
+    "source_version": "5f713b42d7000307655f272471014c6127ea59be",
+    "source_directory": "torsional-diffusion-5f713b42d7000307655f272471014c6127ea59be",
+    "checkpoint_directory": "drugs_default",
+    "archives": [{
+      "name": "torsional-diffusion.zip",
+      "url": "https://codeload.github.com/gcorso/torsional-diffusion/zip/5f713b42d7000307655f272471014c6127ea59be",
+      "checksum": "sha256:90cde6353964e7c90ef6dd4568c26787967670a562a2754c3aed7a6d6f913b67",
+      "size": 1555287
+    }],
+    "files": [{
+      "name": "best_model.pt",
+      "destination": "drugs_default/best_model.pt",
+      "url": "https://drive.google.com/uc?export=download&id=10tu38EDGe55M2v-0HtkMRYiPCcge4M5u",
+      "checksum": "sha256:dd40e35a0961446cfaeec5d43015bbdfc8ebe7d7453c069cba1bcf7ad8ce78a7",
+      "size": 6392121
+    }, {
+      "name": "model_parameters.yml",
+      "destination": "drugs_default/model_parameters.yml",
+      "url": "https://drive.google.com/uc?export=download&id=15uNAG2Le6lNY-VFq6TvXvncOfvr3N-De",
+      "checksum": "sha256:9719ce241a30b278f1afd34d24d01023586737a677a13092c3ab60b09d849330",
+      "size": 1051
+    }]
+  }
+}

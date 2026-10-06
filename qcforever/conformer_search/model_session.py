@@ -35,7 +35,7 @@ class ModelSession:
                 writer.write(reference)
             data = {'smiles': Chem.MolToSmiles(Chem.RemoveHs(reference), isomericSmiles=True),
                     'maximum_raw_candidates': size, 'seed': (seed+index) % 2**31,
-                    'threads': self.threads, 'optimization': 'none'}
+                    'threads': self.threads, 'device': self.options.get('device', 'cpu'), 'optimization': 'none'}
             request_file, output = folder/'request.json', folder/'external_raw.sdf'
             request_file.write_text(json.dumps(data))
             if index not in self.workers:

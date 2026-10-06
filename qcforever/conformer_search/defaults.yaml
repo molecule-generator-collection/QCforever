@@ -1,10 +1,11 @@
 # Built-in defaults. Copy this file and supply only changed settings if desired.
 schema_version: 1
-profile: light
+profile: low
 candidate_retention: merge
 seed: 20261006
 workers: 8
 threads: 4
+device: auto
 mm_method: mmff94s
 budget:
   formula: exponential_rings
@@ -16,7 +17,6 @@ budget:
 relaxation:
   implementation: continuous
   maximum_cycles: 1000
-  cores_per_calculation: 4
   xtb_executable: xtb
   xtb_opt_level: normal
 generators:

@@ -38,10 +38,19 @@ def _load(args, request):
     sys.argv = ['generate_confs.py', '--test_csv', str(inp), '--inference_steps', '20',
                 '--model_dir', str(args.checkpoint.resolve()), '--batch_size', '1', '--no_energy']
     namespace = runpy.run_path(str(args.source.resolve()/'generate_confs.py'), run_name='__main__')
-    sample = namespace['sample_confs']
+    return namespace['sample_confs']
+
+
+def generate(sample, smiles, count, seed, threads):
+    """Seed RDKit embedding for this request, including persistent extra batches.
+
+    Python/NumPy/Torch RNGs are seeded by the worker. RDKit has a separate RNG;
+    do not rely on those seeds or retain the first batch's seed in a closure.
+    """
     globals_ = sample.__globals__
     def embed(mol, numConfs):
-        globals_['AllChem'].EmbedMultipleConfs(mol, numConfs=numConfs, numThreads=request['threads'])
+        globals_['AllChem'].EmbedMultipleConfs(mol, numConfs=numConfs,
+                                             numThreads=threads, randomSeed=seed)
         return mol
     globals_['embed_func'] = embed
-    return sample
+    return sample(smiles, count, smiles)

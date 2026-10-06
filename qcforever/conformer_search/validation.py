@@ -4,11 +4,42 @@ Input-specified stereochemistry is checked from coordinates during generation
 and after relaxation. No bond-order repair or molecule-specific rescue is used.
 """
 from collections import Counter
+from copy import deepcopy
 import math
 
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdMolAlign
+
+
+STEREO_MATCH_PROPERTIES = ('tetrahedral_stereo_match', 'ez_stereo_match', 'joint_stereo_match')
+
+
+def copy_with_coordinates(reference, coordinates):
+    """Take coordinates only; retain input bonds, charges, radicals and labels.
+
+    MM parameterization and SDF sanitization may alter aromaticity/valence
+    metadata. Those changes must not become a new molecular identity. This
+    does not infer an electronic spin distribution or repair a distorted
+    geometry; the usual distance/stereo checks still inspect the new positions.
+    """
+    if coordinates is None or coordinates.GetNumConformers() != 1:
+        raise ValueError('Optimized coordinates require exactly one conformer')
+    identity = lambda m: [a.GetAtomicNum() for a in m.GetAtoms()]
+    if identity(reference) != identity(coordinates):
+        raise ValueError('Optimized atom order/composition changed')
+    result = Chem.Mol(reference)
+    result.RemoveAllConformers()
+    result.AddConformer(Chem.Conformer(coordinates.GetConformer()), assignId=True)
+    return result
+
+
+def clear_structure_audit(mol):
+    """Initial-generation checks must not masquerade as final-geometry checks."""
+    for key in (*STEREO_MATCH_PROPERTIES, 'geometry_valid', 'geometry_check_failure',
+                'structure_check_warning', 'stereo_check_status', 'stereo_check_stage'):
+        if mol.HasProp(key):
+            mol.ClearProp(key)
 
 
 def graph_key(mol):
@@ -133,9 +164,46 @@ def duplicate_rmsd(probe, reference, settings):
 
 
 def filter_candidates(records, reference, maximum, settings):
-    accepted, audit = [], []
+    """Validate the entire pool, including after coordinates change in MM."""
     reference = Chem.AddHs(Chem.RemoveHs(reference))
-    for i, source in enumerate(records):
+    return _filter_new_candidates(records, reference, maximum, settings, [], [])
+
+
+class IncrementalCandidateFilter:
+    """Retain an unchanged, validated pool across generation batches only.
+
+    The reference and settings are fixed for this instance. Private copies keep
+    callers from invalidating cached checks by modifying returned molecules or
+    audits. Start a new full filter after MM; never reuse this pool after moving
+    coordinates. Audit indices retain the full-filter convention: accepted
+    prefix followed by the new batch, not cumulative raw-generation indices.
+    """
+
+    def __init__(self, reference, maximum, settings):
+        self._reference = Chem.AddHs(Chem.RemoveHs(Chem.Mol(reference)))
+        self._maximum = maximum
+        self._settings = deepcopy(settings)
+        self._accepted = []
+        self._accepted_audit = []
+
+    def extend(self, records):
+        accepted = [Chem.Mol(mol) for mol in self._accepted]
+        audit = deepcopy(self._accepted_audit)
+        # The old full-filter call reindexed its accepted prefix on every batch.
+        for i, (mol, row) in enumerate(zip(accepted, audit)):
+            mol.SetIntProp('raw_candidate_index', i)
+            row['raw_index'] = i
+        accepted, summary = _filter_new_candidates(
+            records, self._reference, self._maximum, self._settings, accepted, audit)
+        self._accepted = [Chem.Mol(mol) for mol in accepted]
+        self._accepted_audit = deepcopy([row for row in summary['candidates'] if row['accepted']])
+        return accepted, summary
+
+
+def _filter_new_candidates(records, reference, maximum, settings, accepted, audit):
+    """Shared checks in the original order; only the trusted prefix is skipped."""
+    prefix_size = len(accepted)
+    for i, source in enumerate(records, start=prefix_size):
         try:
             reason = geometry_failure(source, reference, settings)
             mol = Chem.Mol(source) if reason is None else None
@@ -153,15 +221,17 @@ def filter_candidates(records, reference, maximum, settings):
             if mol is not None:
                 row['duplicate_excluded_atom_indices'] = sorted(xh3_hydrogen_indices(mol))
             if reason is None:
-                for key in ('tetrahedral_stereo_match', 'ez_stereo_match', 'joint_stereo_match'):
+                for key in STEREO_MATCH_PROPERTIES:
                     mol.SetBoolProp(key, row[key])
+                mol.SetProp('stereo_check_stage', 'candidate_preparation')
+                mol.SetProp('stereo_check_status', 'evaluated')
                 mol.SetIntProp('raw_candidate_index', i)
                 accepted.append(mol)
         except (ValueError, RuntimeError) as exc:
             row = {'raw_index': i, 'accepted': False, 'reason': 'unreadable_structure',
                    'detail': f'{type(exc).__name__}: {exc}'}
         audit.append(row)
-    return accepted, {'raw_generated': len(records), 'accepted_candidates': len(accepted),
+    return accepted, {'raw_generated': prefix_size + len(records), 'accepted_candidates': len(accepted),
                       'duplicate_rmsd_atoms': 'all_explicit_atoms_except_XH3_hydrogens',
                       'duplicate_excluded_reference_atom_indices': sorted(xh3_hydrogen_indices(reference)),
                       'duplicate_rmsd_angstrom': settings.duplicate_rmsd_angstrom,
@@ -191,10 +261,12 @@ def choose_best(records, energies_hartree, reference, settings):
     reference = Chem.AddHs(Chem.RemoveHs(reference))
     for i, (mol, energy) in enumerate(zip(records, energies_hartree)):
         reason = geometry_failure(mol, reference, settings)
-        row = {'candidate': i, 'energy_hartree': energy, 'geometry_failure': reason}
+        row = {'candidate': i, 'energy_hartree': energy, 'geometry_failure': reason,
+               'stereo_check_status': 'not_evaluated_geometry_invalid' if reason else 'not_evaluated_energy_invalid'}
         if reason is None and energy is not None and math.isfinite(energy):
             valid.append(i)
             row.update(stereo_audit(mol, reference))
+            row['stereo_check_status'] = 'evaluated'
             if stereo_matches_policy(row, settings):
                 primary.append(i)
         audits.append(row)

@@ -3,8 +3,10 @@
 The public Gaussian/GAMESS constructor, property option string, return dictionary
 and `pklsave` remain unchanged. `optconf` now selects a **new algorithm**, so
 command syntax compatibility does not imply numerical compatibility with legacy
-FAFOOM/LAQA. Direct legacy `LAQA_confopt_main` calls without `search_config` retain
-the old implementation.
+FAFOOM/LAQA. The Gaussian/GAMESS optconf entry points call
+`conformer_search.conformer_search.configured_confopt` directly. The legacy
+`LAQA_confopt_main` retains its original signature and implementation; it has no
+new-search dispatch branch and remains available for explicit legacy use.
 
 ```python
 from qcforever.gaussian_run import GaussianRunPack
@@ -16,13 +18,17 @@ result = job.run_gaussian()
 ```
 
 * `optconf` / `optconf=pm6`: PM6 with Gaussian16. `optconf=xtb`: GFN2-xTB.
-* No level flag (or `optconf_light`): ETKDGv3.
-* `optconf_middle`: Torsional Diffusion -> ETKDGv3.
+* No level flag (or `optconf_low`): ETKDGv3.
+* `optconf_medium`: Torsional Diffusion -> ETKDGv3.
 * `optconf_high`: DiTMC -> Torsional Diffusion -> ETKDGv3.
 * `opt` requests subsequent QC geometry optimization; `uv`, `energy`, etc.
   continue to request the usual downstream properties.
 * The conformer backend remains separate from the subsequent Gaussian/GAMESS
   backend. PM6 conformer search requires Gaussian16 even for subsequent GAMESS.
+
+Profile names in YAML and output records are `low`, `medium`, and `high`.
+Earlier development names `light`/`middle` and their `optconf_` flags are not
+aliases: they raise a configuration error. Historical result files are not renamed.
 
 ## Configuration
 
@@ -38,18 +44,53 @@ threads: 4
 mm_method: mmff94s  # mmff94s / uff / none
 ```
 
-CPU allocation comes from QCforever's resolved `nproc`, not YAML. Actual workers
+CPU allocation comes from QCforever's resolved `nproc`, not YAML. Generation workers
 are `min(workers, nproc // threads)`; fewer cores than threads is an error.
+Default `device: auto` checks GPU availability **inside each model's Python
+environment**, respecting `CUDA_VISIBLE_DEVICES` from the scheduler. A usable
+GPU selects one model worker on that GPU; otherwise CPU generation uses the
+parallelism below. ETKDG and xTB/PM6 remain CPU calculations. `device: cpu` or
+`device: gpu` in YAML forces a choice; a requested but unavailable GPU is logged
+as a generation failure, not silently called a GPU success. Multiple GPUs are
+not used concurrently by this initial implementation.
+
 Default workers=8 and threads=4 means four CPU cores per model worker, with
 at most eight workers: an 8-core allocation runs two workers, a 4-core allocation
 runs one. It does not reserve cores independently of `nproc`. Memory is not automatically
 estimated for ML models. Lower workers if model copies exceed available RAM.
 
+xTB/PM6 use **4 cores per candidate, with multiple candidates in parallel**.
+`nproc=8`, `16`, and `32` allow 2, 4, and 8 relaxation workers respectively,
+capped by the available candidate count. Each worker receives `min(4, nproc)`
+cores; worker count is `nproc // min(4, nproc)`. Thus `nproc<4` runs one worker,
+and unused remainder cores (e.g. 2 for `nproc=10`) are not oversubscribed.
+Generation `workers`/`threads` are independent of this relaxation policy.
+xTB receives `--parallel 4`, and PM6 receives `%nprocshared=4`
+(or the smaller allocation when `nproc<4`).
+For both native backends, `OMP_NUM_THREADS`, `OMP_THREAD_LIMIT`,
+`MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS` and `NUMEXPR_NUM_THREADS` are set to
+the per-candidate core count, overriding inherited values only for that calculation.
+Parallel workers are separate spawned processes so PM6's working directory and
+environment are isolated. On Linux, each native worker is pinned to a disjoint
+4-core subset of the scheduler-provided affinity. The GENKAI Gaussian wrapper
+also caps its CPU list at the native per-call thread limit.
+The adapter restores changed variables on success or
+failure. Scripts invoking QCforever must use an `if __name__ == '__main__':`
+entry-point guard for multiprocessing. These values are recorded in xTB `command.json`
+and PM6 `environment.json`. Native thread limits are not a claim of full CPU
+utilization at every optimization step.
+The former `relaxation.cores_per_calculation` YAML key is no longer accepted;
+remove it from old overrides. Audits still report the realized
+`cores_per_calculation` and actual `parallel_workers` for reproducibility.
+The supplied memory setting is **per native calculation**, not a shared pool:
+eight PM6 workers with `mem='1GB'` request up to 8 GB in Gaussian, plus overhead.
+
 For the GENKAI integration smoke test, `check_sample_profiles.py` accepts
 `--smoke-candidates 2`. This is a **test-only in-memory override**, not an edit
 to the packaged YAML or normal candidate formula. Omitting that flag restores
 the normal budget automatically; results record both budgets. Each sample/profile
-is submitted separately with four allocated cores and four QC cores. An empty
+can be submitted separately; `--cores` sets the total allocation, from which
+the 4-core native worker count is derived. The old `--qc-cores` switch has been removed. An empty
 raw SDF is treated as zero generated candidates and follows the same fixed-cap
 and fallback policy as any other empty pool.
 
@@ -57,7 +98,9 @@ and fallback policy as any other empty pool.
 
 `N = min(100, ceil(10 * 1.3**r + 5*a))`, using RDKit's default rotatable-bond
 count and aliphatic-ring count on the hydrogen-suppressed input graph.
-Each stage first requests N raw candidates. Further batches request at most
+Each stage first requests the remaining quota, `N - accepted_pool_size` (N at
+the start of the search). For example, with N=20 and 18 candidates retained from
+earlier stages, the next stage first requests only 2. Further batches request at most
 one candidate per available worker, limited by the remaining target/attempts.
 Each stage has a **2N requested-candidate cap** including requests returning no
 coordinates. Models run in stage order, never DiTMC and TD concurrently.
@@ -94,11 +137,18 @@ warning; if none has valid geometry, the lowest-energy converged structure is
 returned with a geometry warning. All converged structures and their audits are
 retained. No converged structures is a failure. Geometry checks use distances
 and the supplied graph, not a definitive chemical reaction detector.
+Final structures do not inherit generation-time stereo pass flags. When geometry
+is invalid and stereo is not assessed, `stereo_check_status` is
+`not_evaluated_geometry_invalid` and the stereo-match boolean properties are
+absent. This applies to the selected SDF, all-converged SDF and per-candidate SDFs.
 
 ### Optional learned-model environments
 
-The core package does not install Torch/JAX or download models. DiTMC/TD are
-connected by list-valued commands in separate environments:
+The core package does not install Torch/JAX or download models. Run
+`install-conformer-models` once to build separate environments and register
+DiTMC/TD after real generation tests. The registered commands are loaded
+automatically; no per-job YAML is needed. An explicit YAML overrides registered
+settings. For advanced/custom workers, the command interface is:
 
 ```yaml
 generators:
@@ -113,6 +163,13 @@ generators:
 
 These show the general command interface. For supplied model workers and CPU
 installation commands, see [model installation](model_installation.md).
+With `device: auto`, custom DiTMC/TD commands must also implement the supplied
+worker's `--probe-device` protocol (write availability JSON to `{output}`), or
+explicitly select `device: cpu`/`gpu`. Probe failures are logged, not hidden.
+Stage status records the resolved device and worker count; model execution logs
+record the actual parameter devices. Device discovery imports the framework
+once in a short-lived process but does not load weights. Model weights remain
+loaded in the persistent worker across subsequent generation batches.
 Each request JSON includes SMILES, exact raw count (`maximum_raw_candidates`),
 seed, threads and adapter options. The worker writes explicit-H raw SDF without
 MM, energy filtering or validator-based pruning. Missing/unconfigured models
@@ -121,8 +178,12 @@ workers failing ends that stage. Partial worker output is retained.
 Model workers must enforce CPU/device and framework-specific thread limits;
 OMP/MKL/OpenBLAS/NumExpr limits are also passed by the orchestrator.
 Subprocesses execute independently with deterministic ordered merging.
+TD explicitly passes each request's seed to RDKit embedding as well as seeding
+Python/NumPy/Torch. Persistent additional batches replace the embedding seed;
+they do not reuse the first request's seed. This does not guarantee bitwise
+identity across different library versions/devices or nondeterministic kernels.
 
-The supplied GENKAI DiTMC/TD configuration uses `persistent: true`. This requires
+The setup command and supplied GENKAI configuration use `persistent: true`. This requires
 a worker supporting `--session DIRECTORY` (the installed `qcforever-model-worker`
 supports it; `scripts/model_raw_worker.py` is a compatibility shim).
 Each generator stage maintains up to `floor(allocated_cores / threads)` worker
@@ -134,7 +195,7 @@ and generation times; generation time may include first-use JIT/shape compilatio
 The model is not silently restarted on failure. Unrelated custom one-shot commands
 remain supported with `persistent: false` (the default for command adapters).
 The model workers are now shipped in `qcforever_model_workers`, separately from
-the core imports. Source/checkpoint locations are caller-configured, and no
+the core imports. Source/checkpoint locations are registered by setup or explicitly configured, and no
 external benchmark loader is imported. CPU requirements and setup instructions
 are in [model installation](model_installation.md); fresh-install validation is
 separate from reuse of existing GENKAI environments.
@@ -143,9 +204,18 @@ separate from reuse of existing GENKAI environments.
 
 MM is applied **only to ETKDGv3-generated candidates**, never to DiTMC or Torsional
 Diffusion candidates. MMFF94s is default; UFF and none are also selectable.
-Missing parameters or runtime failure skips MM for the ETKDGv3
-ensemble without silently switching force fields. Iteration-limit status is
+Missing parameters or runtime failure skips MM for only the affected ETKDGv3
+candidate, retaining its pre-MM coordinates and the other candidates' MM results.
+`mm_candidate_runs` records each outcome; mixed outcomes use `partially_skipped`.
+There is no silent force-field switch. Iteration-limit status is
 recorded and is not declared convergence. Post-MM validation may reduce the pool.
+Force-field APIs operate on disposable copies: even availability/parameter
+checks can change RDKit aromaticity flags. Only the optimized coordinates are
+copied back onto the preserved input graph, retaining formal charges, radicals,
+isotopes and bond information. xTB and PM6 use the same coordinate-only handoff.
+This prevents serialization artifacts, not physical reactions: new coordinates
+still undergo distance and stereo checks, and atom-local radical labels are not
+claimed to be a calculated spin-density distribution.
 Continuous native xTB/PM6 runs separately for each candidate. LAQA scheduling is
 not enabled in this new route while its continuation/stopping study is ongoing.
 Every surviving candidate is attempted, with no early stop when a good energy
@@ -167,7 +237,10 @@ same-ensemble cost/energy comparisons with LAQA.
 
 The ordinary QC result retains `optconf: bool` and adds `conformer_search` with
 profile, backend, chosen candidate, Hartree energy, realized generation stages,
-MM status/skip reason, stage times and a relative detail directory. The usual
+MM status/skip reason, stage times and a relative detail directory. Gaussian's
+selected-SDF readback also records `structure_handoff`. A readback failure changes
+the overall state to `failed`, keeps the prior `search_state`, and records
+`failure_stage: selected_structure_readback` in memory and saved summary. The usual
 DFT `Energy` remains untouched. `pklsave=True` saves this extended dictionary.
 Conformer failure is distinct from success of subsequent QC using the input.
 
@@ -196,6 +269,16 @@ Search files are protected from normal QCforever cleanup, including failures.
 Existing search directories are not overwritten or silently resumed.
 
 ## Validation status
+
+During generation, an incremental filter validates only each new batch against
+the unchanged accepted pool. Earlier accepted candidates are retained in order;
+new candidates are compared against both earlier batches and accepted candidates
+from the same batch. Geometry, input-specified stereo and symmetry-aware RMSD
+rules are unchanged. The filter owns private copies of its pool and fixes its
+reference/settings for one preparation run. After MM, the entire pool is checked
+again because coordinates may have changed. Batch audit indices/counts preserve
+the previous accepted-prefix-plus-new-batch convention; they are not cumulative
+raw-attempt counts.
 
 CPU unit tests use actual RDKit ETKDG/MM and isolated synthetic model/QC commands.
 Real DiTMC/TD checkpoints and native xTB/PM6 have been exercised on GENKAI with

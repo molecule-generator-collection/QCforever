@@ -24,6 +24,7 @@ PACKAGES = [
     'qcforever.conformer_search',
     'qcforever_model_workers']
 PACKAGE_DATA = {
+    'qcforever_model_workers': ['requirements/*.txt', 'model_sources.json'],
     'qcforever.conformer_search': ['defaults.yaml'],
     'qcforever': ['gaussian_run/*.json', 'gaussian_run/*.csv'],
 }
@@ -50,6 +51,9 @@ setup(
     install_requires=INSTALL_REQUIRES,
     packages=PACKAGES,                    
     package_data=PACKAGE_DATA,
-    entry_points={'console_scripts': ['qcforever-model-worker=qcforever_model_workers.worker:main']},
+    entry_points={'console_scripts': [
+        'qcforever-model-worker=qcforever_model_workers.worker:main',
+        'install-conformer-models=qcforever_model_workers.install:main',
+    ]},
     classifiers=CLASSIFIERS
 )  

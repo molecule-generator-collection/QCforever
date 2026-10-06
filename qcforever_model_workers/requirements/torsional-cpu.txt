@@ -1,4 +1,4 @@
-# Install the matching CPU torch/compiled PyG wheels first; see docs.
+# Packaged recipe. Install matching torch/compiled PyG wheels first; see docs.
 numpy==1.26.4
 torch==2.6.0
 torch-geometric==2.8.0.post1
@@ -12,3 +12,4 @@ matplotlib
 tqdm
 torch-scatter==2.1.2
 torch-cluster==1.6.3
+spyrmsd==0.9.0

@@ -28,8 +28,8 @@ def molecule():
 
 def settings(profile='high', n=5, **extra):
     return SearchConfig.resolve(profile, {'budget': {'formula': 'fixed', 'fixed': n},
+        'device': 'cpu',  # Synthetic command fixtures intentionally have no GPU probe API.
         'mm_method': 'none', 'workers': 2, 'threads': 1,
-        'relaxation': {'cores_per_calculation': 1},
         'validation': {'duplicate_rmsd_angstrom': 0}, **extra})
 
 
@@ -108,24 +108,48 @@ def test_duplicate_mapping_cap_validation(value):
 
 def test_defaults_and_options():
     cfg = resolve_options('optconf=xtb opt energy uv')
-    assert cfg.profile == 'light' and cfg.mm_method == 'mmff94s'
+    assert cfg.profile == 'low' and cfg.mm_method == 'mmff94s'
     assert cfg.threads == 4 and cfg.parallelism(8) == 2 and cfg.parallelism(4) == 1
     assert cfg.budget.resolve(Chem.MolFromSmiles('CC'))['maximum_candidates'] == 10
     assert cfg.budget.resolve(Chem.MolFromSmiles('C1CCCCC1'))['maximum_candidates'] == 15
     assert resolve_options('optconf optconf_high uv').profile == 'high'
-    assert calculation_tokens('optconf=xtb optconf_middle opt uv') == ['optconf=xtb', 'opt', 'uv']
+    assert calculation_tokens('optconf=xtb optconf_medium opt uv') == ['optconf=xtb', 'opt', 'uv']
     assert resolve_options('opt energy uv') is None
     with pytest.raises(ValueError):
-        resolve_options('optconf=xtb optconf_high optconf_middle')
+        resolve_options('optconf=xtb optconf_high optconf_medium')
     with pytest.raises(ValueError):
         resolve_options('optconf_high uv')
+
+
+@pytest.mark.parametrize('level,names', [
+    ('low', ['etkdgv3']),
+    ('medium', ['torsional_diffusion', 'etkdgv3']),
+    ('high', ['ditmc', 'torsional_diffusion', 'etkdgv3']),
+])
+def test_canonical_level_names(level, names):
+    options = f'optconf=xtb optconf_{level} opt energy uv'
+    cfg = resolve_options(options)
+    assert cfg.profile == level
+    assert [name for name, _ in cfg.stages()] == names
+    assert calculation_tokens(options) == ['optconf=xtb', 'opt', 'energy', 'uv']
+    assert SearchConfig.resolve(override={'profile': level}).profile == level
+
+
+@pytest.mark.parametrize('old_name', ['light', 'middle'])
+def test_old_level_names_are_rejected_not_aliased(tmp_path, old_name):
+    with pytest.raises(ValueError, match='Use optconf_low, optconf_medium, or optconf_high'):
+        resolve_options(f'optconf=xtb optconf_{old_name} opt energy')
+    path = tmp_path/'conformer.yaml'
+    path.write_text(f'profile: {old_name}\n')
+    with pytest.raises(ValueError, match='profile must be low, medium, or high'):
+        resolve_options('optconf=xtb', path)
 
 
 def test_partial_yaml_and_cpu_cap(tmp_path):
     path = tmp_path/'conformer.yaml'
     path.write_text('mm_method: uff\nworkers: 8\nthreads: 2\n')
-    cfg = resolve_options('optconf=xtb optconf_middle', str(path))
-    assert cfg.profile == 'middle' and cfg.budget.base == 10 and cfg.mm_method == 'uff'
+    cfg = resolve_options('optconf=xtb optconf_medium', str(path))
+    assert cfg.profile == 'medium' and cfg.budget.base == 10 and cfg.mm_method == 'uff'
     assert cfg.parallelism(8) == 4
     with pytest.raises(ValueError):
         cfg.parallelism(1)
@@ -156,8 +180,47 @@ def test_merge_and_fixed_attempt_caps(tmp_path):
     out = prepare_candidates(molecule(), tmp_path/'run', settings(), allocated_cores=2,
         generators={'ditmc': d, 'torsional_diffusion': t})
     assert sum(calls['ditmc']) == 10
-    assert calls['torsional_diffusion'] == [5]
+    assert calls['torsional_diffusion'] == [4]
     assert out.candidates[0].GetProp('generator') == 'ditmc'
+    assert len(out.candidates) == 5
+
+
+@pytest.mark.parametrize('profile', ['high', 'medium'])
+def test_next_stage_first_batch_requests_only_remaining_quota(tmp_path, profile):
+    cfg = settings(profile, n=20)
+    names = [name for name, _ in cfg.stages()]
+    calls = {name: [] for name in names}
+    def first(reference, count, *args):
+        calls[names[0]].append(count)
+        return copies(reference, 18) if len(calls[names[0]]) == 1 else []
+    def second(reference, count, *args):
+        calls[names[1]].append(count)
+        return copies(reference, count)
+    out = prepare_candidates(molecule(), tmp_path/'run', cfg, allocated_cores=2,
+        generators={names[0]: first, names[1]: second})
+    assert calls[names[0]][0] == 20
+    assert sum(calls[names[0]]) == 40  # The per-generator cap remains 2N.
+    assert calls[names[1]] == [2]
+    assert len(out.candidates) == 20
+    assert [m.GetProp('generator') for m in out.candidates] == [names[0]]*18 + [names[1]]*2
+    assert len(json.loads(out.status_path.read_text())['stages']) == 2
+
+
+def test_quota_is_carried_across_all_three_stages(tmp_path):
+    cfg = settings(n=5)
+    calls = {name: [] for name, _ in cfg.stages()}
+    def adapter(name, keep_first):
+        def generate(reference, count, *args):
+            calls[name].append(count)
+            return copies(reference, keep_first) if len(calls[name]) == 1 else []
+        return generate
+    out = prepare_candidates(molecule(), tmp_path/'run', cfg, allocated_cores=2,
+        generators={'ditmc': adapter('ditmc', 2),
+                    'torsional_diffusion': adapter('torsional_diffusion', 1),
+                    'etkdgv3': adapter('etkdgv3', 2)})
+    assert [counts[0] for counts in calls.values()] == [5, 3, 2]
+    assert sum(calls['ditmc']) == sum(calls['torsional_diffusion']) == 10
+    assert calls['etkdgv3'] == [2]
     assert len(out.candidates) == 5
 
 
@@ -174,7 +237,7 @@ def test_unavailable_models_and_mm_skip(tmp_path):
 def test_underfilled_and_zero(tmp_path):
     def one(reference, count, seed, directory, *args):
         return copies(reference, 1) if 'batch_000' in str(directory) else []
-    cfg = settings('light')
+    cfg = settings('low')
     out = prepare_candidates(molecule(), tmp_path/'one', cfg, generators={'etkdgv3': one})
     assert len(out.candidates) == 1 and out.initial_sdf is not None
     failed = prepare_candidates(molecule(), tmp_path/'zero', cfg, generators={'etkdgv3': lambda *a: []})
@@ -183,7 +246,7 @@ def test_underfilled_and_zero(tmp_path):
 
 @pytest.mark.parametrize('method', ['mmff94s', 'uff', 'none'])
 def test_native_etkdg_mm(tmp_path, method):
-    out = prepare_candidates('CCCC', tmp_path/'run', settings('light', n=3, mm_method=method),
+    out = prepare_candidates('CCCC', tmp_path/'run', settings('low', n=3, mm_method=method),
                              allocated_cores=2)
     assert out.initial_sdf is not None
     assert 1 <= len(out.candidates) <= 3
@@ -225,7 +288,7 @@ def test_cleanup_preserves_search_only_when_requested(tmp_path):
 
 def test_continuous_relaxation_audit_and_selection(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    cfg = settings('light', n=3)
+    cfg = settings('low', n=3)
     ref = molecule()
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
     def relax(mol, directory, *args):
@@ -283,7 +346,7 @@ def test_public_runner_resolves_settings_before_chdir(tmp_path, monkeypatch, eng
     from qcforever.gamess_run.GamessRunPack import GamessDFTRun
     cls = GaussianDFTRun if engine == 'gaussian' else GamessDFTRun
     job = cls.__new__(cls)
-    job.value = 'optconf=xtb optconf_middle opt energy uv'
+    job.value = 'optconf=xtb optconf_medium opt energy uv'
     job.timejob = None
     job.conformer_config = 'custom.yaml'
     monkeypatch.chdir(tmp_path)
@@ -292,7 +355,7 @@ def test_public_runner_resolves_settings_before_chdir(tmp_path, monkeypatch, eng
         monkeypatch.chdir(tmp_path.parent)
         return {'profile': job._conformer_settings.profile, 'mm': job._conformer_settings.mm_method}
     setattr(job, '_run_'+engine, worker)
-    assert getattr(job, 'run_'+engine)() == {'profile': 'middle', 'mm': 'uff'}
+    assert getattr(job, 'run_'+engine)() == {'profile': 'medium', 'mm': 'uff'}
     assert Path.cwd() == tmp_path
 
 
@@ -303,7 +366,7 @@ def test_laqa_option_is_not_silently_ignored():
 
 def test_all_candidates_attempted_even_if_one_fails(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    cfg = settings('light', n=5)
+    cfg = settings('low', n=5)
     ref = molecule()
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
     calls = []
@@ -320,21 +383,28 @@ def test_all_candidates_attempted_even_if_one_fails(tmp_path, monkeypatch):
     assert audit['primary_valid_candidates'] == 4 and audit['primary_best_index'] == 4
 
 
-def test_pm6_existing_input_adapter_and_all_candidate_loop(tmp_path, monkeypatch):
+@pytest.mark.parametrize('nproc', [1, 2, 4])
+def test_pm6_existing_input_adapter_and_all_candidate_loop(tmp_path, monkeypatch, nproc):
     from qcforever.laqa_fafoom.pyg16 import g16Object
     import os
     monkeypatch.chdir(tmp_path)
-    cfg = settings('light', n=3, relaxation={'cores_per_calculation': 2})
+    cfg = settings('low', n=3)
     ref = molecule()
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
     monkeypatch.setattr('shutil.which', lambda name: '/fake/g16')
-    previous = {k: os.environ.get(k) for k in ('GAUSS_EXEDIR', 'GAUSS_SCRDIR')}
+    from qcforever.conformer_search.relaxation import native_thread_environment
+    # An HPC script may still export 4 for model generation. Native PM6 must
+    # receive nproc, and the caller's values must survive both success/failure.
+    for key in native_thread_environment(4):
+        monkeypatch.setenv(key, '4')
+    previous = {k: os.environ.get(k) for k in (*native_thread_environment(4), 'GAUSS_EXEDIR', 'GAUSS_SCRDIR')}
     calls = []
     def native_run(self):
         i = len(calls)
         calls.append(i)
         inp = Path('Gau_molecule.com').read_text()
-        assert '%nprocshared=2' in inp and '%mem=1GB' in inp
+        assert all(os.environ[k] == v for k, v in native_thread_environment(nproc).items())
+        assert f'%nprocshared={nproc}' in inp and '%mem=1GB' in inp
         assert 'pm6 opt=(maxcycle=1000)' in inp and '\n0 1\n' in inp
         log = f'SCF Done: E(PM6) = {-10-i}.0 A.U.\n'
         if i != 1:
@@ -345,7 +415,8 @@ def test_pm6_existing_input_adapter_and_all_candidate_loop(tmp_path, monkeypatch
         self.energy = -10-i
         self.sdf_string_opt = self.sdf_string
     monkeypatch.setattr(g16Object, 'run_g16', native_run)
-    audit = relax_candidates(prepared, ref, cfg, 0, 1, 'pm6', 2, '1GB')
+    audit = relax_candidates(prepared, ref, cfg, 0, 1, 'pm6', nproc, '1GB')
+    assert audit['parallel_workers'] == 1 and audit['cores_per_calculation'] == nproc
     assert calls == [0, 1, 2] and audit['primary_best_index'] == 2
     assert audit['failed_candidates'] == 1
     for i in range(3):
@@ -403,7 +474,7 @@ def test_final_stereo_mismatch_returns_structure_with_warning(tmp_path, monkeypa
     monkeypatch.chdir(tmp_path)
     ref = Chem.AddHs(Chem.MolFromSmiles('C[C@H](O)F'))
     assert AllChem.EmbedMolecule(ref, randomSeed=42) == 0
-    cfg = settings('light', n=1)
+    cfg = settings('low', n=1)
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
     def backend(mol, *a):
         wrong = Chem.Mol(mol)
@@ -419,33 +490,41 @@ def test_final_stereo_mismatch_returns_structure_with_warning(tmp_path, monkeypa
     assert not mol.GetBoolProp('tetrahedral_stereo_match')
 
 
-def test_native_relaxation_uses_m_over_n_parallel_processes(tmp_path, monkeypatch):
+@pytest.mark.parametrize('nproc', [1, 4, 6, 8, 16, 32])
+def test_native_relaxation_uses_four_core_workers(tmp_path, monkeypatch, nproc):
     monkeypatch.chdir(tmp_path)
     binary = tmp_path/'fake_xtb_parallel'
     binary.write_text(f'#!{sys.executable}\n' +
         'import json,os,shutil,time\nfrom pathlib import Path\n'
-        'start=time.time()\ntime.sleep(1)\n'
+        'start=time.time()\ntime.sleep(0.5)\n'
         'shutil.copyfile("input.xyz","xtbopt.xyz")\n'
-        'Path("interval.json").write_text(json.dumps({"start":start,"end":time.time(),"pid":os.getpid()}))\n'
+        'Path("interval.json").write_text(json.dumps({"start":start,"end":time.time(),"pid":os.getpid(),"omp":os.environ["OMP_NUM_THREADS"],"blas":os.environ["OPENBLAS_NUM_THREADS"]}))\n'
         'print("CYCLE 1\\nGEOMETRY OPTIMIZATION CONVERGED\\nTOTAL ENERGY -1.0 Eh")\n')
     binary.chmod(0o755)
-    cfg = settings('light', n=2, relaxation={'cores_per_calculation': 4, 'xtb_executable': str(binary)})
+    cfg = settings('low', n=2, relaxation={'xtb_executable': str(binary)})
     ref = molecule()
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
-    audit = relax_candidates(prepared, ref, cfg, 0, 1, 'xtb', 8, '1GB')
-    assert audit['parallel_workers'] == 2 and audit['cores_per_calculation'] == 4
+    audit = relax_candidates(prepared, ref, cfg, 0, 1, 'xtb', nproc, '1GB')
+    per_call = min(4, nproc)
+    workers = min(2, nproc // per_call)
+    assert audit['parallel_workers'] == workers and audit['cores_per_calculation'] == per_call
+    assert audit['scheduling'] == 'parallel_candidates_4_cores'
     folder = tmp_path/'run/electronic'
     intervals = [json.loads((folder/f'candidate_{i:05d}/interval.json').read_text()) for i in range(2)]
     assert intervals[0]['pid'] != intervals[1]['pid']
-    assert max(r['start'] for r in intervals) < min(r['end'] for r in intervals)
+    if workers == 1:
+        assert intervals[0]['end'] <= intervals[1]['start']
+    else:
+        assert max(r['start'] for r in intervals) < min(r['end'] for r in intervals)
+    assert all(r['omp'] == r['blas'] == str(per_call) for r in intervals)
     for i in range(2):
         argv = json.loads((folder/f'candidate_{i:05d}/command.json').read_text())['argv']
-        assert argv[argv.index('--parallel')+1] == '4'
+        assert argv[argv.index('--parallel')+1] == str(per_call)
 
 
 def test_no_primary_still_attempts_every_candidate(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    cfg = settings('light', n=3)
+    cfg = settings('low', n=3)
     ref = molecule()
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
     def fails(*args):
@@ -458,7 +537,7 @@ def test_no_primary_still_attempts_every_candidate(tmp_path, monkeypatch):
 
 def test_global_timeout_is_not_a_candidate_failure(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    cfg = settings('light', n=3)
+    cfg = settings('low', n=3)
     ref = molecule()
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
     def expired(*args):
@@ -469,8 +548,8 @@ def test_global_timeout_is_not_a_candidate_failure(tmp_path, monkeypatch):
     assert len(progress) == 1 and progress[0]['state'] == 'timeout'
 
 
-def test_xtb_subprocess_and_existing_optconf_entry_end_to_end(tmp_path, monkeypatch):
-    from qcforever.laqa_fafoom.laqa_confopt_QCforever import LAQA_confopt_main
+def test_xtb_subprocess_and_new_optconf_entry_end_to_end(tmp_path, monkeypatch):
+    from qcforever.conformer_search.conformer_search import configured_confopt
     from qcforever.conformer_search.pipeline import write_sdf
     monkeypatch.chdir(tmp_path)
     binary = tmp_path/'fake_xtb'
@@ -489,8 +568,8 @@ def test_xtb_subprocess_and_existing_optconf_entry_end_to_end(tmp_path, monkeypa
     binary.chmod(0o755)
     inp = tmp_path/'molecule.sdf'
     write_sdf(inp, [molecule()])
-    cfg = settings('light', n=3, relaxation={'xtb_executable': str(binary), 'cores_per_calculation': 2})
-    summary = LAQA_confopt_main(str(inp), 0, 1, 'xtb', 2, '1GB', search_config=cfg)
+    cfg = settings('low', n=3, relaxation={'xtb_executable': str(binary)})
+    summary = configured_confopt(str(inp), 0, 1, 'xtb', 2, '1GB', config=cfg)
     assert summary['attempted_candidates'] == summary['converged_candidates'] == 3
     assert summary['energy_hartree'] == -12
     assert summary['backend'] == 'xtb' and summary['failed_candidates'] == 0

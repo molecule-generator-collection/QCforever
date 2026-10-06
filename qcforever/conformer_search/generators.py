@@ -18,6 +18,39 @@ class MissingGeneratorDependency(GenerationError):
     pass
 
 
+def resolve_model_device(options, requested, directory, threads):
+    """Probe the optional model Python, not QCforever's lightweight environment.
+
+    Explicit cpu/gpu skips discovery. Auto requires the supplied worker's probe
+    protocol; probe errors remain visible and are not called CPU successes.
+    """
+    if requested != 'auto':
+        return {'requested': requested, 'effective': requested}
+    command = options.get('command')
+    if not isinstance(command, list) or not command:
+        raise MissingGeneratorDependency('Device discovery requires a model command')
+    folder = directory/'device_probe'
+    folder.mkdir()
+    request, output = folder/'request.json', folder/'device.json'
+    request.write_text(json.dumps({'device': 'auto', 'threads': threads}))
+    values = {'request': str(request), 'output': str(output), 'input': str(directory.parent/'reference.sdf')}
+    argv = [token.format(**values) for token in command] + ['--probe-device']
+    env = os.environ.copy()
+    for key in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'NUMEXPR_NUM_THREADS'):
+        env[key] = str(threads)
+    try:
+        from qcforever.util import job_timeout
+        with (folder/'probe.out').open('w') as log:
+            job_timeout.run(argv, cwd=folder, env=env, stdout=log, stderr=subprocess.STDOUT,
+                            check=True, timeout=options.get('timeout_seconds', 600))
+        result = json.loads(output.read_text())
+        if result.get('effective') not in ('cpu', 'gpu'):
+            raise ValueError('Invalid effective device')
+        return result
+    except (subprocess.SubprocessError, OSError, ValueError) as exc:
+        raise GenerationError(f'Model device discovery failed; see {folder}/probe.out: {exc}') from exc
+
+
 def split_conformers(mol):
     records = []
     for conf in mol.GetConformers():
@@ -80,7 +113,7 @@ def command_generator(reference, attempt_cap, seed, directory, options, threads)
         writer.write(reference)
     request.write_text(json.dumps({'smiles': Chem.MolToSmiles(Chem.RemoveHs(reference), isomericSmiles=True),
                                    'maximum_raw_candidates': attempt_cap, 'seed': seed,
-                                   'threads': threads, 'optimization': 'none',
+                                   'threads': threads, 'device': options.get('device', 'cpu'), 'optimization': 'none',
                                    'options': {k:v for k,v in options.items() if k not in ('command', 'timeout_seconds')}}, indent=2))
     values = {'request': str(request), 'output': str(output), 'input': str(inp)}
     argv = [token.format(**values) for token in command]

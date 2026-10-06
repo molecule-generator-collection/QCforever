@@ -19,7 +19,52 @@ def write_sdf(path, records):
             writer.write(mol)
 
 
-def initialize(args, request):
+def select_device(model_name, requested):
+    """Resolve in the model environment; never unmask scheduler-hidden GPUs."""
+    if requested not in ('auto', 'cpu', 'gpu'):
+        raise ValueError('device must be auto, cpu, or gpu')
+    masked = os.environ.get('CUDA_VISIBLE_DEVICES') in ('', '-1')
+    if requested == 'gpu' and masked:
+        raise RuntimeError('GPU requested but hidden by CUDA_VISIBLE_DEVICES')
+    if requested == 'cpu' or (requested == 'auto' and masked):
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+        os.environ['JAX_PLATFORMS'] = 'cpu'
+        return {'requested': requested, 'effective': 'cpu', 'devices': []}
+    os.environ.setdefault('XLA_PYTHON_CLIENT_PREALLOCATE', 'false')
+    if model_name == 'ditmc':
+        import jax
+        try:
+            devices = [str(d) for d in jax.devices() if d.platform == 'gpu']
+        except RuntimeError as exc:
+            # CUDA-enabled JAX can raise rather than return CPU devices on a
+            # machine with no GPU. Do not hide driver/library incompatibilities.
+            no_device = any(s in str(exc) for s in ('No visible GPU devices', 'CUDA_ERROR_NO_DEVICE'))
+            if requested != 'auto' or not no_device:
+                raise
+            jax.config.update('jax_platforms', 'cpu')
+            devices = [str(d) for d in jax.devices() if d.platform == 'gpu']
+    else:
+        import torch
+        devices = ([torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]
+                   if torch.cuda.is_available() else [])
+    if requested == 'gpu' and not devices:
+        raise RuntimeError('GPU requested but unavailable in this model environment')
+    effective = 'gpu' if devices else 'cpu'
+    if effective == 'cpu':
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+    return {'requested': requested, 'effective': effective, 'devices': devices}
+
+
+def parameter_devices(model_name, model):
+    """Record actual parameter placement, independently of availability probes."""
+    if model_name == 'ditmc':
+        import jax
+        return sorted({str(d) for leaf in jax.tree.leaves(model.params) for d in leaf.devices()})
+    return sorted({str(p.device) for p in model.__globals__['model'].parameters()})
+
+
+def configure_worker_cpus(args, request):
+    """Bind before framework import, so newly created threads inherit the mask."""
     folder = args.output.resolve().parent
     if hasattr(os, 'sched_getaffinity'):
         available = sorted(os.sched_getaffinity(0))
@@ -29,8 +74,9 @@ def initialize(args, request):
         if len(available) < start+threads:
             raise ValueError('Insufficient scheduler-assigned CPUs for model worker')
         os.sched_setaffinity(0, available[start:start+threads])
-    os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')
-    os.environ.setdefault('JAX_PLATFORMS', 'cpu')
+
+
+def initialize(args, request):
     if args.model == 'ditmc':
         from .ditmc import DiTMC
         return DiTMC(args.cache, {'source': str(args.source),
@@ -51,10 +97,11 @@ def generate(args, model, message, initialization_seconds, number):
         write_sdf(folder/'pre_correction_raw.sdf', raw)
     else:
         import torch
+        from .torsional import generate as generate_torsional
         random.seed(seed)
         np.random.seed(seed % 2**32)
         torch.manual_seed(seed)
-        records = model(request['smiles'], count, request['smiles']) or []
+        records = generate_torsional(model, request['smiles'], count, seed, request['threads']) or []
         records = [Chem.Mol(m) for m in records]
     seconds = time.perf_counter()-started
     if len(records) > count:
@@ -62,10 +109,12 @@ def generate(args, model, message, initialization_seconds, number):
     write_sdf(message['output'], records)
     (folder/'model_execution.json').write_text(json.dumps({
         'model': args.model, 'requested': count, 'returned': len(records), 'seed': seed,
+        'rdkit_embedding_seed': seed if args.model == 'torsional_diffusion' else None,
         'worker_pid': os.getpid(), 'request_number': number,
         'model_initialization_count': 1, 'model_reused': number > 1,
         'initialization_seconds': initialization_seconds if number == 1 else 0.0,
         'generation_seconds': seconds, 'source': str(args.source), 'checkpoint': str(args.checkpoint),
+        'device': args.device_info, 'parameter_devices': args.parameter_devices,
         'filtering': False, 'force_field_optimization': False, 'semiempirical_relaxation': False,
         'cpu_affinity': sorted(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else None}, indent=2))
 
@@ -80,6 +129,8 @@ def main():
     parser.add_argument('--legacy-workflow', type=Path, help=argparse.SUPPRESS)
     parser.add_argument('--cache', type=Path)
     parser.add_argument('--session', type=Path)
+    parser.add_argument('--probe-device', action='store_true',
+                        help='Write device availability JSON without loading model weights')
     args = parser.parse_args()
     # Resolve all caller paths BEFORE an upstream loader changes directory.
     for name in ('request', 'output', 'source', 'checkpoint', 'session', 'cache'):
@@ -94,8 +145,17 @@ def main():
     if args.legacy_workflow:
         print('--legacy-workflow is deprecated and ignored; using bundled adapter', flush=True)
     request = json.loads(args.request.read_text())
+    configure_worker_cpus(args, request)
+    args.device_info = select_device(args.model, request.get('device', 'cpu'))
+    if args.probe_device:
+        args.output.write_text(json.dumps(args.device_info, indent=2))
+        return
     started = time.perf_counter()
     model = initialize(args, request)
+    args.parameter_devices = parameter_devices(args.model, model)
+    if args.device_info['effective'] == 'gpu' and (not args.parameter_devices or not all(
+            'cuda' in d.lower() or 'gpu' in d.lower() for d in args.parameter_devices)):
+        raise RuntimeError(f'Model parameters are not on GPU: {args.parameter_devices}')
     elapsed = time.perf_counter()-started
     if args.session is None:
         generate(args, model, {'request': str(args.request), 'output': str(args.output)}, elapsed, 1)

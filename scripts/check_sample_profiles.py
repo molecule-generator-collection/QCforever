@@ -1,4 +1,4 @@
-"""Four Samples, middle/high: generation/MM and optional real QC backends.
+"""Four Samples, medium/high: generation/MM and optional real QC backends.
 
 Generate once per profile, then feed the exact same MM candidates to each
 backend. Never replace a failed learned generator with a hidden substitute.
@@ -12,7 +12,7 @@ from time import perf_counter
 from rdkit import Chem
 from qcforever.conformer_search.config import SearchConfig
 from qcforever.conformer_search.pipeline import prepare_candidates, save, write_sdf, PreparationResult
-from qcforever.conformer_search.bridge import working_directory
+from qcforever.conformer_search.conformer_search import working_directory
 from qcforever.conformer_search.relaxation import relax_candidates
 from qcforever.util import job_timeout
 
@@ -23,10 +23,8 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--cores', type=int, default=8)
     parser.add_argument('--backends', nargs='*', choices=['xtb', 'pm6'], default=[])
-    parser.add_argument('--qc-cores', type=int, default=4,
-                        help='Cores per xTB/PM6 calculation; --cores is the total allocation')
     parser.add_argument('--samples', nargs='+', default=['ch2o', 'Chlorobenzene', 'ethanol', '200_11'])
-    parser.add_argument('--profiles', nargs='+', choices=['middle', 'high'], default=['middle', 'high'])
+    parser.add_argument('--profiles', nargs='+', choices=['medium', 'high'], default=['medium', 'high'])
     parser.add_argument('--smoke-candidates', type=int, choices=[1, 2],
                         help='Test-only override: never edits the normal candidate budget')
     args = parser.parse_args()
@@ -38,8 +36,6 @@ def main():
         reference = Chem.SDMolSupplier(str(source), removeHs=False)[0]
         for profile in args.profiles:
             config = SearchConfig.resolve(profile, args.config)
-            config = SearchConfig.resolve(profile, {**config.to_mapping(), 'relaxation': {
-                **config.relaxation, 'cores_per_calculation': args.qc_cores}})
             if args.smoke_candidates is not None:
                 config = SearchConfig.resolve(profile, {
                     **config.to_mapping(), 'budget': {

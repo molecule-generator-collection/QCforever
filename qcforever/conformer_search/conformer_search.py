@@ -1,4 +1,4 @@
-"""Connect configurable preparation/relaxation to the existing optconf handoff."""
+"""Run conformer generation and relaxation for QCforever's optconf option."""
 from contextlib import contextmanager
 import os
 from pathlib import Path
@@ -18,6 +18,31 @@ def working_directory(path):
         yield
     finally:
         os.chdir(previous)
+
+
+def read_selected_structure(summary):
+    """Gaussian handoff: distinguish a successful search from failed readback.
+
+    Mutate the returned summary so the caller's optconf flag and detailed
+    status agree. Never use an old optimized_structures.sdf after search failure.
+    """
+    from qcforever.util import read_mol_file
+    if not summary or summary.get('state') == 'failed':
+        raise RuntimeError((summary or {}).get('error', 'No successful conformation search'))
+    try:
+        result = read_mol_file.read_sdf('./optimized_structures.sdf')
+    except Exception as exc:
+        summary.update(search_state=summary['state'], state='failed',
+                       failure_stage='selected_structure_readback',
+                       error=f'{type(exc).__name__}: {exc}',
+                       structure_handoff={'state': 'failed', 'path': 'optimized_structures.sdf'})
+        if Path('conformer_search').is_dir():
+            save(Path('conformer_search/summary.json'), summary)
+        raise
+    summary['structure_handoff'] = {'state': 'succeeded', 'path': 'optimized_structures.sdf'}
+    if Path('conformer_search').is_dir():
+        save(Path('conformer_search/summary.json'), summary)
+    return result
 
 
 def configured_confopt(infilename, charge, multiplicity, method, nproc, memory, config):

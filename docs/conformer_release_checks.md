@@ -1,7 +1,7 @@
 # Conformer development-branch checks (2026-10-06)
 
 This is a development snapshot, not a release or a claim that the full-budget
-comparison is finished. The running comparison uses its frozen pre-fix source.
+comparison is finished.
 
 ## Fixes in this snapshot
 
@@ -13,11 +13,9 @@ comparison is finished. The running comparison uses its frozen pre-fix source.
 3. New PM6 relaxation classifies native failures in `failure.json`, preserving
    original logs and parser exceptions. Legacy LAQA parsing is unchanged.
 
-Tests: 54 conformer/session/release-fix cases passed. A broader run had 99 passes
-and one timing-only failure in the existing subprocess timeout test (2.108 s
-against a <2 s assertion). That test was not weakened to make the run pass.
-An isolated rerun of the six timeout tests then passed; the timing sensitivity
-remains documented rather than being treated as a clean first-pass full suite.
+Final regression run: 175 tests and 3 subtests passed, including the subprocess
+timeout tests. The focused conformer suite passed 132 tests and 3 subtests.
+The staged source also built successfully into a wheel in a clean directory.
 `test_compare_top3_spectra.py` could not collect because its local, Git-ignored
 `compare_top3_spectra.py` dependency is absent; it was excluded from the broader
 run. `testcal.py` is a manual Gaussian calculation, not a unit test.

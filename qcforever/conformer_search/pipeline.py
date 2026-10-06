@@ -7,9 +7,9 @@ import time
 
 from rdkit import Chem, rdBase
 from .config import SearchConfig
-from .generators import GenerationError, MissingGeneratorDependency, generate_batch
+from .generators import GenerationError, MissingGeneratorDependency, generate_batch, resolve_model_device
 from .preoptimization import MissingMMDependency, UnsupportedParametersError, preoptimize
-from .validation import filter_candidates
+from .validation import IncrementalCandidateFilter, filter_candidates
 
 
 def write_sdf(path, records):
@@ -33,7 +33,7 @@ class PreparationResult:
 
 def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
                        generators=None, mm_optimizer=None):
-    """N initial requests per stage, then worker-sized batches, at most 2N/stage.
+    """Request the unfilled quota first, then worker-sized batches, at most 2N/stage.
 
     Requested attempts count even if coordinates are not returned. All stages
     use the same validator; accepted candidates survive subsequent stages.
@@ -60,6 +60,7 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
               'candidate_retention': 'merge', 'stereo_generation_policy': 'require_input_specified_stereo',
               'selected_mm': config.mm_method}
     combined = []
+    generation_filter = IncrementalCandidateFilter(reference, maximum, config.validation)
     sessions = []
     try:
         for stage_index, (name, _) in enumerate(config.stages()):
@@ -71,7 +72,8 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
             row = {'generator': name, 'state': 'running', 'requested_raw': 0,
                    'returned_raw': 0, 'maximum_raw_candidates': cap, 'batches': []}
             status['stages'].append(row)
-            options = config.generators.get(name, {})
+            options = dict(config.generators.get(name, {}))
+            stage_workers = workers
             session = None
             if not (generators or {}).get(name) and options.get('persistent'):
                 from .model_session import ModelSession
@@ -79,7 +81,8 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
                 sessions.append(session)
             while len(combined) < maximum and row['requested_raw'] < cap:
                 bi = len(row['batches'])
-                count = maximum if bi == 0 else min(workers, maximum-len(combined))
+                remaining = maximum - len(combined)
+                count = remaining if bi == 0 else min(stage_workers, remaining)
                 count = min(count, cap-row['requested_raw'])
                 folder = directory/f'batch_{bi:03d}'
                 folder.mkdir()
@@ -90,15 +93,23 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
                 bt = time.monotonic()
                 try:
                     adapter = (generators or {}).get(name)
+                    if bi == 0 and name in ('ditmc', 'torsional_diffusion'):
+                        requested_device = options.get('device', config.device)
+                        device = ({'requested': requested_device, 'effective': 'cpu',
+                                   'reason': 'injected_test_adapter'} if adapter else
+                                  resolve_model_device(options, requested_device, directory, config.threads))
+                        options['device'] = device['effective']
+                        stage_workers = 1 if device['effective'] == 'gpu' else workers
+                        row.update(device=device, workers=stage_workers)
                     if adapter:
                         raw = list(adapter(reference, count, seed, folder,
                                            config.generators.get(name, {}), config.threads))
                     else:
                         if session is not None:
-                            raw = session.generate(reference, count, seed, folder, workers)
+                            raw = session.generate(reference, count, seed, folder, stage_workers)
                         else:
                             raw = generate_batch(name, reference, count, seed, folder,
-                                                 options, config.threads, workers)
+                                                 options, config.threads, stage_workers)
                     write_sdf(folder/'raw_candidates.sdf', raw)
                     if len(raw) > count:
                         raise GenerationError('Returned candidates exceed requested batch')
@@ -107,7 +118,7 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
                             mol.SetProp('candidate_id', f'{name}:b{bi:03d}:r{i:05d}')
                             mol.SetProp('generator', name)
                             mol.SetIntProp('generator_seed', seed)
-                    combined, audit = filter_candidates(combined+raw, reference, maximum, config.validation)
+                    combined, audit = generation_filter.extend(raw)
                     row['returned_raw'] += len(raw)
                     batch.update(state='completed', returned_raw=len(raw), merge_audit=audit,
                                  accumulated_valid=len(combined))
@@ -141,20 +152,29 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
         optimized = [Chem.Mol(m) for m in combined]
         codes = [None]*len(combined)
         mm_indices = [i for i, mol in enumerate(combined) if mol.GetProp('generator') == 'etkdgv3']
-        try:
-            if mm_indices:
+        mm_runs = []
+        for i in mm_indices:
+            row = {'candidate_index': i, 'candidate_id': combined[i].GetProp('candidate_id')}
+            try:
                 subset, subset_codes = (mm_optimizer or preoptimize)(
-                    [combined[i] for i in mm_indices], config.mm_method,
+                    [Chem.Mol(combined[i])], config.mm_method,
                     config.mm.get(config.mm_method, {}))
-                if len(subset) != len(mm_indices) or len(subset_codes) != len(mm_indices):
+                if len(subset) != 1 or len(subset_codes) != 1:
                     raise ValueError('MM optimizer changed candidate count')
-                for i, mol, code in zip(mm_indices, subset, subset_codes):
-                    optimized[i], codes[i] = mol, code
-            status['mm_state'] = ('not_requested' if config.mm_method == 'none' else
-                                  'completed' if mm_indices else 'not_applicable_to_learned_generators')
-        except (UnsupportedParametersError, MissingMMDependency, RuntimeError) as exc:
-            optimized, codes = [Chem.Mol(m) for m in combined], [None]*len(combined)
-            status.update(mm_state='skipped', mm_skip_reason=f'{type(exc).__name__}: {exc}')
+                optimized[i], codes[i] = subset[0], subset_codes[0]
+                row.update(state='not_requested' if config.mm_method == 'none' else 'completed',
+                           optimizer_status=codes[i])
+            except (UnsupportedParametersError, MissingMMDependency, RuntimeError) as exc:
+                row.update(state='skipped', reason=f'{type(exc).__name__}: {exc}')
+            mm_runs.append(row)
+        skipped = [r for r in mm_runs if r['state'] == 'skipped']
+        status['mm_state'] = ('not_requested' if config.mm_method == 'none' else
+                              'not_applicable_to_learned_generators' if not mm_indices else
+                              'skipped' if len(skipped) == len(mm_indices) else
+                              'partially_skipped' if skipped else 'completed')
+        status['mm_candidate_runs'] = mm_runs
+        if skipped:
+            status['mm_skip_reason'] = '; '.join(dict.fromkeys(r['reason'] for r in skipped))
         status['mm_candidate_indices'] = mm_indices
         status['mm_scope'] = 'etkdgv3_only'
         status['mm_wall_seconds'] = time.monotonic()-tick

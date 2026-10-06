@@ -1,4 +1,4 @@
-# Python 3.11, Linux CPU. Core versions from the validated GENKAI environment.
+# Python 3.11, Linux CPU. Packaged for installation outside a source checkout.
 # Upstream sources and trusted checkpoints are installed separately; see docs.
 numpy==1.26.4
 scipy==1.15.1
