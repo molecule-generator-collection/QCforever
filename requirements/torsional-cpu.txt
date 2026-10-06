@@ -1,0 +1,14 @@
+# Install the matching CPU torch/compiled PyG wheels first; see docs.
+numpy==1.26.4
+torch==2.6.0
+torch-geometric==2.8.0.post1
+e3nn==0.5.6
+rdkit==2026.3.4
+PyYAML==6.0.3
+scipy==1.17.1
+pandas==3.0.5
+networkx==3.6.1
+matplotlib
+tqdm
+torch-scatter==2.1.2
+torch-cluster==1.6.3

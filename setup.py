@@ -14,13 +14,17 @@ INSTALL_REQUIRES = [
     'basis-set-exchange>=0.12',
     'bayesian-optimization==1.4.3',
     'psutil']
+INSTALL_REQUIRES.append('PyYAML>=6')
 PACKAGES = [                    
     'qcforever',
     'qcforever.gaussian_run',
     'qcforever.gamess_run',
     'qcforever.util',
-    'qcforever.laqa_fafoom']
+    'qcforever.laqa_fafoom',
+    'qcforever.conformer_search',
+    'qcforever_model_workers']
 PACKAGE_DATA = {
+    'qcforever.conformer_search': ['defaults.yaml'],
     'qcforever': ['gaussian_run/*.json', 'gaussian_run/*.csv'],
 }
 CLASSIFIERS = [           
@@ -46,5 +50,6 @@ setup(
     install_requires=INSTALL_REQUIRES,
     packages=PACKAGES,                    
     package_data=PACKAGE_DATA,
+    entry_points={'console_scripts': ['qcforever-model-worker=qcforever_model_workers.worker:main']},
     classifiers=CLASSIFIERS
 )  

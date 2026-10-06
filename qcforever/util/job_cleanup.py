@@ -15,7 +15,7 @@ def _remove_path(path):
         shutil.rmtree(path)
 
 
-def _clean_job_directory(job_directory, restart_suffixes, preserve_pickle=False):
+def _clean_job_directory(job_directory, restart_suffixes, preserve_pickle=False, preserve_conformers=False):
     job_directory = Path(job_directory)
     if not job_directory.is_dir():
         return
@@ -25,12 +25,16 @@ def _clean_job_directory(job_directory, restart_suffixes, preserve_pickle=False)
         preserved_suffixes.add(".pkl")
 
     for path in job_directory.iterdir():
+        if preserve_conformers and path.name == 'conformer_search' and path.is_dir() and not path.is_symlink():
+            continue
+        if preserve_conformers and path.name == 'optimized_structures.sdf' and path.is_file():
+            continue
         if path.is_file() and path.suffix.lower() in preserved_suffixes:
             continue
         _remove_path(path)
 
 
-def cleanup_gaussian(job_directory, preserve_pickle=False, preserve_xyz=False):
+def cleanup_gaussian(job_directory, preserve_pickle=False, preserve_xyz=False, preserve_conformers=False):
     """Keep Gaussian restart, input, and output files."""
     preserved_suffixes = {".chk", ".fchk", ".com", ".gjf", ".log", ".out"}
     if preserve_xyz:
@@ -41,6 +45,7 @@ def cleanup_gaussian(job_directory, preserve_pickle=False, preserve_xyz=False):
         job_directory,
         restart_suffixes=preserved_suffixes,
         preserve_pickle=preserve_pickle,
+        preserve_conformers=preserve_conformers,
     )
 
 
@@ -72,6 +77,7 @@ def cleanup_gamess(
     jobname,
     preserve_pickle=False,
     scratch_directories=None,
+    preserve_conformers=False,
 ):
     """Collect GAMESS .dat files locally, then remove other job artifacts."""
     job_directory = Path(job_directory)
@@ -115,4 +121,5 @@ def cleanup_gamess(
         job_directory,
         restart_suffixes={".dat", ".inp", ".log", ".out"},
         preserve_pickle=preserve_pickle,
+        preserve_conformers=preserve_conformers,
     )

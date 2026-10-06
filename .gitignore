@@ -133,3 +133,10 @@ dmypy.json
 
 # Local spectrum comparison script
 /compare_top3_spectra.py
+.venv/
+.uv-cache/
+*.egg-info/
+build/
+dist/
+/sample_comparison_*/
+/.model-envs/

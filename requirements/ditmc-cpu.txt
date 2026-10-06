@@ -1,0 +1,27 @@
+# Python 3.11, Linux CPU. Core versions from the validated GENKAI environment.
+# Upstream sources and trusted checkpoints are installed separately; see docs.
+numpy==1.26.4
+scipy==1.15.1
+jax==0.5.2
+jaxlib==0.5.1
+flax==0.10.4
+optax==0.2.4
+orbax-checkpoint==0.11.5
+e3x==1.0.2
+jraph==0.0.6.dev0
+tensorflow-cpu==2.18.0
+tensorflow-datasets==4.9.8
+tensorstore==0.1.74
+Cython==3.0.11
+hydra-core==1.3.2
+cloudpickle==2.2.1
+rdkit==2024.3.5
+datamol==0.12.5
+ml_collections==1.1.0
+wandb==0.19.6
+pandas
+polars
+ase
+matplotlib
+scikit-learn
+tqdm

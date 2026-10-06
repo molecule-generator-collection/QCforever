@@ -47,6 +47,7 @@ class GamessDFTRun:
         self.solvent = solvent.upper()
         self.error = error
         self.pklsave = pklsave
+        self.conformer_config = None
         self.gamessversion = '00'
         self.mem = ''
         self.timeexe = 60 * 60 * 80
@@ -506,6 +507,9 @@ class GamessDFTRun:
 
     def run_gamess(self):
         """Run the complete workflow, enforcing ``timejob`` when configured."""
+        from qcforever.conformer_search.options import resolve_options
+        self._conformer_settings = resolve_options(getattr(self, 'value', ''), getattr(self, 'conformer_config', None))
+        self._conformer_summary = None
         original_directory = os.getcwd()
         self._active_job_directory = None
         self._active_job_name = None
@@ -522,6 +526,7 @@ class GamessDFTRun:
                     self._active_job_directory,
                     self._active_job_name,
                     preserve_pickle=self.pklsave,
+                    preserve_conformers=self._conformer_settings is not None,
                 )
             self._active_job_directory = None
             self._active_job_name = None
@@ -529,7 +534,8 @@ class GamessDFTRun:
     def _run_gamess(self):
         infilename = self.in_file
         option_line = self.value    
-        options = option_line.split()
+        from qcforever.conformer_search.options import calculation_tokens
+        options = calculation_tokens(option_line)
         option_dict = {}
         #option_dict_Ex = np.zeros(19)  # not used
         #option_dict_pka = np.zeros(19) # not used
@@ -646,9 +652,14 @@ class GamessDFTRun:
                 original_file = str(Path('..') / infilename)
                 try:
                     #laqa_confopt_sdf.LAQA_confopt_main(original_sdf, TotalCharge, SpinMulti, 
-                    laqa_confopt_QCforever.LAQA_confopt_main(original_file, TotalCharge, SpinMulti, 
-                                                        optconfoption, self.nproc, self.mem)
-                except:
+                    self._conformer_summary = laqa_confopt_QCforever.LAQA_confopt_main(
+                        original_file, TotalCharge, SpinMulti, optconfoption, self.nproc, self.mem,
+                        search_config=self._conformer_settings)
+                except job_timeout.QCforeverTimeoutError:
+                    raise
+                except Exception as exc:
+                    self._conformer_summary = {'state': 'failed', 'error': f'{type(exc).__name__}: {exc}',
+                                               'details_directory': 'conformer_search'}
                     reconf = False
                     pass
                     
@@ -658,6 +669,8 @@ class GamessDFTRun:
                 pass
 
             try:
+                if self._conformer_summary and self._conformer_summary['state'] == 'failed':
+                    raise RuntimeError(self._conformer_summary['error'])
                 Mol_atm, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf("./optimized_structures.sdf")
                 reconf = True
             except Exception as e:
@@ -794,6 +807,7 @@ class GamessDFTRun:
 
         if 'optconf' in option_dict:
             output_dic['optconf'] = reconf
+            output_dic['conformer_search'] = self._conformer_summary or {'state': 'failed', 'error': 'Unsupported input'}
 
         if 'log' not in output_dic:
             if job_state == '':

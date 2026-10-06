@@ -139,6 +139,16 @@ Following options are currently available:
 |optspin| try to find a suitable spin multiplicity.|:white_check_mark:||
 |optconf| try to find a stable molecular conformation with PM6 (Gaussian16).|:white_check_mark:|:white_check_mark:|
 
+### Configurable conformer search (development)
+
+`optconf=xtb` / `optconf=pm6` keep their syntax but use the new light route
+(ETKDGv3, MMFF94s, continuous native relaxation). Add `optconf_middle` or
+`optconf_high` to request the learned-generator fallback routes. Optional
+`job.conformer_config = 'conformer.yaml'` overrides packaged settings.
+Learned model execution requires separately configured environments/adapters;
+these adapters are not yet production-validated. See
+[configuration, output and validation status](docs/conformer_search.md).
+
 ## License
 
 This package is distributed under the MIT License.

@@ -98,6 +98,10 @@ def wait(process):
 def run(*args, **kwargs):
     """Equivalent to ``subprocess.run`` with deadline and tree termination."""
     input_data = kwargs.pop("input", None)
+    local_timeout = kwargs.pop('timeout', None)
+    remaining = remaining_time()
+    timeout = remaining if local_timeout is None else (
+        local_timeout if remaining is None else min(local_timeout, remaining))
     if input_data is not None:
         kwargs["stdin"] = subprocess.PIPE
     check = kwargs.pop("check", False)
@@ -105,11 +109,13 @@ def run(*args, **kwargs):
     try:
         stdout, stderr = process.communicate(
             input=input_data,
-            timeout=remaining_time(),
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
         terminate_process(process)
         process.communicate()
+        if local_timeout is not None and (remaining is None or local_timeout < remaining):
+            raise
         raise QCforeverTimeoutError(
             "QCforever overall wall-clock time limit exceeded"
         ) from exc

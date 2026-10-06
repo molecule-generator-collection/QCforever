@@ -51,6 +51,7 @@ class GaussianDFTRun:
         self.restart = restart
         self.error = error
         self.pklsave = pklsave
+        self.conformer_config = None
         self.mem = ''
         self.timexe = 60 * 60 * 80
         # Overall QCforever wall-clock limit in seconds.  None means unlimited.
@@ -987,6 +988,9 @@ class GaussianDFTRun:
 
     def run_gaussian(self):
         """Run the complete workflow, enforcing ``timejob`` when configured."""
+        from qcforever.conformer_search.options import resolve_options
+        self._conformer_settings = resolve_options(getattr(self, 'value', ''), getattr(self, 'conformer_config', None))
+        self._conformer_summary = None
         original_directory = os.getcwd()
         self._active_job_directory = None
         try:
@@ -1001,6 +1005,7 @@ class GaussianDFTRun:
                 job_cleanup.cleanup_gaussian(
                     self._active_job_directory,
                     preserve_pickle=self.pklsave,
+                    preserve_conformers=self._conformer_settings is not None,
                     preserve_xyz=not self.restart,
                 )
             self._active_job_directory = None
@@ -1008,7 +1013,8 @@ class GaussianDFTRun:
     def _run_gaussian(self):
         infilename = self.in_file
         option_line = self.value    
-        options = option_line.split()
+        from qcforever.conformer_search.options import calculation_tokens
+        options = calculation_tokens(option_line)
         job_eachState = []
         job_eachState.append({})
         option_dict = {}
@@ -1321,9 +1327,14 @@ class GaussianDFTRun:
                 print (type(original_file))
                 try:
                     #laqa_confopt_sdf.LAQA_confopt_main(original_sdf, TotalCharge, SpinMulti, 
-                    laqa_confopt_QCforever.LAQA_confopt_main(original_file, TotalCharge, SpinMulti, 
-                                                        optconfoption, self.nproc, self.mem)
-                except:
+                    self._conformer_summary = laqa_confopt_QCforever.LAQA_confopt_main(
+                        original_file, TotalCharge, SpinMulti, optconfoption, self.nproc, self.mem,
+                        search_config=self._conformer_settings)
+                except job_timeout.QCforeverTimeoutError:
+                    raise
+                except Exception as exc:
+                    self._conformer_summary = {'state': 'failed', 'error': f'{type(exc).__name__}: {exc}',
+                                               'details_directory': 'conformer_search'}
                     reconf = False
                     pass
             else:
@@ -1332,6 +1343,8 @@ class GaussianDFTRun:
                 pass
 
             try:
+                if self._conformer_summary and self._conformer_summary['state'] == 'failed':
+                    raise RuntimeError(self._conformer_summary['error'])
                 atm, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf("./optimized_structures.sdf")
                 reconf = True
             except Exception as e:
@@ -1676,6 +1689,7 @@ class GaussianDFTRun:
 
         if 'optconf' in option_dict:
             output_sum['optconf'] = reconf
+            output_sum['conformer_search'] = self._conformer_summary or {'state': 'failed', 'error': 'Unsupported input'}
 
         #If functional parameter is not default ones, add them to the output dictionary.
         if self.para_functional != []:

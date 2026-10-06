@@ -6,7 +6,7 @@ import numpy as np
 from scipy.stats import wasserstein_distance
 
 
-_trapezoid = getattr(np, "trapezoid", np.trapz)
+_trapezoid = np.trapezoid if hasattr(np, 'trapezoid') else np.trapz
 
 
 SPECTRUM_SETTINGS = {
