@@ -90,14 +90,8 @@ The supplied memory setting is **per native calculation**, not a shared pool:
 With `nproc=32` and at least 32 candidates, `mem='1GB'` can request up to
 32 GB in Gaussian, plus worker overhead. Choose `nproc` and memory together.
 
-For the GENKAI integration smoke test, `check_sample_profiles.py` accepts
-`--smoke-candidates 2`. This is a **test-only in-memory override**, not an edit
-to the packaged YAML or normal candidate formula. Omitting that flag restores
-the normal budget automatically; results record both budgets. Each sample/profile
-can be submitted separately; `--cores` sets the total allocation, from which
-the single-core native worker count is derived. The old `--qc-cores` switch has been removed. An empty
-raw SDF is treated as zero generated candidates and follows the same fixed-cap
-and fallback policy as any other empty pool.
+An empty raw SDF is treated as zero generated candidates and follows the same
+fixed-cap and fallback policy as any other empty pool.
 
 ## Generation contract
 
@@ -299,7 +293,22 @@ Batch audit indices/counts preserve
 the previous accepted-prefix-plus-new-batch convention; they are not cumulative
 raw-attempt counts.
 
-CPU unit tests use actual RDKit ETKDG/MM and isolated synthetic model/QC commands.
+## Basic tests
+
+Run the compact conformer test suite from the repository root:
+
+```bash
+python -m pytest -q test/test_conformer_search.py test/test_conformer_setup.py test/test_model_session.py test/test_native_parallel.py
+```
+
+These tests cover search settings, bounded generation/fallback, structure and
+stereo checks, MM routing, selection, CPU limits, worker reuse and installer
+safety. They use actual RDKit ETKDG/MM and synthetic model/native commands;
+model weights, GPUs, Gaussian and xTB executables are not required. Extended
+benchmark and cluster-validation scripts are not distributed with the package.
+
+### Previous integration checks
+
 Real DiTMC/TD checkpoints and native xTB/PM6 have been exercised on GENKAI with
 four Sample molecules (formaldehyde, chlorobenzene, ethanol and `200_11`), using
 a test-only maximum of two candidates. These tests demonstrate execution, not

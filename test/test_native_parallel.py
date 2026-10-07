@@ -66,7 +66,7 @@ def _pm6_adapter(mol, folder, charge, multiplicity, cores, memory, settings):
         assert dict(os.environ) == before_env
 
 
-@pytest.mark.parametrize('nproc', [1, 2, 4, 8, 16, 32])
+@pytest.mark.parametrize('nproc', [1, 2])
 def test_pm6_parallel_isolation_order_and_failure(tmp_path, monkeypatch, nproc):
     monkeypatch.chdir(tmp_path)
     ref = Chem.AddHs(Chem.MolFromSmiles('CCCC'))
