@@ -151,8 +151,8 @@ def test_partial_yaml_and_cpu_cap(tmp_path):
     cfg = resolve_options('optconf=xtb optconf_medium', str(path))
     assert cfg.profile == 'medium' and cfg.budget.base == 10 and cfg.mm_method == 'uff'
     assert cfg.parallelism(8) == 4
-    with pytest.raises(ValueError):
-        cfg.parallelism(1)
+    assert cfg.parallelism(1) == 1
+    assert cfg.effective_threads(1) == 1
 
 
 def test_incremental_stops_at_n(tmp_path):

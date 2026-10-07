@@ -45,7 +45,12 @@ mm_method: mmff94s  # mmff94s / uff / none
 ```
 
 CPU allocation comes from QCforever's resolved `nproc`, not YAML. Generation workers
-are `min(workers, nproc // threads)`; fewer cores than threads is an error.
+use `effective_threads = min(threads, nproc)` per worker, with
+`min(workers, nproc // effective_threads)` workers. Thus, even if the existing
+runner reduces `nproc` below the requested `threads`, generation stays within
+the resolved CPU limit instead of failing. `resolved_config.json` retains the
+requested settings; `status.json` records the resolved core limit, requested
+threads and actual `threads_per_worker`.
 Default `device: auto` checks GPU availability **inside each model's Python
 environment**, respecting `CUDA_VISIBLE_DEVICES` from the scheduler. A usable
 GPU selects one model worker on that GPU; otherwise CPU generation uses the
@@ -56,7 +61,8 @@ not used concurrently by this initial implementation.
 
 Default workers=8 and threads=4 means four CPU cores per model worker, with
 at most eight workers: an 8-core allocation runs two workers, a 4-core allocation
-runs one. It does not reserve cores independently of `nproc`. Memory is not automatically
+runs one. With `nproc=1`, `2` or `3`, one worker uses that many threads.
+It does not reserve cores independently of `nproc`. Memory is not automatically
 estimated for ML models. Lower workers if model copies exceed available RAM.
 
 xTB/PM6 use **1 core per candidate, with multiple candidates in parallel**.
@@ -185,7 +191,7 @@ identity across different library versions/devices or nondeterministic kernels.
 The setup command and supplied GENKAI configuration use `persistent: true`. This requires
 a worker supporting `--session DIRECTORY` (the installed `qcforever-model-worker`
 supports it; `scripts/model_raw_worker.py` is a compatibility shim).
-Each generator stage maintains up to `floor(allocated_cores / threads)` worker
+Each generator stage maintains up to `min(workers, floor(nproc / effective_threads))` worker
 processes. Workers load model weights once, accept additional batches, and close
 when the stage ends. A smaller additional batch reuses existing workers rather
 than rebuilding a smaller pool. Model stdout is saved in `session_worker_*/worker.out`.
@@ -274,8 +280,22 @@ the unchanged accepted pool. Earlier accepted candidates are retained in order;
 new candidates are compared against both earlier batches and accepted candidates
 from the same batch. Geometry, input-specified stereo and symmetry-aware RMSD
 rules are unchanged. The filter owns private copies of its pool and fixes its
-reference/settings for one preparation run. After MM, the entire pool is checked
-again because coordinates may have changed. Batch audit indices/counts preserve
+reference/settings for one preparation run. Final preparation checks follow
+two explicit routes:
+
+- No MM call: export a copy of the privately validated generation pool and audit.
+  This covers learned-only pools and `mm_method: none`; the latter never calls
+  the optimizer (including a supplied custom optimizer).
+- Any MM call: fully recheck the entire output pool, including cross-generator
+  duplicates in mixed pools. This also applies if MM leaves coordinates unchanged
+  or every MM call is skipped because parameters are unavailable.
+
+There is no structural-change detector or binary-identity comparison. Validation
+thresholds, candidate order/IDs, properties and the final audit schema are unchanged.
+`post_mm_validation_mode` records `reused_generation_no_mm` or `full_recheck`,
+and `post_mm_validation_wall_seconds` records the final export/check time.
+The post-xTB/PM6 geometry/stereo audit remains unconditional and separate.
+Batch audit indices/counts preserve
 the previous accepted-prefix-plus-new-batch convention; they are not cumulative
 raw-attempt counts.
 

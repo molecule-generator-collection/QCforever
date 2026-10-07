@@ -46,6 +46,7 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
     reference = Chem.AddHs(Chem.RemoveHs(reference), addCoords=True)
     budget = config.budget.resolve(Chem.RemoveHs(reference))
     maximum, cap = budget['maximum_candidates'], budget['raw_attempt_cap_per_generator']
+    threads = config.effective_threads(allocated_cores)
     workers = config.parallelism(allocated_cores)
     root = Path(output_directory).resolve()
     root.mkdir(parents=True, exist_ok=False)
@@ -56,7 +57,9 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
     status = {'state': 'running', 'profile': config.profile, 'budget': budget,
               'reference_smiles': Chem.MolToSmiles(Chem.RemoveHs(reference)),
               'rdkit_version': rdBase.rdkitVersion, 'stages': [],
-              'workers': workers, 'threads_per_worker': config.threads,
+              'allocated_cores': allocated_cores,
+              'requested_threads_per_worker': config.threads,
+              'workers': workers, 'threads_per_worker': threads,
               'candidate_retention': 'merge', 'stereo_generation_policy': 'require_input_specified_stereo',
               'selected_mm': config.mm_method}
     combined = []
@@ -77,7 +80,7 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
             session = None
             if not (generators or {}).get(name) and options.get('persistent'):
                 from .model_session import ModelSession
-                session = ModelSession(directory, options, config.threads)
+                session = ModelSession(directory, options, threads)
                 sessions.append(session)
             while len(combined) < maximum and row['requested_raw'] < cap:
                 bi = len(row['batches'])
@@ -97,19 +100,19 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
                         requested_device = options.get('device', config.device)
                         device = ({'requested': requested_device, 'effective': 'cpu',
                                    'reason': 'injected_test_adapter'} if adapter else
-                                  resolve_model_device(options, requested_device, directory, config.threads))
+                                  resolve_model_device(options, requested_device, directory, threads))
                         options['device'] = device['effective']
                         stage_workers = 1 if device['effective'] == 'gpu' else workers
                         row.update(device=device, workers=stage_workers)
                     if adapter:
                         raw = list(adapter(reference, count, seed, folder,
-                                           config.generators.get(name, {}), config.threads))
+                                           config.generators.get(name, {}), threads))
                     else:
                         if session is not None:
                             raw = session.generate(reference, count, seed, folder, stage_workers)
                         else:
                             raw = generate_batch(name, reference, count, seed, folder,
-                                                 options, config.threads, stage_workers)
+                                                 options, threads, stage_workers)
                     write_sdf(folder/'raw_candidates.sdf', raw)
                     if len(raw) > count:
                         raise GenerationError('Returned candidates exceed requested batch')
@@ -153,8 +156,14 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
         codes = [None]*len(combined)
         mm_indices = [i for i, mol in enumerate(combined) if mol.GetProp('generator') == 'etkdgv3']
         mm_runs = []
+        mm_attempted = False
         for i in mm_indices:
             row = {'candidate_index': i, 'candidate_id': combined[i].GetProp('candidate_id')}
+            if config.mm_method == 'none':
+                row.update(state='not_requested', optimizer_status=None)
+                mm_runs.append(row)
+                continue
+            mm_attempted = True
             try:
                 subset, subset_codes = (mm_optimizer or preoptimize)(
                     [Chem.Mol(combined[i])], config.mm_method,
@@ -162,8 +171,7 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
                 if len(subset) != 1 or len(subset_codes) != 1:
                     raise ValueError('MM optimizer changed candidate count')
                 optimized[i], codes[i] = subset[0], subset_codes[0]
-                row.update(state='not_requested' if config.mm_method == 'none' else 'completed',
-                           optimizer_status=codes[i])
+                row.update(state='completed', optimizer_status=codes[i])
             except (UnsupportedParametersError, MissingMMDependency, RuntimeError) as exc:
                 row.update(state='skipped', reason=f'{type(exc).__name__}: {exc}')
             mm_runs.append(row)
@@ -181,7 +189,16 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
         if len(optimized) != len(codes) or len(optimized) != len(combined):
             raise ValueError('MM optimizer changed candidate count')
         write_sdf(root/'mm_candidates.sdf', optimized)
-        filtered, audit = filter_candidates(optimized, reference, maximum, config.validation)
+        validation_started = time.monotonic()
+        # Follow the execution route, not a structural-change detector. Even
+        # skipped or unchanged MM outputs take the full post-MM validation path.
+        if mm_attempted:
+            filtered, audit = filter_candidates(optimized, reference, maximum, config.validation)
+            status['post_mm_validation_mode'] = 'full_recheck'
+        else:
+            filtered, audit = generation_filter.snapshot()
+            status['post_mm_validation_mode'] = 'reused_generation_no_mm'
+        status['post_mm_validation_wall_seconds'] = time.monotonic()-validation_started
         status.update(mm_optimizer_status=codes, post_mm_audit=audit,
                       final_candidate_count=len(filtered))
         if not filtered:

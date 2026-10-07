@@ -174,9 +174,10 @@ class IncrementalCandidateFilter:
 
     The reference and settings are fixed for this instance. Private copies keep
     callers from invalidating cached checks by modifying returned molecules or
-    audits. Start a new full filter after MM; never reuse this pool after moving
-    coordinates. Audit indices retain the full-filter convention: accepted
-    prefix followed by the new batch, not cumulative raw-generation indices.
+    audits. Use snapshot() when bypassing MM; run a full filter on MM outputs.
+    Audit indices retain the
+    full-filter convention: accepted prefix followed by the new batch, not
+    cumulative raw-generation indices.
     """
 
     def __init__(self, reference, maximum, settings):
@@ -198,6 +199,19 @@ class IncrementalCandidateFilter:
         self._accepted = [Chem.Mol(mol) for mol in accepted]
         self._accepted_audit = deepcopy([row for row in summary['candidates'] if row['accepted']])
         return accepted, summary
+
+    def snapshot(self):
+        """Export private, validated generation results; never accept MM outputs.
+
+        Copies prevent callers from changing the stored pool or audit. Indices
+        are normalized to the final pool, just as in a fresh full-filter audit.
+        """
+        accepted = [Chem.Mol(mol) for mol in self._accepted]
+        audit = deepcopy(self._accepted_audit)
+        for i, (mol, row) in enumerate(zip(accepted, audit)):
+            row['raw_index'] = i
+            mol.SetIntProp('raw_candidate_index', i)
+        return accepted, _candidate_audit(len(accepted), accepted, audit, self._reference, self._settings)
 
 
 def _filter_new_candidates(records, reference, maximum, settings, accepted, audit):
@@ -231,7 +245,12 @@ def _filter_new_candidates(records, reference, maximum, settings, accepted, audi
             row = {'raw_index': i, 'accepted': False, 'reason': 'unreadable_structure',
                    'detail': f'{type(exc).__name__}: {exc}'}
         audit.append(row)
-    return accepted, {'raw_generated': prefix_size + len(records), 'accepted_candidates': len(accepted),
+    return accepted, _candidate_audit(prefix_size + len(records), accepted, audit, reference, settings)
+
+
+def _candidate_audit(raw_count, accepted, audit, reference, settings):
+    """Build the shared audit schema; no molecular validation occurs here."""
+    return {'raw_generated': raw_count, 'accepted_candidates': len(accepted),
                       'duplicate_rmsd_atoms': 'all_explicit_atoms_except_XH3_hydrogens',
                       'duplicate_excluded_reference_atom_indices': sorted(xh3_hydrogen_indices(reference)),
                       'duplicate_rmsd_angstrom': settings.duplicate_rmsd_angstrom,

@@ -166,10 +166,18 @@ class SearchConfig:
             merge(value, supplied)
         return cls.from_mapping(value)
 
+    def effective_threads(self, allocated_cores):
+        """Fit generation within the runner's resolved nproc, even below 4.
+
+        Keep the requested settings unchanged; the pipeline records the actual
+        thread count separately and passes it to every generation backend.
+        """
+        if isinstance(allocated_cores, bool) or not isinstance(allocated_cores, int) or allocated_cores < 1:
+            raise ValueError('allocated_cores must be a positive integer')
+        return min(self.threads, allocated_cores)
+
     def parallelism(self, allocated_cores):
-        if allocated_cores < self.threads:
-            raise ValueError('threads per worker exceeds allocated CPU cores')
-        return min(self.workers, allocated_cores // self.threads)
+        return min(self.workers, allocated_cores // self.effective_threads(allocated_cores))
 
     def stages(self):
         names = {'high': ['ditmc', 'torsional_diffusion', 'etkdgv3'],
