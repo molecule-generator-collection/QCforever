@@ -198,9 +198,10 @@ def relax_candidates(prepared, reference, config, charge, multiplicity, method, 
     folder.mkdir(exist_ok=False)
     records, energies, rows = [], [], []
     # Separate processes are essential: the Gaussian adapter changes cwd/env.
-    # Never exceed nproc, including allocations smaller than four cores.
-    per_call = min(4, cores)
-    workers = min(max(1, cores // per_call), len(prepared.candidates))
+    # One core per native calculation; use nproc to parallelize candidates.
+    # Model-generation threads are configured independently.
+    per_call = 1
+    workers = min(cores, len(prepared.candidates))
     started = time.monotonic()
     tasks = []
     remaining = job_timeout.remaining_time()
@@ -259,7 +260,7 @@ def relax_candidates(prepared, reference, config, charge, multiplicity, method, 
                  candidate_runs=rows, **counts, wall_seconds=time.monotonic()-started,
                  sum_candidate_wall_seconds=sum(row['wall_seconds'] for row in rows),
                  allocated_cores=cores, cores_per_calculation=per_call,
-                 parallel_workers=workers, scheduling='parallel_candidates_4_cores')
+                 parallel_workers=workers, scheduling='parallel_candidates_1_core')
     primary = audit['primary_best_index']
     selected = primary if primary is not None else audit['best_any_index']
     if selected is None:

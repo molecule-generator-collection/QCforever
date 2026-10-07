@@ -106,7 +106,7 @@ class SearchConfig:
         if self.threads < 1 or not 0 <= self.seed < 2**31:
             raise ValueError('threads must be positive and seed must fit a signed 32-bit integer')
         if 'cores_per_calculation' in self.relaxation:
-            raise ValueError('Remove relaxation.cores_per_calculation: xTB/PM6 use up to 4 cores per candidate, with workers derived from nproc')
+            raise ValueError('Remove relaxation.cores_per_calculation: xTB/PM6 use 1 core per candidate, with workers derived from nproc')
         allowed = {'implementation', 'maximum_cycles', 'xtb_executable', 'xtb_opt_level'}
         if set(self.relaxation)-allowed:
             raise ValueError('Unknown relaxation setting')

@@ -59,20 +59,18 @@ at most eight workers: an 8-core allocation runs two workers, a 4-core allocatio
 runs one. It does not reserve cores independently of `nproc`. Memory is not automatically
 estimated for ML models. Lower workers if model copies exceed available RAM.
 
-xTB/PM6 use **4 cores per candidate, with multiple candidates in parallel**.
-`nproc=8`, `16`, and `32` allow 2, 4, and 8 relaxation workers respectively,
-capped by the available candidate count. Each worker receives `min(4, nproc)`
-cores; worker count is `nproc // min(4, nproc)`. Thus `nproc<4` runs one worker,
-and unused remainder cores (e.g. 2 for `nproc=10`) are not oversubscribed.
+xTB/PM6 use **1 core per candidate, with multiple candidates in parallel**.
+`nproc=8`, `16`, and `32` allow 8, 16, and 32 relaxation workers respectively,
+capped by the available candidate count: `min(nproc, number_of_candidates)`.
+Each worker receives one core; `nproc=1` runs candidates sequentially.
 Generation `workers`/`threads` are independent of this relaxation policy.
-xTB receives `--parallel 4`, and PM6 receives `%nprocshared=4`
-(or the smaller allocation when `nproc<4`).
+xTB receives `--parallel 1`, and PM6 receives `%nprocshared=1`.
 For both native backends, `OMP_NUM_THREADS`, `OMP_THREAD_LIMIT`,
 `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS` and `NUMEXPR_NUM_THREADS` are set to
 the per-candidate core count, overriding inherited values only for that calculation.
 Parallel workers are separate spawned processes so PM6's working directory and
 environment are isolated. On Linux, each native worker is pinned to a disjoint
-4-core subset of the scheduler-provided affinity. The GENKAI Gaussian wrapper
+single CPU from the scheduler-provided affinity. The GENKAI Gaussian wrapper
 also caps its CPU list at the native per-call thread limit.
 The adapter restores changed variables on success or
 failure. Scripts invoking QCforever must use an `if __name__ == '__main__':`
@@ -83,14 +81,15 @@ The former `relaxation.cores_per_calculation` YAML key is no longer accepted;
 remove it from old overrides. Audits still report the realized
 `cores_per_calculation` and actual `parallel_workers` for reproducibility.
 The supplied memory setting is **per native calculation**, not a shared pool:
-eight PM6 workers with `mem='1GB'` request up to 8 GB in Gaussian, plus overhead.
+With `nproc=32` and at least 32 candidates, `mem='1GB'` can request up to
+32 GB in Gaussian, plus worker overhead. Choose `nproc` and memory together.
 
 For the GENKAI integration smoke test, `check_sample_profiles.py` accepts
 `--smoke-candidates 2`. This is a **test-only in-memory override**, not an edit
 to the packaged YAML or normal candidate formula. Omitting that flag restores
 the normal budget automatically; results record both budgets. Each sample/profile
 can be submitted separately; `--cores` sets the total allocation, from which
-the 4-core native worker count is derived. The old `--qc-cores` switch has been removed. An empty
+the single-core native worker count is derived. The old `--qc-cores` switch has been removed. An empty
 raw SDF is treated as zero generated candidates and follows the same fixed-cap
 and fallback policy as any other empty pool.
 

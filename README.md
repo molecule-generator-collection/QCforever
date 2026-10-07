@@ -164,6 +164,10 @@ the default is `optconf_low` (ETKDGv3, MMFF94s, continuous native relaxation).
 You can also specify `optconf_low` explicitly. Add `optconf_medium` or
 `optconf_high` to request the learned-generator fallback routes. Optional
 `job.conformer_config = 'conformer.yaml'` overrides packaged settings.
+Conformer xTB/PM6 relaxation uses one core per worker, running up to `nproc`
+candidates in parallel (limited by candidate count). CPU model generation keeps
+four cores per worker by default. Gaussian memory is per relaxation worker;
+allow for the total memory required by concurrent candidates.
 Learned model execution uses the optional setup above; explicit YAML settings
 override the registered models. Setup verifies basic inference, not performance
 or validity for every molecule. See

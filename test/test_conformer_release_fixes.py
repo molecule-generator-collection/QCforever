@@ -133,7 +133,7 @@ def test_generation_parallelism_is_separate_from_native_nproc():
     assert cfg.threads == 4
     assert [cfg.parallelism(n) for n in (4, 8, 16)] == [1, 2, 4]
     assert 'cores_per_calculation' not in cfg.relaxation
-    with pytest.raises(ValueError, match='up to 4 cores'):
+    with pytest.raises(ValueError, match='1 core per candidate'):
         SearchConfig.resolve(override={'relaxation': {'cores_per_calculation': 4}})
 
 

@@ -296,7 +296,7 @@ def test_continuous_relaxation_audit_and_selection(tmp_path, monkeypatch):
         if index == 1:
             raise RuntimeError('synthetic QC failure')
         return Chem.Mol(mol), -10-index
-    audit = relax_candidates(prepared, ref, cfg, 0, 1, 'xtb', 2, '1GB', adapter=relax)
+    audit = relax_candidates(prepared, ref, cfg, 0, 1, 'xtb', 1, '1GB', adapter=relax)
     assert audit['primary_best_index'] == 2
     best = next(iter(Chem.SDMolSupplier('optimized_structures.sdf', removeHs=False)))
     assert best.GetProp('candidate_id') == prepared.candidates[2].GetProp('candidate_id')
@@ -376,15 +376,16 @@ def test_all_candidates_attempted_even_if_one_fails(tmp_path, monkeypatch):
         if i == 1:
             raise UnboundLocalError('simulate old parser on incomplete native output')
         return Chem.Mol(mol), -10-i
-    audit = relax_candidates(prepared, ref, cfg, 0, 1, 'xtb', 2, '1GB', adapter=backend)
+    audit = relax_candidates(prepared, ref, cfg, 0, 1, 'xtb', 1, '1GB', adapter=backend)
     assert calls == [0, 1, 2, 3, 4]
     assert audit['attempted_candidates'] == 5
     assert audit['converged_candidates'] == 4 and audit['failed_candidates'] == 1
     assert audit['primary_valid_candidates'] == 4 and audit['primary_best_index'] == 4
 
 
-@pytest.mark.parametrize('nproc', [1, 2, 4])
-def test_pm6_existing_input_adapter_and_all_candidate_loop(tmp_path, monkeypatch, nproc):
+def test_pm6_existing_input_adapter_and_all_candidate_loop(tmp_path, monkeypatch):
+    # Sequential adapter test; spawned multi-core allocations are tested separately.
+    nproc = 1
     from qcforever.laqa_fafoom.pyg16 import g16Object
     import os
     monkeypatch.chdir(tmp_path)
@@ -394,7 +395,7 @@ def test_pm6_existing_input_adapter_and_all_candidate_loop(tmp_path, monkeypatch
     monkeypatch.setattr('shutil.which', lambda name: '/fake/g16')
     from qcforever.conformer_search.relaxation import native_thread_environment
     # An HPC script may still export 4 for model generation. Native PM6 must
-    # receive nproc, and the caller's values must survive both success/failure.
+    # receive one core, and the caller's values must survive both success/failure.
     for key in native_thread_environment(4):
         monkeypatch.setenv(key, '4')
     previous = {k: os.environ.get(k) for k in (*native_thread_environment(4), 'GAUSS_EXEDIR', 'GAUSS_SCRDIR')}
@@ -490,8 +491,8 @@ def test_final_stereo_mismatch_returns_structure_with_warning(tmp_path, monkeypa
     assert not mol.GetBoolProp('tetrahedral_stereo_match')
 
 
-@pytest.mark.parametrize('nproc', [1, 4, 6, 8, 16, 32])
-def test_native_relaxation_uses_four_core_workers(tmp_path, monkeypatch, nproc):
+@pytest.mark.parametrize('nproc', [1, 2, 4, 6, 8, 16, 32])
+def test_native_relaxation_uses_single_core_workers(tmp_path, monkeypatch, nproc):
     monkeypatch.chdir(tmp_path)
     binary = tmp_path/'fake_xtb_parallel'
     binary.write_text(f'#!{sys.executable}\n' +
@@ -505,10 +506,10 @@ def test_native_relaxation_uses_four_core_workers(tmp_path, monkeypatch, nproc):
     ref = molecule()
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
     audit = relax_candidates(prepared, ref, cfg, 0, 1, 'xtb', nproc, '1GB')
-    per_call = min(4, nproc)
-    workers = min(2, nproc // per_call)
+    per_call = 1
+    workers = min(2, nproc)
     assert audit['parallel_workers'] == workers and audit['cores_per_calculation'] == per_call
-    assert audit['scheduling'] == 'parallel_candidates_4_cores'
+    assert audit['scheduling'] == 'parallel_candidates_1_core'
     folder = tmp_path/'run/electronic'
     intervals = [json.loads((folder/f'candidate_{i:05d}/interval.json').read_text()) for i in range(2)]
     assert intervals[0]['pid'] != intervals[1]['pid']
@@ -530,7 +531,7 @@ def test_no_primary_still_attempts_every_candidate(tmp_path, monkeypatch):
     def fails(*args):
         raise RuntimeError('synthetic failure')
     with pytest.raises(RuntimeError, match='No converged'):
-        relax_candidates(prepared, ref, cfg, 0, 1, 'xtb', 2, '', adapter=fails)
+        relax_candidates(prepared, ref, cfg, 0, 1, 'xtb', 1, '', adapter=fails)
     audit = json.loads((tmp_path/'run'/'electronic'/'audit.json').read_text())
     assert audit['attempted_candidates'] == 3 and audit['failed_candidates'] == 3
 
@@ -543,7 +544,7 @@ def test_global_timeout_is_not_a_candidate_failure(tmp_path, monkeypatch):
     def expired(*args):
         raise job_timeout.QCforeverTimeoutError('synthetic deadline')
     with pytest.raises(job_timeout.QCforeverTimeoutError):
-        relax_candidates(prepared, ref, cfg, 0, 1, 'xtb', 2, '', adapter=expired)
+        relax_candidates(prepared, ref, cfg, 0, 1, 'xtb', 1, '', adapter=expired)
     progress = json.loads((tmp_path/'run'/'electronic'/'progress.json').read_text())
     assert len(progress) == 1 and progress[0]['state'] == 'timeout'
 
@@ -559,7 +560,7 @@ def test_xtb_subprocess_and_new_optconf_entry_end_to_end(tmp_path, monkeypatch):
         'assert args[args.index("--gfn")+1]=="2"\n'
         'assert args[args.index("--chrg")+1]=="0"\n'
         'assert args[args.index("--uhf")+1]=="0"\n'
-        'assert args[args.index("--parallel")+1]=="2"\n'
+        'assert args[args.index("--parallel")+1]=="1"\n'
         'i=int(p.name.split("_")[-1]); energy=-10-i\n'
         '(p/"xtbopt.xyz").write_text((p/"input.xyz").read_text())\n'
         '(p/"xtbopt.log").write_text(f"energy: {energy} gnorm: 0.0001\\n")\n'

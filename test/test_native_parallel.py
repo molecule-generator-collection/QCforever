@@ -21,12 +21,12 @@ def test_native_worker_affinity(monkeypatch):
     calls = []
     monkeypatch.setattr(os, 'sched_setaffinity', lambda pid, cpus: calls.append((pid, cpus)), raising=False)
     queue = Queue()
-    queue.put([8, 9, 12, 13])
-    queue.put([14, 15, 18, 19])
+    queue.put([8])
+    queue.put([14])
     _initialize_native_worker(queue)
     _initialize_native_worker(queue)
     _initialize_native_worker(None)
-    assert calls == [(0, [8, 9, 12, 13]), (0, [14, 15, 18, 19])]
+    assert calls == [(0, [8]), (0, [14])]
 
 
 def _copies(reference, count, *args):
@@ -42,8 +42,9 @@ def _pm6_adapter(mol, folder, charge, multiplicity, cores, memory, settings):
     def run(obj):
         assert Path.cwd() == folder
         text = Path('Gau_molecule.com').read_text()
-        assert '%nprocshared=4' in text and '%mem=1GB' in text
-        assert all(os.environ[k] == v for k, v in native_thread_environment(4).items())
+        assert cores == 1
+        assert '%nprocshared=1' in text and '%mem=1GB' in text
+        assert all(os.environ[k] == v for k, v in native_thread_environment(1).items())
         start = time.monotonic()
         time.sleep(0.4 + (index % 3) * 0.1)
         Path('interval.json').write_text(json.dumps({
@@ -65,19 +66,20 @@ def _pm6_adapter(mol, folder, charge, multiplicity, cores, memory, settings):
         assert dict(os.environ) == before_env
 
 
-@pytest.mark.parametrize('nproc', [8, 16, 32])
+@pytest.mark.parametrize('nproc', [1, 2, 4, 8, 16, 32])
 def test_pm6_parallel_isolation_order_and_failure(tmp_path, monkeypatch, nproc):
     monkeypatch.chdir(tmp_path)
     ref = Chem.AddHs(Chem.MolFromSmiles('CCCC'))
     assert AllChem.EmbedMolecule(ref, randomSeed=42) == 0
     cfg = SearchConfig.resolve('low', {
-        'budget': {'formula': 'fixed', 'fixed': 10}, 'mm_method': 'none',
+        'budget': {'formula': 'fixed', 'fixed': 10}, 'mm_method': 'none', 'threads': 1,
         'validation': {'duplicate_rmsd_angstrom': 0}})
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, allocated_cores=nproc,
                                   generators={'etkdgv3': _copies})
     audit = relax_candidates(prepared, ref, cfg, 0, 1, 'pm6', nproc, '1GB', adapter=_pm6_adapter)
-    assert audit['parallel_workers'] == nproc // 4
-    assert audit['cores_per_calculation'] == 4
+    workers = min(nproc, 10)
+    assert audit['parallel_workers'] == workers
+    assert audit['cores_per_calculation'] == 1
     assert audit['failed_candidates'] == 1 and audit['converged_candidates'] == 9
     assert audit['selected_index'] == 9
     assert [r['prepared_index'] for r in audit['candidate_runs']] == list(range(10))
@@ -89,5 +91,5 @@ def test_pm6_parallel_isolation_order_and_failure(tmp_path, monkeypatch, nproc):
     for _, delta in events:
         active += delta
         maximum = max(maximum, active)
-    assert 2 <= maximum <= nproc // 4
-    assert len({r['pid'] for r in intervals}) <= nproc // 4
+    assert (1 if workers == 1 else 2) <= maximum <= workers
+    assert len({r['pid'] for r in intervals}) <= workers
