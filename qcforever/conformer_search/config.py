@@ -144,7 +144,7 @@ class SearchConfig:
         from importlib.resources import files
         import yaml
         value = yaml.safe_load(files(__package__).joinpath('defaults.yaml').read_text())
-        from qcforever_model_workers.registry import read_registry
+        from .model_workers.registry import read_registry
         value['generators'].update(read_registry()['generators'])
         value['profile'] = profile
         if override is not None:

@@ -146,8 +146,10 @@ def install_environment(model, device, python, root, log):
     extra = (['jax-cuda12-plugin[with_cuda]==0.5.1', 'jax-cuda12-pjrt==0.5.1']
              if model == 'ditmc' and device == 'gpu' else [])
     run(pip+['-r', recipe]+extra, log)
-    # Copy our small, pure-Python worker package from this QCforever installation.
-    # No second checkout, editable install, or Gaussian dependencies are needed.
+    # Source lives under conformer_search. In the private model environment,
+    # deploy it as a standalone package so importing a worker does not execute
+    # qcforever's Gaussian/GAMESS imports. Keep this runtime name stable for
+    # already-registered model commands; it is not a repository-root directory.
     site = Path(run([executable, '-c', 'import sysconfig; print(sysconfig.get_path("purelib"))'], log, capture=True).strip())
     shutil.copytree(PACKAGE, site/'qcforever_model_workers', dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))

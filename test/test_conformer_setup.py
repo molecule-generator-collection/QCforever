@@ -1,13 +1,14 @@
 """Basic installer safety tests; no packages or weights are downloaded."""
 import hashlib
 import io
+import subprocess
 import stat
 import sys
 import zipfile
 
 import pytest
 
-from qcforever_model_workers import install, registry
+from qcforever.conformer_search.model_workers import install, registry
 
 
 @pytest.fixture(autouse=True)
@@ -95,3 +96,27 @@ def test_partial_failure_preserves_old_registration(tmp_path, monkeypatch):
     models = registry.read_registry()['generators']
     assert models['ditmc']['command'] == ['old-working']
     assert models['torsional_diffusion']['command'] == ['new-working']
+
+
+def test_nested_worker_deploys_without_core_dependencies(tmp_path, monkeypatch):
+    """Use the real package copy, but do not install/download ML dependencies."""
+    site = tmp_path/'model-site'
+    def run(argv, log, *, capture=False):
+        if argv[1:3] == ['-m', 'venv']:
+            binary = argv[3]/'bin/python'
+            binary.parent.mkdir()
+            binary.touch()
+        if capture:
+            return str(site) if 'sysconfig' in str(argv) else ''
+    monkeypatch.setattr(install, 'run', run)
+    executable = install.install_environment('ditmc', 'cpu', sys.executable, tmp_path, None)
+    assert executable.is_file()
+    assert (site/'qcforever_model_workers/model_sources.json').is_file()
+    assert (site/'qcforever_model_workers/requirements/ditmc-cpu.txt').is_file()
+    # -S prevents installed core/ML packages from masking an import dependency.
+    script = ('import sys; sys.path.insert(0, sys.argv[1]); '
+              'from qcforever_model_workers import worker, smoke; '
+              'assert not any(m in sys.modules for m in ("qcforever", "numpy", "torch", "jax"))')
+    subprocess.run([sys.executable, '-S', '-c', script, str(site)], cwd=tmp_path, check=True)
+    options = install.worker_options('ditmc', executable, tmp_path, tmp_path, tmp_path)
+    assert options['command'][1:3] == ['-m', 'qcforever_model_workers.worker']
