@@ -19,18 +19,102 @@ import time
 import urllib.request
 import zipfile
 
-from .registry import read_registry, register_models, registry_path, write_json
+from .installed_models import read_registry, register_models, registry_path, write_json
 
 PACKAGE = Path(__file__).resolve().parent
 SOURCES = json.loads((PACKAGE/'model_sources.json').read_text())
 
 
-def digest(path, algorithm='sha256'):
-    value = hashlib.new(algorithm)
-    with Path(path).open('rb') as stream:
-        for chunk in iter(lambda: stream.read(1024*1024), b''):
-            value.update(chunk)
-    return value.hexdigest()
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    base = Path(os.environ.get('XDG_DATA_HOME', Path.home()/'.local/share'))
+    parser.add_argument('--directory', type=Path, default=base/'qcforever/conformers')
+    parser.add_argument('--models', nargs='+', choices=tuple(SOURCES), default=list(SOURCES))
+    parser.add_argument('--device', choices=('auto', 'cpu', 'gpu'), default='auto',
+                        help='auto selects a visible NVIDIA GPU, otherwise CPU; use gpu explicitly on a GPU node')
+    parser.add_argument('--python', default=sys.executable if sys.version_info[:2] == (3, 11) else 'python3.11')
+    parser.add_argument('--threads', type=int, default=4, help='CPU cores for the sequential smoke tests')
+    parser.add_argument('--timeout', type=int, default=1800, help='seconds per smoke-test batch')
+    parser.add_argument('--dry-run', action='store_true', help='show the plan without downloading or writing files')
+    args = parser.parse_args(argv)
+    args.directory = args.directory.expanduser().resolve()
+    args.models = list(dict.fromkeys(args.models))
+    if args.threads < 1 or args.timeout < 1:
+        parser.error('threads and timeout must be positive')
+    device = choose_device(args.device)
+    print(f'Install: {args.directory}\nRegister: {registry_path()}\nModels: {", ".join(args.models)}\nDevice: {device}', flush=True)
+    print('Downloads include official third-party code and weights under their own licenses. '
+          'Existing Python environments are not changed. Use --help for setup options.', flush=True)
+    if args.dry_run:
+        print(json.dumps({name: SOURCES[name] for name in args.models}, indent=2))
+        return 0
+    try:
+        python = shutil.which(args.python)
+        if not python:
+            raise RuntimeError(f'Python executable not found: {args.python}')
+        check_platform(python, args.models)
+        read_registry()  # Report malformed registration before expensive installation.
+        with setup_lock(args.directory):
+            run_root = args.directory/'logs'/f'{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}'
+            run_root.mkdir(parents=True)
+            failures = []
+            for model in args.models:
+                try:
+                    setup_model(model, args, device, python, run_root)
+                except Exception as exc:
+                    failures.append(model)
+                    write_json(run_root/model/'result.json', {'state': 'failed', 'error': str(exc)})
+                    print(f'[{model}] FAILED: {exc}\nSee {run_root/model}. Previous registration was not replaced.', file=sys.stderr, flush=True)
+            if failures:
+                print('Setup incomplete. Fix the reported issue and rerun the same command; verified downloads are reused.', file=sys.stderr)
+                return 1
+        print('Setup complete. Use optconf_medium / optconf_high; no per-job YAML is required.')
+        return 0
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        print(f'Setup failed: {exc}', file=sys.stderr)
+        return 1
+
+
+def setup_model(model, args, device, python, run_root):
+    folder = run_root/model
+    folder.mkdir()
+    print(f'[{model}] Setting up {device}; log: {folder}/setup.log', flush=True)
+    with (folder/'setup.log').open('w') as log:
+        source, checkpoint = prepare_assets(model, args.directory)
+        executable = install_environment(model, device, python, args.directory, log)
+        cache = args.directory/'cache'/model/device
+        cache.mkdir(parents=True, exist_ok=True)
+        options = worker_options(model, executable, source, checkpoint, cache)
+        write_json(folder/'options.json', options)
+        print(f'[{model}] Testing actual ethanol generation and model reuse (1 + 1 candidates)', flush=True)
+        run([executable, '-m', 'qcforever_model_workers.check_installation', '--options', folder/'options.json',
+             '--output', folder/'smoke', '--device', device, '--threads', str(args.threads),
+             '--timeout', str(args.timeout)], log)
+        summary = json.loads((folder/'smoke/summary.json').read_text())
+        if summary.get('state') != 'passed':
+            raise RuntimeError('Smoke test did not confirm success')
+        register_models({model: options})
+        write_json(folder/'result.json', {'state': 'passed', 'source': SOURCES[model],
+                                        'options': options, 'smoke': summary})
+    print(f'[{model}] PASSED and registered', flush=True)
+
+
+def prepare_assets(model, root):
+    spec = SOURCES[model]
+    fingerprint = hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:12]
+    directory = root/'assets'/f'{model}-{fingerprint}'
+    marker = directory/'complete.json'
+    if not marker.exists():
+        for item in spec['archives']:
+            archive = download(item, root/'downloads')
+            extract_zip(archive, directory, item.get('prefixes'))
+        for item in spec['files']:
+            src = download(item, root/'downloads')
+            dst = directory/item['destination']
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+        write_json(marker, spec)
+    return directory/spec['source_directory'], directory/spec['checkpoint_directory']
 
 
 def download(spec, directory):
@@ -90,34 +174,6 @@ def extract_zip(archive, directory, prefixes=None):
                     shutil.copyfileobj(src, dst)
 
 
-def prepare_assets(model, root):
-    spec = SOURCES[model]
-    fingerprint = hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:12]
-    directory = root/'assets'/f'{model}-{fingerprint}'
-    marker = directory/'complete.json'
-    if not marker.exists():
-        for item in spec['archives']:
-            archive = download(item, root/'downloads')
-            extract_zip(archive, directory, item.get('prefixes'))
-        for item in spec['files']:
-            src = download(item, root/'downloads')
-            dst = directory/item['destination']
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-        write_json(marker, spec)
-    return directory/spec['source_directory'], directory/spec['checkpoint_directory']
-
-
-def run(argv, log, *, capture=False):
-    print('  '+ ' '.join(map(str, argv)), flush=True)
-    # Never inherit a caller PYTHONPATH/user-site into the dedicated environments.
-    env = {k: v for k, v in os.environ.items() if k not in ('PYTHONPATH', 'PYTHONHOME')}
-    env['PYTHONNOUSERSITE'] = '1'
-    result = subprocess.run(list(map(str, argv)), env=env, check=True,
-                            stdout=subprocess.PIPE if capture else log, stderr=log, text=True)
-    return result.stdout if capture else None
-
-
 def install_environment(model, device, python, root, log):
     recipe = PACKAGE/'requirements'/('ditmc-cpu.txt' if model == 'ditmc' else 'torsional-cpu.txt')
     # A changed adapter gets a new environment. Never overwrite a registered
@@ -162,23 +218,9 @@ def install_environment(model, device, python, root, log):
 
 def worker_options(model, python, source, checkpoint, cache):
     return {'persistent': True, 'timeout_seconds': 1800, 'command': [
-        str(python), '-m', 'qcforever_model_workers.worker', '--model', model,
+        str(python), '-m', 'qcforever_model_workers.run_model', '--model', model,
         '--source', str(source), '--checkpoint', str(checkpoint), '--cache', str(cache),
         '--request', '{request}', '--output', '{output}']}
-
-
-def choose_device(requested):
-    if requested != 'auto':
-        return requested
-    if os.environ.get('CUDA_VISIBLE_DEVICES') in ('', '-1'):
-        return 'cpu'
-    try:
-        result = subprocess.run(['nvidia-smi', '-L'], capture_output=True, text=True, timeout=10)
-        if result.returncode == 0 and 'GPU ' in result.stdout:
-            return 'gpu'
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-    return 'cpu'
 
 
 def check_platform(python, models):
@@ -197,6 +239,20 @@ def check_platform(python, models):
             raise RuntimeError(f'DiTMC requires Python development headers: missing {header}')
 
 
+def choose_device(requested):
+    if requested != 'auto':
+        return requested
+    if os.environ.get('CUDA_VISIBLE_DEVICES') in ('', '-1'):
+        return 'cpu'
+    try:
+        result = subprocess.run(['nvidia-smi', '-L'], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0 and 'GPU ' in result.stdout:
+            return 'gpu'
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return 'cpu'
+
+
 @contextmanager
 def setup_lock(root):
     import fcntl
@@ -212,78 +268,24 @@ def setup_lock(root):
         yield
 
 
-def setup_model(model, args, device, python, run_root):
-    folder = run_root/model
-    folder.mkdir()
-    print(f'[{model}] Setting up {device}; log: {folder}/setup.log', flush=True)
-    with (folder/'setup.log').open('w') as log:
-        source, checkpoint = prepare_assets(model, args.directory)
-        executable = install_environment(model, device, python, args.directory, log)
-        cache = args.directory/'cache'/model/device
-        cache.mkdir(parents=True, exist_ok=True)
-        options = worker_options(model, executable, source, checkpoint, cache)
-        write_json(folder/'options.json', options)
-        print(f'[{model}] Testing actual ethanol generation and model reuse (1 + 1 candidates)', flush=True)
-        run([executable, '-m', 'qcforever_model_workers.smoke', '--options', folder/'options.json',
-             '--output', folder/'smoke', '--device', device, '--threads', str(args.threads),
-             '--timeout', str(args.timeout)], log)
-        summary = json.loads((folder/'smoke/summary.json').read_text())
-        if summary.get('state') != 'passed':
-            raise RuntimeError('Smoke test did not confirm success')
-        register_models({model: options})
-        write_json(folder/'result.json', {'state': 'passed', 'source': SOURCES[model],
-                                        'options': options, 'smoke': summary})
-    print(f'[{model}] PASSED and registered', flush=True)
+
+def run(argv, log, *, capture=False):
+    print('  '+ ' '.join(map(str, argv)), flush=True)
+    # Never inherit a caller PYTHONPATH/user-site into the dedicated environments.
+    env = {k: v for k, v in os.environ.items() if k not in ('PYTHONPATH', 'PYTHONHOME')}
+    env['PYTHONNOUSERSITE'] = '1'
+    result = subprocess.run(list(map(str, argv)), env=env, check=True,
+                            stdout=subprocess.PIPE if capture else log, stderr=log, text=True)
+    return result.stdout if capture else None
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    base = Path(os.environ.get('XDG_DATA_HOME', Path.home()/'.local/share'))
-    parser.add_argument('--directory', type=Path, default=base/'qcforever/conformers')
-    parser.add_argument('--models', nargs='+', choices=tuple(SOURCES), default=list(SOURCES))
-    parser.add_argument('--device', choices=('auto', 'cpu', 'gpu'), default='auto',
-                        help='auto selects a visible NVIDIA GPU, otherwise CPU; use gpu explicitly on a GPU node')
-    parser.add_argument('--python', default=sys.executable if sys.version_info[:2] == (3, 11) else 'python3.11')
-    parser.add_argument('--threads', type=int, default=4, help='CPU cores for the sequential smoke tests')
-    parser.add_argument('--timeout', type=int, default=1800, help='seconds per smoke-test batch')
-    parser.add_argument('--dry-run', action='store_true', help='show the plan without downloading or writing files')
-    args = parser.parse_args(argv)
-    args.directory = args.directory.expanduser().resolve()
-    args.models = list(dict.fromkeys(args.models))
-    if args.threads < 1 or args.timeout < 1:
-        parser.error('threads and timeout must be positive')
-    device = choose_device(args.device)
-    print(f'Install: {args.directory}\nRegister: {registry_path()}\nModels: {", ".join(args.models)}\nDevice: {device}', flush=True)
-    print('Downloads include official third-party code and weights under their own licenses. '
-          'Existing Python environments are not changed. Use --help for setup options.', flush=True)
-    if args.dry_run:
-        print(json.dumps({name: SOURCES[name] for name in args.models}, indent=2))
-        return 0
-    try:
-        python = shutil.which(args.python)
-        if not python:
-            raise RuntimeError(f'Python executable not found: {args.python}')
-        check_platform(python, args.models)
-        read_registry()  # Report malformed registration before expensive installation.
-        with setup_lock(args.directory):
-            run_root = args.directory/'logs'/f'{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}'
-            run_root.mkdir(parents=True)
-            failures = []
-            for model in args.models:
-                try:
-                    setup_model(model, args, device, python, run_root)
-                except Exception as exc:
-                    failures.append(model)
-                    write_json(run_root/model/'result.json', {'state': 'failed', 'error': str(exc)})
-                    print(f'[{model}] FAILED: {exc}\nSee {run_root/model}. Previous registration was not replaced.', file=sys.stderr, flush=True)
-            if failures:
-                print('Setup incomplete. Fix the reported issue and rerun the same command; verified downloads are reused.', file=sys.stderr)
-                return 1
-        print('Setup complete. Use optconf_medium / optconf_high; no per-job YAML is required.')
-        return 0
-    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
-        print(f'Setup failed: {exc}', file=sys.stderr)
-        return 1
+def digest(path, algorithm='sha256'):
+    value = hashlib.new(algorithm)
+    with Path(path).open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024*1024), b''):
+            value.update(chunk)
+    return value.hexdigest()
+
 
 
 if __name__ == '__main__':

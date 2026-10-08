@@ -9,10 +9,10 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from qcforever.conformer_search.config import SearchConfig
-from qcforever.conformer_search.pipeline import prepare_candidates
-from qcforever.conformer_search.relaxation import (
-    native_thread_environment, pm6_relax, relax_candidates, _initialize_native_worker,
+from qcforever.conformer_search.settings import SearchConfig
+from qcforever.conformer_search.generate_conformers import prepare_candidates
+from qcforever.conformer_search.optimize_semiempirical import (
+    native_thread_environment, optimize_with_pm6, optimize_candidates, _initialize_native_worker,
 )
 
 
@@ -60,7 +60,7 @@ def _pm6_adapter(mol, folder, charge, multiplicity, cores, memory, settings):
 
     try:
         with patch('shutil.which', return_value='/fake/g16'), patch.object(g16Object, 'run_g16', run):
-            return pm6_relax(mol, folder, charge, multiplicity, cores, memory, settings)
+            return optimize_with_pm6(mol, folder, charge, multiplicity, cores, memory, settings)
     finally:
         assert Path.cwd() == before_cwd
         assert dict(os.environ) == before_env
@@ -76,7 +76,7 @@ def test_pm6_parallel_isolation_order_and_failure(tmp_path, monkeypatch, nproc):
         'validation': {'duplicate_rmsd_angstrom': 0}})
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, allocated_cores=nproc,
                                   generators={'etkdgv3': _copies})
-    audit = relax_candidates(prepared, ref, cfg, 0, 1, 'pm6', nproc, '1GB', adapter=_pm6_adapter)
+    audit = optimize_candidates(prepared, ref, cfg, 0, 1, 'pm6', nproc, '1GB', adapter=_pm6_adapter)
     workers = min(nproc, 10)
     assert audit['parallel_workers'] == workers
     assert audit['cores_per_calculation'] == 1

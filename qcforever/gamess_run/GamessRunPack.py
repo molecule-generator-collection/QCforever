@@ -505,8 +505,8 @@ class GamessDFTRun:
 
     def run_gamess(self):
         """Run the complete workflow, enforcing ``timejob`` when configured."""
-        from qcforever.conformer_search.options import resolve_options
-        self._conformer_settings = resolve_options(getattr(self, 'value', ''), getattr(self, 'conformer_config', None))
+        from qcforever.conformer_search.settings import parse_conformer_options
+        self._conformer_settings = parse_conformer_options(getattr(self, 'value', ''), getattr(self, 'conformer_config', None))
         self._conformer_summary = None
         original_directory = os.getcwd()
         self._active_job_directory = None
@@ -532,7 +532,7 @@ class GamessDFTRun:
     def _run_gamess(self):
         infilename = self.in_file
         option_line = self.value    
-        from qcforever.conformer_search.options import calculation_tokens
+        from qcforever.conformer_search.settings import calculation_tokens
         options = calculation_tokens(option_line)
         option_dict = {}
         #option_dict_Ex = np.zeros(19)  # not used

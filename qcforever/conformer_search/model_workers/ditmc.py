@@ -10,27 +10,8 @@ import numpy as np
 from rdkit import Chem
 
 
-def initialize_ditmc_extension(root, source):
-    """Serialize upstream Cython compilation before concurrent model workers.
-
-    The extension code and compiler options are upstream defaults. A campaign
-    cache avoids cross-job races in the shared home .pyxbld directory.
-    """
-    import fcntl
-    import importlib
-    import pyximport
-    cache = Path(root) / 'initialization'
-    cache.mkdir(parents=True, exist_ok=True)
-    sys.path.insert(0, str(Path(source).resolve()))
-    with (cache/'ditmc_algos.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        pyximport.install(build_dir=str(cache/'pyxbld'), setup_args={'include_dirs':np.get_include()})
-        module = importlib.import_module('dit_mc.algos')
-        fcntl.flock(lock, fcntl.LOCK_UN)
-    return module.__file__
-
-
 class DiTMC:
+    """Keep loaded parameters and generate raw/officially corrected conformers."""
     def __init__(self, root, spec, batch_size):
         self.source = (root / spec['source']).resolve()
         initialize_ditmc_extension(root, self.source)
@@ -67,6 +48,7 @@ class DiTMC:
                              checkpoint_directory=str(workdir))
 
     def generate(self, smiles, count, seed, start_index=0):
+        """Use upstream sampling and parity correction without MM or filtering."""
         import jax
         import jraph
         import tensorflow as tf
@@ -109,3 +91,23 @@ class DiTMC:
                 if len(raw) == count:
                     return raw, corrected
         return raw, corrected
+
+
+def initialize_ditmc_extension(root, source):
+    """Serialize upstream Cython compilation before concurrent model workers.
+
+    The extension code and compiler options are upstream defaults. A campaign
+    cache avoids cross-job races in the shared home .pyxbld directory.
+    """
+    import fcntl
+    import importlib
+    import pyximport
+    cache = Path(root) / 'initialization'
+    cache.mkdir(parents=True, exist_ok=True)
+    sys.path.insert(0, str(Path(source).resolve()))
+    with (cache/'ditmc_algos.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        pyximport.install(build_dir=str(cache/'pyxbld'), setup_args={'include_dirs':np.get_include()})
+        module = importlib.import_module('dit_mc.algos')
+        fcntl.flock(lock, fcntl.LOCK_UN)
+    return module.__file__

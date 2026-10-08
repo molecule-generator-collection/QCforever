@@ -6,14 +6,14 @@ import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolTransforms
 
-from qcforever.conformer_search import pipeline
-from qcforever.conformer_search.config import SearchConfig
-from qcforever.conformer_search.options import resolve_options, calculation_tokens
-from qcforever.conformer_search.pipeline import prepare_candidates
-from qcforever.conformer_search.preoptimization import UnsupportedParametersError
-from qcforever.conformer_search.relaxation import relax_candidates
-from qcforever.conformer_search.validation import (
-    choose_best, filter_candidates, duplicate_rmsd, xh3_hydrogen_indices,
+from qcforever.conformer_search import generate_conformers as pipeline
+from qcforever.conformer_search.settings import SearchConfig
+from qcforever.conformer_search.settings import parse_conformer_options, calculation_tokens
+from qcforever.conformer_search.generate_conformers import prepare_candidates
+from qcforever.conformer_search.optimize_mm import UnsupportedParametersError
+from qcforever.conformer_search.optimize_semiempirical import optimize_candidates
+from qcforever.conformer_search.check_structures import (
+    evaluate_optimized_candidates, filter_candidates, duplicate_rmsd, xh3_hydrogen_indices,
     rmsd_comparison_molecule, IncrementalCandidateFilter,
 )
 
@@ -41,19 +41,19 @@ def copies(reference, count, *args):
 
 
 def test_defaults_and_options():
-    cfg = resolve_options('optconf=xtb opt energy uv')
+    cfg = parse_conformer_options('optconf=xtb opt energy uv')
     assert cfg.profile == 'low' and cfg.mm_method == 'mmff94s'
     assert cfg.threads == 4 and cfg.parallelism(8) == 2 and cfg.parallelism(4) == 1
     assert cfg.parallelism(3) == 1 and cfg.effective_threads(3) == 3
     assert cfg.budget.resolve(Chem.MolFromSmiles('CC'))['maximum_candidates'] == 10
     assert cfg.budget.resolve(Chem.MolFromSmiles('C1CCCCC1'))['maximum_candidates'] == 15
-    assert resolve_options('optconf optconf_high uv').profile == 'high'
+    assert parse_conformer_options('optconf optconf_high uv').profile == 'high'
     assert calculation_tokens('optconf=xtb optconf_medium opt uv') == ['optconf=xtb', 'opt', 'uv']
-    assert resolve_options('opt energy uv') is None
+    assert parse_conformer_options('opt energy uv') is None
     with pytest.raises(ValueError):
-        resolve_options('optconf=xtb optconf_high optconf_medium')
+        parse_conformer_options('optconf=xtb optconf_high optconf_medium')
     with pytest.raises(ValueError):
-        resolve_options('optconf_high uv')
+        parse_conformer_options('optconf_high uv')
 
 
 @pytest.mark.parametrize('level,names', [
@@ -63,7 +63,7 @@ def test_defaults_and_options():
 ])
 def test_canonical_level_names(level, names):
     options = f'optconf=xtb optconf_{level} opt energy uv'
-    cfg = resolve_options(options)
+    cfg = parse_conformer_options(options)
     assert cfg.profile == level
     assert [name for name, _ in cfg.stages()] == names
     assert calculation_tokens(options) == ['optconf=xtb', 'opt', 'energy', 'uv']
@@ -73,7 +73,7 @@ def test_canonical_level_names(level, names):
 def test_partial_yaml_and_cpu_cap(tmp_path):
     path = tmp_path/'conformer.yaml'
     path.write_text('mm_method: uff\nworkers: 8\nthreads: 2\n')
-    cfg = resolve_options('optconf=xtb optconf_medium', str(path))
+    cfg = parse_conformer_options('optconf=xtb optconf_medium', str(path))
     assert cfg.profile == 'medium' and cfg.budget.base == 10 and cfg.mm_method == 'uff'
     assert cfg.parallelism(8) == 4
     assert cfg.parallelism(1) == 1
@@ -184,7 +184,7 @@ def test_wrong_stereo_is_rejected_at_generation_and_not_primary_best():
     accepted, generated = filter_candidates([ref, wrong], ref, 2, cfg.validation)
     assert len(accepted) == 1 and generated['rejected'] == {'stereo_mismatch': 1}
     assert generated['candidates'][1]['tetrahedral_stereo_match'] is False
-    audit = choose_best([ref, wrong], [-10.0, -11.0], ref, cfg.validation)
+    audit = evaluate_optimized_candidates([ref, wrong], [-10.0, -11.0], ref, cfg.validation)
     assert audit['best_any_index'] == 1 and audit['primary_best_index'] == 0
 
 
@@ -210,7 +210,7 @@ def test_all_candidates_attempted_even_if_one_fails(tmp_path, monkeypatch):
         if i == 1:
             raise UnboundLocalError('simulate old parser on incomplete native output')
         return Chem.Mol(mol), -10-i
-    audit = relax_candidates(prepared, ref, cfg, 0, 1, 'xtb', 1, '1GB', adapter=backend)
+    audit = optimize_candidates(prepared, ref, cfg, 0, 1, 'xtb', 1, '1GB', adapter=backend)
     assert calls == [0, 1, 2, 3, 4]
     assert audit['attempted_candidates'] == 5
     assert audit['converged_candidates'] == 4 and audit['failed_candidates'] == 1
@@ -250,7 +250,7 @@ def test_final_stereo_mismatch_returns_structure_with_warning(tmp_path, monkeypa
         for i, (x, y, z) in enumerate(conf.GetPositions()):
             conf.SetAtomPosition(i, (-x, y, z))
         return wrong, -1
-    audit = relax_candidates(prepared, ref, cfg, 0, 1, 'xtb', 1, '1GB', adapter=backend)
+    audit = optimize_candidates(prepared, ref, cfg, 0, 1, 'xtb', 1, '1GB', adapter=backend)
     assert audit['primary_best_index'] is None and audit['selected_index'] == 0
     assert audit['selected_structure_warning'] == 'stereo_mismatch'
     mol = Chem.SDMolSupplier(str(tmp_path/'optimized_structures.sdf'), removeHs=False)[0]
@@ -272,7 +272,7 @@ def test_native_relaxation_uses_single_core_workers(tmp_path, monkeypatch, nproc
     cfg = settings('low', n=2, relaxation={'xtb_executable': str(binary)})
     ref = molecule()
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
-    audit = relax_candidates(prepared, ref, cfg, 0, 1, 'xtb', nproc, '1GB')
+    audit = optimize_candidates(prepared, ref, cfg, 0, 1, 'xtb', nproc, '1GB')
     per_call = 1
     workers = min(2, nproc)
     assert audit['parallel_workers'] == workers and audit['cores_per_calculation'] == per_call

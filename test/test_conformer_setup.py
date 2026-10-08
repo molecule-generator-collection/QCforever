@@ -8,7 +8,7 @@ import zipfile
 
 import pytest
 
-from qcforever.conformer_search.model_workers import install, registry
+from qcforever.conformer_search.model_workers import install_models as install, installed_models as registry
 
 
 @pytest.fixture(autouse=True)
@@ -17,7 +17,7 @@ def isolated_registry(tmp_path, monkeypatch):
 
 
 def test_registration_and_explicit_yaml_precedence():
-    from qcforever.conformer_search.config import SearchConfig
+    from qcforever.conformer_search.settings import SearchConfig
     registry.register_models({'ditmc': {'persistent': True, 'command': ['registered']}})
     registry.register_models({'torsional_diffusion': {'persistent': True, 'command': ['td']}})
     cfg = SearchConfig.resolve('high')
@@ -115,8 +115,22 @@ def test_nested_worker_deploys_without_core_dependencies(tmp_path, monkeypatch):
     assert (site/'qcforever_model_workers/requirements/ditmc-cpu.txt').is_file()
     # -S prevents installed core/ML packages from masking an import dependency.
     script = ('import sys; sys.path.insert(0, sys.argv[1]); '
-              'from qcforever_model_workers import worker, smoke; '
+              'from qcforever_model_workers import run_model, check_installation, torsional_diffusion; '
+              'assert callable(torsional_diffusion.initialize_model); '
+              'assert callable(torsional_diffusion.generate_conformers); '
               'assert not any(m in sys.modules for m in ("qcforever", "numpy", "torch", "jax"))')
     subprocess.run([sys.executable, '-S', '-c', script, str(site)], cwd=tmp_path, check=True)
     options = install.worker_options('ditmc', executable, tmp_path, tmp_path, tmp_path)
-    assert options['command'][1:3] == ['-m', 'qcforever_model_workers.worker']
+    assert options['command'][1:3] == ['-m', 'qcforever_model_workers.run_model']
+
+
+@pytest.mark.parametrize('name', ['ditmc', 'torsional_diffusion'])
+def test_model_dispatch_after_module_rename(name, monkeypatch, tmp_path):
+    """Check the real dispatch path without downloading model weights."""
+    from types import SimpleNamespace
+    from qcforever.conformer_search.model_workers import run_model, ditmc, torsional_diffusion
+    model = object()
+    monkeypatch.setattr(ditmc, 'DiTMC', lambda *a, **k: model)
+    monkeypatch.setattr(torsional_diffusion, 'initialize_model', lambda *a: model)
+    args = SimpleNamespace(model=name, cache=tmp_path, source=tmp_path, checkpoint=tmp_path)
+    assert run_model.initialize_model(args, {'threads': 1}) is model

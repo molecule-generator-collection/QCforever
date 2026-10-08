@@ -52,8 +52,8 @@ setup(
     packages=PACKAGES,                    
     package_data=PACKAGE_DATA,
     entry_points={'console_scripts': [
-        'qcforever-model-worker=qcforever.conformer_search.model_workers.worker:main',
-        'install-conformer-models=qcforever.conformer_search.model_workers.install:main',
+        'qcforever-model-worker=qcforever.conformer_search.model_workers.run_model:main',
+        'install-conformer-models=qcforever.conformer_search.model_workers.install_models:main',
     ]},
     classifiers=CLASSIFIERS
 )  

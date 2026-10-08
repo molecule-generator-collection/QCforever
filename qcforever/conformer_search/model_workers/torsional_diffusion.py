@@ -11,7 +11,8 @@ import sys
 import types
 
 
-def initialize(args, request):
+def initialize_model(args, request):
+    """Initialize shared lookup tables and load the upstream model once."""
     # Upstream lookup tables write relative cache files during import. Serialize
     # first construction when multiple workers share a cache directory.
     import fcntl
@@ -19,10 +20,25 @@ def initialize(args, request):
     with (args.cache/'initialize.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         os.chdir(args.cache)
-        return _load(args, request)
+        return _load_model(args, request)
 
 
-def _load(args, request):
+def generate_conformers(sample, smiles, count, seed, threads):
+    """Seed RDKit embedding for this request, including persistent extra batches.
+
+    Python/NumPy/Torch RNGs are seeded by the worker. RDKit has a separate RNG;
+    do not rely on those seeds or retain the first batch's seed in a closure.
+    """
+    globals_ = sample.__globals__
+    def embed(mol, numConfs):
+        globals_['AllChem'].EmbedMultipleConfs(mol, numConfs=numConfs,
+                                             numThreads=threads, randomSeed=seed)
+        return mol
+    globals_['embed_func'] = embed
+    return sample(smiles, count, smiles)
+
+
+def _load_model(args, request):
     folder = args.output.parent
     import torch
     torch.set_num_threads(request['threads'])
@@ -39,18 +55,3 @@ def _load(args, request):
                 '--model_dir', str(args.checkpoint.resolve()), '--batch_size', '1', '--no_energy']
     namespace = runpy.run_path(str(args.source.resolve()/'generate_confs.py'), run_name='__main__')
     return namespace['sample_confs']
-
-
-def generate(sample, smiles, count, seed, threads):
-    """Seed RDKit embedding for this request, including persistent extra batches.
-
-    Python/NumPy/Torch RNGs are seeded by the worker. RDKit has a separate RNG;
-    do not rely on those seeds or retain the first batch's seed in a closure.
-    """
-    globals_ = sample.__globals__
-    def embed(mol, numConfs):
-        globals_['AllChem'].EmbedMultipleConfs(mol, numConfs=numConfs,
-                                             numThreads=threads, randomSeed=seed)
-        return mol
-    globals_['embed_func'] = embed
-    return sample(smiles, count, smiles)

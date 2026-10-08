@@ -1,48 +1,16 @@
-"""Run conformer generation and relaxation for QCforever's optconf option."""
-from contextlib import contextmanager
-import os
+"""QCforever entry point: prepare candidates, optimize them, and return a summary.
+
+Start with configured_confopt. The detailed generation and optimization records
+remain under conformer_search; optimized_structures.sdf is the QCforever handoff.
+"""
+import json
 from pathlib import Path
 
-from rdkit import Chem
-from rdkit.Chem import rdDetermineBonds
-
-from .config import SearchConfig
-from .pipeline import prepare_candidates, save, write_sdf
-
-
-@contextmanager
-def working_directory(path):
-    previous = Path.cwd()
-    os.chdir(path)
-    try:
-        yield
-    finally:
-        os.chdir(previous)
-
-
-def read_selected_structure(summary):
-    """Gaussian handoff: distinguish a successful search from failed readback.
-
-    Mutate the returned summary so the caller's optconf flag and detailed
-    status agree. Never use an old optimized_structures.sdf after search failure.
-    """
-    from qcforever.util import read_mol_file
-    if not summary or summary.get('state') == 'failed':
-        raise RuntimeError((summary or {}).get('error', 'No successful conformation search'))
-    try:
-        result = read_mol_file.read_sdf('./optimized_structures.sdf')
-    except Exception as exc:
-        summary.update(search_state=summary['state'], state='failed',
-                       failure_stage='selected_structure_readback',
-                       error=f'{type(exc).__name__}: {exc}',
-                       structure_handoff={'state': 'failed', 'path': 'optimized_structures.sdf'})
-        if Path('conformer_search').is_dir():
-            save(Path('conformer_search/summary.json'), summary)
-        raise
-    summary['structure_handoff'] = {'state': 'succeeded', 'path': 'optimized_structures.sdf'}
-    if Path('conformer_search').is_dir():
-        save(Path('conformer_search/summary.json'), summary)
-    return result
+from .settings import SearchConfig
+from .generate_conformers import prepare_candidates
+from .optimize_semiempirical import optimize_candidates
+from .structure_file_io import read_input_structure
+from .calculation_logs import write_json
 
 
 def configured_confopt(infilename, charge, multiplicity, method, nproc, memory, config):
@@ -55,26 +23,17 @@ def configured_confopt(infilename, charge, multiplicity, method, nproc, memory, 
         config = SearchConfig.load(config) if isinstance(config, (str, Path)) else SearchConfig.from_mapping(config)
     if method not in ('xtb', 'pm6'):
         raise ValueError('optconf backend must be xtb or pm6')
-    path = Path(infilename).resolve()
-    if path.suffix.lower() == '.sdf':
-        records = [m for m in Chem.SDMolSupplier(str(path), removeHs=False) if m is not None]
-        if not records:
-            raise ValueError('No readable input molecule')
-        reference = records[0]
-    elif path.suffix.lower() == '.xyz':
-        reference = Chem.MolFromXYZFile(str(path))
-        if reference is None:
-            raise ValueError('Unreadable XYZ input')
-        rdDetermineBonds.DetermineBonds(reference, charge=charge)
-    else:
-        raise ValueError('Configured optconf accepts SDF or XYZ')
+    reference = read_input_structure(infilename, charge)
     root = Path.cwd()/'conformer_search'
     prepared = prepare_candidates(reference, root, config, allocated_cores=nproc)
     if prepared.initial_sdf is None:
         raise RuntimeError(f'Conformer preparation stopped: {prepared.state}; see {prepared.status_path}')
-    from .relaxation import relax_candidates
-    audit = relax_candidates(prepared, reference, config, charge, multiplicity, method, nproc, memory)
-    import json
+    audit = optimize_candidates(prepared, reference, config, charge, multiplicity, method, nproc, memory)
+    return _save_search_summary(root, prepared, config, method, audit)
+
+
+def _save_search_summary(root, prepared, config, method, audit):
+    """Keep the existing QCforever result keys and selected-candidate semantics."""
     status = json.loads(prepared.status_path.read_text())
     index = audit['selected_index']
     summary = {'state': 'succeeded_with_structure_warning' if audit['selected_structure_warning'] else 'succeeded',
@@ -96,5 +55,30 @@ def configured_confopt(infilename, charge, multiplicity, method, nproc, memory, 
                'generation_stages': [{'generator': s['generator'], 'state': s['state'],
                                       'requested_raw': s['requested_raw'], 'returned_raw': s['returned_raw']}
                                      for s in status['stages']]}
-    save(root/'summary.json', summary)
+    write_json(root/'summary.json', summary)
     return summary
+
+
+def read_selected_structure(summary):
+    """Gaussian handoff: distinguish a successful search from failed readback.
+
+    Mutate the returned summary so the caller's optconf flag and detailed
+    status agree. Never use an old optimized_structures.sdf after search failure.
+    """
+    from qcforever.util import read_mol_file
+    if not summary or summary.get('state') == 'failed':
+        raise RuntimeError((summary or {}).get('error', 'No successful conformation search'))
+    try:
+        result = read_mol_file.read_sdf('./optimized_structures.sdf')
+    except Exception as exc:
+        summary.update(search_state=summary['state'], state='failed',
+                       failure_stage='selected_structure_readback',
+                       error=f'{type(exc).__name__}: {exc}',
+                       structure_handoff={'state': 'failed', 'path': 'optimized_structures.sdf'})
+        if Path('conformer_search').is_dir():
+            write_json(Path('conformer_search/summary.json'), summary)
+        raise
+    summary['structure_handoff'] = {'state': 'succeeded', 'path': 'optimized_structures.sdf'}
+    if Path('conformer_search').is_dir():
+        write_json(Path('conformer_search/summary.json'), summary)
+    return result

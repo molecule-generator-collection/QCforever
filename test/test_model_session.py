@@ -4,8 +4,8 @@ import sys
 import time
 import pytest
 from rdkit import Chem
-from qcforever.conformer_search.model_session import ModelSession
-from qcforever.conformer_search.generators import GenerationError
+from qcforever.conformer_search.model_workers.model_process import ModelSession
+from qcforever.conformer_search.generate_conformers import GenerationError
 
 
 @pytest.fixture

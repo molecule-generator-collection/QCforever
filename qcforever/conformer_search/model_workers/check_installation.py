@@ -12,27 +12,18 @@ import subprocess
 import sys
 import time
 
-from .registry import write_json
+from .installed_models import write_json
 
 
-def verify_records(path):
-    import numpy as np
-    from rdkit import Chem
-    records = list(Chem.SDMolSupplier(str(path), removeHs=False))
-    if len(records) != 1 or records[0] is None:
-        raise RuntimeError('Smoke test did not return one readable conformer')
-    mol = records[0]
-    if mol.GetNumConformers() != 1 or mol.GetNumAtoms() != 9:
-        raise RuntimeError('Smoke test ethanol has wrong atom/conformer count')
-    if Chem.MolToSmiles(Chem.RemoveHs(mol)) != 'CCO':
-        raise RuntimeError('Smoke test changed ethanol connectivity')
-    xyz = mol.GetConformer().GetPositions()
-    if not np.isfinite(xyz).all():
-        raise RuntimeError('Smoke test contains nonfinite coordinates')
-    # Reject collapsed structures, not just an existing SDF file.
-    distances = np.linalg.norm(xyz[:, None, :]-xyz[None, :, :], axis=-1)
-    if (distances[np.triu_indices(len(xyz), 1)] < 0.25).any():
-        raise RuntimeError('Smoke test contains atom collisions')
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--options', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--device', choices=('cpu', 'gpu'), required=True)
+    parser.add_argument('--threads', type=int, default=4)
+    parser.add_argument('--timeout', type=int, default=1800)
+    args = parser.parse_args()
+    check(json.loads(args.options.read_text()), args.output, args.device, args.threads, args.timeout)
 
 
 def check(options, root, device, threads, timeout):
@@ -97,15 +88,26 @@ def check(options, root, device, threads, timeout):
                         process.wait()
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--options', type=Path, required=True)
-    parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--device', choices=('cpu', 'gpu'), required=True)
-    parser.add_argument('--threads', type=int, default=4)
-    parser.add_argument('--timeout', type=int, default=1800)
-    args = parser.parse_args()
-    check(json.loads(args.options.read_text()), args.output, args.device, args.threads, args.timeout)
+def verify_records(path):
+    import numpy as np
+    from rdkit import Chem
+    records = list(Chem.SDMolSupplier(str(path), removeHs=False))
+    if len(records) != 1 or records[0] is None:
+        raise RuntimeError('Smoke test did not return one readable conformer')
+    mol = records[0]
+    if mol.GetNumConformers() != 1 or mol.GetNumAtoms() != 9:
+        raise RuntimeError('Smoke test ethanol has wrong atom/conformer count')
+    if Chem.MolToSmiles(Chem.RemoveHs(mol)) != 'CCO':
+        raise RuntimeError('Smoke test changed ethanol connectivity')
+    xyz = mol.GetConformer().GetPositions()
+    if not np.isfinite(xyz).all():
+        raise RuntimeError('Smoke test contains nonfinite coordinates')
+    # Reject collapsed structures, not just an existing SDF file.
+    distances = np.linalg.norm(xyz[:, None, :]-xyz[None, :, :], axis=-1)
+    if (distances[np.triu_indices(len(xyz), 1)] < 0.25).any():
+        raise RuntimeError('Smoke test contains atom collisions')
+
+
 
 
 if __name__ == '__main__':
