@@ -253,7 +253,7 @@ def main(argv=None):
     device = choose_device(args.device)
     print(f'Install: {args.directory}\nRegister: {registry_path()}\nModels: {", ".join(args.models)}\nDevice: {device}', flush=True)
     print('Downloads include official third-party code and weights under their own licenses. '
-          'Existing Python environments are not changed. See docs/model_installation.md.', flush=True)
+          'Existing Python environments are not changed. Use --help for setup options.', flush=True)
     if args.dry_run:
         print(json.dumps({name: SOURCES[name] for name in args.models}, indent=2))
         return 0

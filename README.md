@@ -49,7 +49,7 @@ several GB of downloads/disk space (the DiTMC archive alone is about 1.9 GB).
 Setup uses a visible NVIDIA GPU when available, otherwise CPU; use `--device cpu`
 or `--device gpu` to choose explicitly. On a cluster, run the generation tests
 inside an appropriate CPU/GPU allocation, not on a login node.
-See [setup options, prerequisites and verification scope](docs/model_installation.md).
+Run `install-conformer-models --help` for setup options.
 
 ### Example
 
@@ -170,8 +170,8 @@ four cores per worker by default. Gaussian memory is per relaxation worker;
 allow for the total memory required by concurrent candidates.
 Learned model execution uses the optional setup above; explicit YAML settings
 override the registered models. Setup verifies basic inference, not performance
-or validity for every molecule. See
-[configuration, output and validation status](docs/conformer_search.md).
+or validity for every molecule. Available settings are listed in
+[`defaults.yaml`](qcforever/conformer_search/defaults.yaml).
 
 ## License
 
