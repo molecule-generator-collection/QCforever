@@ -1,30 +1,30 @@
-"""Optimize candidates with xTB or PM6, then check and save the results.
+"""Optimize conformers with xTB or PM6, then check and save the results.
 
 Each candidate uses one core. Separate processes isolate Gaussian's working
 directory and environment; parallel completion never changes candidate order.
 """
-from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
+import json
 import math
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 from pathlib import Path
-import re
-import shutil
-import subprocess
 import time
 
 from rdkit import Chem
 from qcforever.util import job_timeout
+from qcforever.util.check_resource import native_thread_environment
+from .run_xtb import optimize_with_xtb, XTBCandidate, XTB_FORCE_KIND, pool_memory_mb, cleanup_on_signals
+from .run_pm6 import optimize_with_pm6, PM6Candidate
+from .settings import resolve_relaxation
+from .graybox_relaxation import GrayboxSearch
+from .run_candidate_blocks import CandidateBlockExecutor, resolve_block_workers
 from .structure_file_io import write_sdf
-from .calculation_logs import (
-    write_json, parse_finite_number, read_xtb_trace, read_pm6_trace,
-    PM6CalculationError, diagnose_pm6_failure,
-)
+from .calculation_logs import write_json
 from .check_structures import (
     evaluate_optimized_candidates, select_optimized_candidate,
-    copy_with_coordinates, clear_structure_audit, STEREO_MATCH_PROPERTIES,
+    clear_structure_audit, STEREO_MATCH_PROPERTIES,
 )
 
 
@@ -44,13 +44,16 @@ class CandidateTask:
 
 def optimize_candidates(prepared, reference, config, charge, multiplicity, method, cores, memory,
                         *, adapter=None):
-    """Optimize all candidates, audit final structures, and save the selected one."""
-    if config.relaxation.get('implementation') != 'continuous':
-        raise NotImplementedError('Only all-candidate continuous relaxation is currently implemented')
+    """Optimize the requested pool continuously or adaptively, then audit/select."""
     if method not in ('xtb', 'pm6'):
         raise ValueError('optconf method must be xtb or pm6')
+    config = replace(config, relaxation=resolve_relaxation(config.relaxation, method))
     if isinstance(cores, bool) or not isinstance(cores, int) or cores < 1:
         raise ValueError('nproc must be a positive integer')
+    if config.relaxation['implementation'] == 'graybox':
+        if adapter is not None:
+            raise ValueError('Continuous adapters cannot be used for graybox blocks')
+        return optimize_graybox_candidates(prepared, reference, config, charge, multiplicity, cores, memory, method=method)
     folder = prepared.status_path.parent/'electronic'
     folder.mkdir(exist_ok=False)
     records, energies, rows = [], [], []
@@ -87,6 +90,108 @@ def optimize_candidates(prepared, reference, config, charge, multiplicity, metho
                  sum_candidate_wall_seconds=sum(candidate_result['wall_seconds'] for candidate_result in rows),
                  allocated_cores=cores, cores_per_calculation=cores_per_candidate,
                  parallel_workers=workers, scheduling='parallel_candidates_1_core')
+    select_optimized_candidate(records, energies, audit)
+    _save_optimization_results(folder, records, audit)
+    return audit
+
+
+def optimize_graybox_candidates(prepared, reference, config, charge, multiplicity, cores, memory,
+                               *, method='pm6', candidate_factory=None):
+    """Prepare native candidates, run the shared scheduler, then audit/select.
+
+    nproc bounds concurrent one-core candidates. All policies use the same batch
+    executor and result accounting; structure eligibility remains unchanged.
+    """
+    folder = prepared.status_path.parent / 'electronic'
+    folder.mkdir(exist_ok=False)
+    started = time.monotonic()
+    settings = config.relaxation
+    workers = resolve_block_workers(cores, len(prepared.candidates), settings.get('parallel_candidates', 'auto'))
+    if candidate_factory is None:
+        candidate_factory = PM6Candidate if method == 'pm6' else XTBCandidate
+    force_kind = 'mean_atom_force' if method == 'pm6' else XTB_FORCE_KIND
+    peak_memory_mb = 0.
+    runners = {}
+    for i, mol in enumerate(prepared.candidates):
+        key = f'candidate_{i:05d}'
+        directory = folder / key
+        directory.mkdir()
+        write_sdf(directory / 'initial.sdf', [mol])
+        runners[key] = candidate_factory(mol, directory, charge, multiplicity, memory, settings)
+    write_json(folder / 'settings.json', dict(settings, backend=method, allocated_cores=cores,
+               parallel_workers=workers, cores_per_calculation=1, force_kind=force_kind))
+
+    def save_event(event):
+        # Small JSONL events remain readable even after an interrupted search.
+        with (folder / 'events.jsonl').open('a') as stream:
+            stream.write(json.dumps(event, allow_nan=False) + '\n')
+        write_json(folder / 'progress.json', dict(event, initial_candidates=len(runners)))
+
+    def check_pool_memory():
+        nonlocal peak_memory_mb
+        if method == 'xtb':
+            peak_memory_mb = max(peak_memory_mb, pool_memory_mb(runners.values()))
+            if peak_memory_mb > settings.get('xtb_pool_memory_mb', 8192):
+                raise MemoryError('xTB retained-process pool RSS exceeded xtb_pool_memory_mb; no candidates were dropped or restarted')
+
+    atoms = {key: prepared.candidates[i].GetNumAtoms() for i, key in enumerate(runners)}
+    executor = CandidateBlockExecutor(runners, workers, check_pool_memory)
+    search = GrayboxSearch(atoms, None, settings, save_event, force_kind=force_kind,
+                           workers=workers, advance_batch=executor.advance_batch)
+    with cleanup_on_signals():
+        try:
+            with executor:
+                search.run()
+        finally:
+            # Release resident native processes even after quota, timeout or a
+            # persistence error. PM6 has no resident subprocess between blocks.
+            try:
+                if method == 'xtb':
+                    cleanup_errors = {}
+                    for key, runner in runners.items():
+                        try:
+                            runner.close()
+                        except Exception as exc:
+                            cleanup_errors[key] = f'{type(exc).__name__}: {exc}'
+                    if cleanup_errors:
+                        write_json(folder/'cleanup_errors.json', cleanup_errors)
+                        raise RuntimeError('Some xTB children could not be cleaned up; see cleanup_errors.json')
+            finally:
+                write_json(folder / 'search_state.json', dict(
+                    stop_reason=search.stop_reason or 'interrupted', cost=search.cost,
+                    required_converged=search.required, initial_candidates=search.initial_count,
+                    peak_pool_rss_mb=peak_memory_mb if method == 'xtb' else None,
+                    states={key: asdict(state) for key, state in search.states.items()}))
+    records, energies, rows = [], [], []
+    for i, (key, state) in enumerate(search.states.items()):
+        mol = runners[key].final_molecule if state.status == 'converged' else None
+        if mol is not None:
+            clear_structure_audit(mol)
+            mol.SetDoubleProp('energy_hartree', state.energy)
+        records.append(mol)
+        energies.append(state.energy if mol is not None else None)
+        row = dict(candidate_id=prepared.candidates[i].GetProp('candidate_id'), prepared_index=i,
+                   state=state.status, energy_hartree=state.energy, error=state.error,
+                   evaluations=state.evaluations, calls=state.calls, wall_seconds=state.wall_seconds)
+        rows.append(row)
+        write_json(folder / key / 'status.json', row)
+    audit = evaluate_optimized_candidates(records, energies, reference, config.validation)
+    audit.update(implementation='graybox', algorithm=settings['algorithm'], backend=method,
+        score_definition=force_kind, algorithm_label='laqa_norm' if method == 'xtb' and settings['algorithm']=='laqa' else settings['algorithm'],
+        peak_pool_rss_mb=peak_memory_mb if method == 'xtb' else None,
+        algorithm_variant=('sequential_budget_extension_with_reentry' if workers == 1
+                           else 'batched_budget_extension_with_reentry'), energy_unit='hartree',
+        convergence_fraction=settings['convergence_fraction'], required_converged=search.required,
+        stop_reason=search.stop_reason, quota_reached=search.done(), cost=search.cost,
+        input_candidates=len(rows), attempted_candidates=sum(row['calls'] > 0 for row in rows),
+        converged_candidates=sum(row['state'] == 'converged' for row in rows),
+        failed_candidates=sum(row['state'] == 'failed' for row in rows),
+        limit_candidates=sum(row['state'] == 'limit' for row in rows),
+        unfinished_candidates=sum(row['state'] in ('pending', 'paused') for row in rows),
+        candidate_runs=rows, wall_seconds=time.monotonic() - started,
+        sum_candidate_wall_seconds=search.cost['wall_seconds'], allocated_cores=cores,
+        cores_per_calculation=1, parallel_workers=workers,
+        scheduling='sequential_graybox_1_core' if workers == 1 else 'parallel_graybox_1_core')
     select_optimized_candidate(records, energies, audit)
     _save_optimization_results(folder, records, audit)
     return audit
@@ -168,86 +273,6 @@ def _optimize_one_candidate(task, adapter=None):
     return result, energy, candidate_result
 
 
-def optimize_with_xtb(mol, folder, charge, multiplicity, cores, memory, settings):
-    executable = shutil.which(settings.get('xtb_executable', 'xtb'))
-    if executable is None:
-        raise FileNotFoundError('xTB executable not found')
-    Chem.MolToXYZFile(mol, str(folder/'input.xyz'))
-    argv = [executable, 'input.xyz', '--gfn', '2', '--chrg', str(charge),
-            '--uhf', str(multiplicity-1), '--opt', settings.get('xtb_opt_level', 'normal'),
-            '--cycles', str(settings.get('maximum_cycles', 1000)), '--parallel', str(cores)]
-    env = os.environ.copy()
-    thread_env = native_thread_environment(cores)
-    env.update(thread_env, OMP_STACKSIZE='256M')
-    write_json(folder/'command.json', {'argv': argv, 'charge': charge, 'multiplicity': multiplicity,
-                                'thread_environment': thread_env})
-    try:
-        with (folder/'xtb.out').open('w') as out:
-            job_timeout.run(argv, cwd=folder, env=env, stdout=out, stderr=subprocess.STDOUT, check=True)
-    finally:
-        text, trace = read_xtb_trace(folder)
-    if not trace['native_converged']:
-        raise RuntimeError('xTB native optimization did not converge')
-    energies = re.findall(r'TOTAL ENERGY\s+([-+0-9.EeDd]+)', text)
-    if not energies:
-        raise ValueError('xTB final energy missing')
-    final = Chem.MolFromXYZFile(str(folder/'xtbopt.xyz'))
-    if final is None or [a.GetAtomicNum() for a in final.GetAtoms()] != [a.GetAtomicNum() for a in mol.GetAtoms()]:
-        raise ValueError('xTB final atom order/composition changed')
-    return copy_with_coordinates(mol, final), parse_finite_number(energies[-1])
-
-
-def optimize_with_pm6(mol, folder, charge, multiplicity, cores, memory, settings):
-    """Use the existing Gaussian adapter, retaining its files in this folder."""
-    from qcforever.laqa_fafoom.pyg16 import g16Object
-    binary = shutil.which('g16')
-    if binary is None:
-        raise FileNotFoundError('Gaussian16 executable not found for PM6')
-    thread_env = native_thread_environment(cores)
-    previous = {key: os.environ.get(key) for key in (*thread_env, 'GAUSS_EXEDIR', 'GAUSS_SCRDIR')}
-    try:
-        os.environ.update(thread_env)
-        write_json(folder/'environment.json', thread_env)
-        with working_directory(folder):
-            gaussian_job = g16Object(Chem.MolToMolBlock(mol), str(Path(binary).parent), str(folder),
-                            cores, memory or '1GB', 'opt', charge, multiplicity, 'pm6',
-                            settings.get('maximum_cycles', 1000))
-            gaussian_job.generate_input()
-            try:
-                gaussian_job.run_g16()
-            except job_timeout.QCforeverTimeoutError:
-                raise
-            except Exception as exc:
-                path = Path('Gau_molecule.log')
-                diagnostic = diagnose_pm6_failure(path.read_text(errors='replace') if path.is_file() else '', exc)
-                write_json(Path('failure.json'), diagnostic)
-                raise PM6CalculationError(
-                    f"PM6: {diagnostic['reason']}; see {folder/'failure.json'} and Gau_molecule.log") from exc
-            finally:
-                path = Path('Gau_molecule.log')
-                log = path.read_text(errors='replace') if path.is_file() else ''
-                trace = read_pm6_trace(log)
-                converged = trace['native_converged']
-                write_json(Path('trace.json'), trace)
-            if not converged:
-                diagnostic = diagnose_pm6_failure(log)
-                write_json(Path('failure.json'), diagnostic)
-                raise PM6CalculationError(f"PM6: {diagnostic['reason']}; see {folder/'failure.json'}")
-            # The Gaussian adapter edits coordinates in an SDF template. Read
-            # positions without chemical sanitization, then retain the input
-            # graph/electronic annotations exactly, as for the xTB backend.
-            out = Chem.MolFromMolBlock(gaussian_job.get_sdf_string_opt(), removeHs=False, sanitize=False)
-            if out is None:
-                raise ValueError('Unreadable PM6 final structure')
-            return copy_with_coordinates(mol, out), gaussian_job.get_energy('hartree')
-    finally:
-        for key, value in previous.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-
-
 def _save_optimization_results(folder, records, audit):
     """Save every converged structure and return the selected structure through SDF."""
     selected = audit['selected_index']
@@ -270,28 +295,7 @@ def _save_optimization_results(folder, records, audit):
     write_sdf(Path.cwd()/'optimized_structures.sdf', [records[selected]])
 
 
-def native_thread_environment(cores):
-    """Native relaxation uses the per-candidate allocation, not model threads.
-
-    Set only on the native subprocess (xTB), or temporarily around the legacy
-    Gaussian adapter (PM6), restoring the caller environment afterwards.
-    """
-    return {key: str(cores) for key in (
-        'OMP_NUM_THREADS', 'OMP_THREAD_LIMIT', 'MKL_NUM_THREADS',
-        'OPENBLAS_NUM_THREADS', 'NUMEXPR_NUM_THREADS')}
-
-
 def _initialize_native_worker(cpu_sets):
     """Disjoint Linux affinity also keeps Gaussian's scheduler wrapper bounded."""
     if cpu_sets is not None:
         os.sched_setaffinity(0, cpu_sets.get())
-
-
-@contextmanager
-def working_directory(path):
-    previous = Path.cwd()
-    os.chdir(path)
-    try:
-        yield
-    finally:
-        os.chdir(previous)

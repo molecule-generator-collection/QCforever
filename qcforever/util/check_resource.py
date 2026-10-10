@@ -11,6 +11,17 @@ MIN_AUTO_MEMORY = GIB
 MEMORY_SAFETY_FRACTION = 0.80
 
 
+def native_thread_environment(cores):
+    """Native relaxation uses the per-candidate allocation, not model threads.
+
+    Set only on the native subprocess (xTB), or temporarily around the legacy
+    Gaussian adapter (PM6), restoring the caller environment afterwards.
+    """
+    return {key: str(cores) for key in (
+        'OMP_NUM_THREADS', 'OMP_THREAD_LIMIT', 'MKL_NUM_THREADS',
+        'OPENBLAS_NUM_THREADS', 'NUMEXPR_NUM_THREADS')}
+
+
 def respec_cores(spec_cores):
 
     ava_cores = get_ava_cores()

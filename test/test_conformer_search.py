@@ -11,7 +11,7 @@ from qcforever.conformer_search.settings import SearchConfig
 from qcforever.conformer_search.settings import parse_conformer_options, calculation_tokens
 from qcforever.conformer_search.generate_conformers import prepare_candidates
 from qcforever.conformer_search.optimize_mm import UnsupportedParametersError
-from qcforever.conformer_search.optimize_semiempirical import optimize_candidates
+from qcforever.conformer_search.optimize_conformers import optimize_candidates
 from qcforever.conformer_search.check_structures import (
     evaluate_optimized_candidates, filter_candidates, duplicate_rmsd, xh3_hydrogen_indices,
     rmsd_comparison_molecule, IncrementalCandidateFilter,
@@ -200,7 +200,7 @@ def test_ez_mismatch_rejected_at_generation():
 
 def test_all_candidates_attempted_even_if_one_fails(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    cfg = settings('low', n=5)
+    cfg = settings('low', n=5, relaxation={'implementation': 'continuous'})
     ref = molecule()
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
     calls = []
@@ -242,7 +242,7 @@ def test_final_stereo_mismatch_returns_structure_with_warning(tmp_path, monkeypa
     monkeypatch.chdir(tmp_path)
     ref = Chem.AddHs(Chem.MolFromSmiles('C[C@H](O)F'))
     assert AllChem.EmbedMolecule(ref, randomSeed=42) == 0
-    cfg = settings('low', n=1)
+    cfg = settings('low', n=1, relaxation={'implementation': 'continuous'})
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
     def backend(mol, *a):
         wrong = Chem.Mol(mol)
@@ -269,7 +269,7 @@ def test_native_relaxation_uses_single_core_workers(tmp_path, monkeypatch, nproc
         'Path("interval.json").write_text(json.dumps({"start":start,"end":time.time(),"pid":os.getpid(),"omp":os.environ["OMP_NUM_THREADS"],"blas":os.environ["OPENBLAS_NUM_THREADS"]}))\n'
         'print("CYCLE 1\\nGEOMETRY OPTIMIZATION CONVERGED\\nTOTAL ENERGY -1.0 Eh")\n')
     binary.chmod(0o755)
-    cfg = settings('low', n=2, relaxation={'xtb_executable': str(binary)})
+    cfg = settings('low', n=2, relaxation={'implementation': 'continuous', 'xtb_executable': str(binary)})
     ref = molecule()
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
     audit = optimize_candidates(prepared, ref, cfg, 0, 1, 'xtb', nproc, '1GB')

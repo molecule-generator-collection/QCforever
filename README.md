@@ -159,19 +159,82 @@ Following options are currently available:
 
 ### Configurable conformer search (development)
 
-`optconf=xtb` / `optconf=pm6` keep their syntax. If no profile option is specified,
-the default is `optconf_low` (ETKDGv3, MMFF94s, continuous native relaxation).
-You can also specify `optconf_low` explicitly. Add `optconf_medium` or
-`optconf_high` to request the learned-generator fallback routes. Optional
-`job.conformer_config = 'conformer.yaml'` overrides packaged settings.
-Conformer xTB/PM6 relaxation uses one core per worker, running up to `nproc`
-candidates in parallel (limited by candidate count). CPU model generation keeps
-four cores per worker by default. Gaussian memory is per relaxation worker;
-allow for the total memory required by concurrent candidates.
-Learned model execution uses the optional setup above; explicit YAML settings
-override the registered models. Setup verifies basic inference, not performance
-or validity for every molecule. Available settings are listed in
+`optconf=xtb` / `optconf=pm6` default to `optconf_low` (ETKDGv3 and MMFF94s).
+Add `optconf_medium` or `optconf_high` for learned-generator fallback routes.
+Optional `job.conformer_config = 'conformer.yaml'` overrides
 [`defaults.yaml`](qcforever/conformer_search/defaults.yaml).
+
+#### Relaxation options
+
+Both backends default to graybox SH, stopping when 20% of the initial relaxation
+pool has converged. This affects conformer selection, not the subsequent DFT job.
+
+| Option (after either `optconf=xtb` or `optconf=pm6`) | Behavior |
+|---|---|
+| Omitted, or `laqa` | 20% convergence target |
+| `laqa=80` | 80% convergence target |
+| `laqa=100` | Target all candidates; failures and safety limits can prevent completion |
+| `laqa=off` | Continuous relaxation of all candidates |
+
+`laqa` is the user-facing option; the actual algorithm defaults to `sh`.
+An explicit percentage overrides the YAML fraction, not its algorithm.
+For example:
+
+```yaml
+relaxation:
+  algorithm: sh                 # sh, sr, or laqa
+  convergence_fraction: 0.20
+  first_interval: 1
+  subsequent_interval: 10
+  parallel_candidates: auto     # Up to nproc; 1 selects sequential execution
+```
+
+Relaxation uses one core per candidate, up to `nproc` concurrent candidates
+within the CPU allocation. CPU model generation uses four cores per worker.
+Gaussian memory is per worker; account for all concurrent workers.
+
+The convergence target is `ceil(fraction * initial_candidates)`, after
+generation/MM/filtering. Its denominator does not shrink after failures.
+Only native convergence counts; final geometry/stereo checks remain separate.
+Selection and stopping occur between complete batches, so costs and converged
+counts can exceed the target. Parallel and sequential searches need not select
+the same final structure.
+
+SH/SR start with 20 evaluations per initial candidate and add another 20 as
+needed, re-admitting unfinished candidates without resetting their progress.
+Within each round, SH retains the best half and SR rejects the worst candidate
+at each completed stage; residual budget goes to unfinished candidates ranked
+by energy. LAQA instead selects the lowest current `E/N - F²/(2ΔF)` scores.
+PM6 uses mean atomic force; xTB uses ANC gradient norm divided by `sqrt(N)`,
+recorded as the approximate `laqa_norm` policy. No future energy enters selection.
+
+PM6 graybox uses Gaussian16 PM6-RFO with checkpoint restart, tight optimization
+and SCF convergence, and cumulative cycle limits 1,11,21,… .
+Both `g16` and `formchk` must be on PATH. `laqa=off` retains the legacy
+Gaussian optimizer; set `relaxation.pm6_optimizer: rfo` for a continuous-RFO
+comparison.
+
+xTB graybox keeps each optimizer process alive using POSIX stop/resume signals;
+it does not restart from coordinates. Defaults remain GFN2-xTB, `normal`,
+accuracy 1.0. Paused processes consume memory. The default 8192 MB pool RSS guard
+is a sampled safeguard, not a scheduler memory reservation. Use scheduler-owned
+jobs and sufficient memory. Live state cannot resume after QCforever exits.
+On Windows, use `laqa=off`.
+
+Results and scalar histories are saved under `conformer_search/electronic/`.
+`audit.json` distinguishes converged, failed, limited and unfinished candidates,
+records actual evaluations and elapsed time, and reports unmet convergence
+targets. Only converged structures proceed to final selection.
+
+#### Updating learned generators
+
+Explicit YAML model settings override registered models. To update an existing
+Torsional Diffusion installation, rerun
+`install-conformer-models --models torsional_diffusion --directory <same-directory>`.
+Setup tests the new private environment before replacing its registration.
+Completed lookup tables are read concurrently; only first-time construction
+requires exclusive access. `model_execution.json` records initialization and
+generation timings. Setup checks basic inference, not validity for every molecule.
 
 ## License
 

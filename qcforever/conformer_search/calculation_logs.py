@@ -43,6 +43,47 @@ def read_pm6_trace(log):
     return {'native_converged': converged, 'energy_evaluations_hartree': energies,
             'record_axis': 'SCF_evaluation'}
 
+
+def read_pm6_block(log, atom_count):
+    """Read scalar PM6 force/energy records without extra electronic calculations.
+
+    A final SCF Done line can precede an SCF error. Preserve it for cost
+    accounting; native convergence and continuation eligibility are separate.
+    Missing forces stay None, never zero. Forces are mean atom-vector norms.
+    """
+    records = []
+    lines = log.splitlines()
+    for i, line in enumerate(lines):
+        match = re.search(r'SCF Done:.*?E\(([^)]+)\)\s*=\s*(\S+).*?after\s+(\d+)', line)
+        if match:
+            try:
+                energy = parse_finite_number(match[2])
+            except ValueError:
+                energy = None  # Still charge the failed/nonfinite SCF evaluation.
+            records.append(dict(method=match[1], energy_hartree=energy,
+                                scf_cycles=int(match[3]), force_mean_hartree_per_bohr=None))
+        if 'Forces (Hartrees/Bohr)' in line and records:
+            magnitudes = []
+            for row in lines[i + 3:]:
+                columns = row.split()
+                if len(columns) != 5 or not columns[0].isdigit():
+                    break
+                try:
+                    vector = [parse_finite_number(v) for v in columns[2:]]
+                except ValueError:
+                    magnitudes = []
+                    break
+                magnitudes.append(math.sqrt(sum(v * v for v in vector)))
+            if len(magnitudes) == atom_count:
+                records[-1]['force_mean_hartree_per_bohr'] = sum(magnitudes) / atom_count
+    native_limits = [int(value) for value in re.findall(r'Step number\s+\d+\s+out of a maximum of\s+(\d+)', log)]
+    return dict(records=records,
+                native_converged='Stationary point found' in log and 'Normal termination' in log,
+                cycle_limit='Number of steps exceeded' in log,
+                scf_failed='Convergence failure' in log or 'SCF has not converged' in log,
+                step_numbers=[int(x) for x in re.findall(r'Step number\s+(\d+)', log)],
+                native_maxcycles=native_limits[-1] if native_limits else None)
+
 def diagnose_pm6_failure(log, original_error=None):
     rules = (
         ('invalid_interatomic_distances', ('small interatomic distances', 'problem with the distance matrix')),

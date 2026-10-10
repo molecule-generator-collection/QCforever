@@ -4,11 +4,12 @@ Start with configured_confopt. The detailed generation and optimization records
 remain under conformer_search; optimized_structures.sdf is the QCforever handoff.
 """
 import json
+from dataclasses import replace
 from pathlib import Path
 
-from .settings import SearchConfig
+from .settings import SearchConfig, resolve_relaxation
 from .generate_conformers import prepare_candidates
-from .optimize_semiempirical import optimize_candidates
+from .optimize_conformers import optimize_candidates
 from .structure_file_io import read_input_structure
 from .calculation_logs import write_json
 
@@ -23,6 +24,7 @@ def configured_confopt(infilename, charge, multiplicity, method, nproc, memory, 
         config = SearchConfig.load(config) if isinstance(config, (str, Path)) else SearchConfig.from_mapping(config)
     if method not in ('xtb', 'pm6'):
         raise ValueError('optconf backend must be xtb or pm6')
+    config = replace(config, relaxation=resolve_relaxation(config.relaxation, method))
     reference = read_input_structure(infilename, charge)
     root = Path.cwd()/'conformer_search'
     prepared = prepare_candidates(reference, root, config, allocated_cores=nproc)
@@ -36,14 +38,32 @@ def _save_search_summary(root, prepared, config, method, audit):
     """Keep the existing QCforever result keys and selected-candidate semantics."""
     status = json.loads(prepared.status_path.read_text())
     index = audit['selected_index']
-    summary = {'state': 'succeeded_with_structure_warning' if audit['selected_structure_warning'] else 'succeeded',
+    search_warning = 'convergence_target_not_reached' if audit.get('quota_reached') is False else None
+    state = 'succeeded'
+    if search_warning:
+        state = 'succeeded_with_search_warning'
+    if audit['selected_structure_warning']:
+        state = 'succeeded_with_structure_warning'
+    summary = {'state': state,
+               'search_warning': search_warning,
                'structure_check_warning': audit['selected_structure_warning'],
                'profile': config.profile, 'backend': method,
                'maximum_candidates': status['budget']['maximum_candidates'],
-               'relaxed_candidates': len(prepared.candidates),
+               'input_candidates': len(prepared.candidates),
+               'relaxed_candidates': audit['attempted_candidates'],
                'attempted_candidates': audit['attempted_candidates'],
                'converged_candidates': audit['converged_candidates'],
                'failed_candidates': audit['failed_candidates'],
+               'limit_candidates': audit.get('limit_candidates', 0),
+               'unfinished_candidates': audit.get('unfinished_candidates', 0),
+               'relaxation_implementation': audit['implementation'],
+               'relaxation_algorithm': audit.get('algorithm'),
+               'relaxation_algorithm_label': audit.get('algorithm_label', audit.get('algorithm')),
+               'force_definition': audit.get('score_definition'),
+               'relaxation_stop_reason': audit.get('stop_reason', 'all_candidates_attempted'),
+               'convergence_fraction': audit.get('convergence_fraction'),
+               'convergence_target_reached': audit.get('quota_reached'),
+               'relaxation_cost': audit.get('cost'),
                'primary_valid_candidates': audit['primary_valid_candidates'],
                'selected_candidate_id': audit['candidate_runs'][index]['candidate_id'],
                'energy_hartree': audit['candidates'][index]['energy_hartree'],

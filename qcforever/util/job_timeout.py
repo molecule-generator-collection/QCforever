@@ -36,6 +36,9 @@ def terminate_process(process, grace_period=2.0):
     try:
         if os.name == "posix":
             os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            # A retained optimizer can be SIGSTOP'ed at a block boundary.
+            # Resume it to deliver TERM rather than waiting for forced KILL.
+            os.killpg(os.getpgid(process.pid), signal.SIGCONT)
         else:
             process.terminate()
         process.wait(timeout=grace_period)
@@ -93,6 +96,30 @@ def wait(process):
     finally:
         with _process_lock:
             _processes.pop(process, None)
+
+
+def unregister_process(process):
+    """Release a retained subprocess only after its owner has reaped it."""
+    if process.poll() is None:
+        raise RuntimeError('Cannot unregister a running process')
+    with _process_lock:
+        _processes.pop(process, None)
+
+
+@contextmanager
+def child_process_scope():
+    """Isolate child ownership without changing the caller's overall deadline.
+
+    Copy this context into worker threads so cancellation kills only children
+    of this calculation pool, not unrelated jobs in the same Python process.
+    """
+    owner = object()
+    token = _job_id.set(owner)
+    try:
+        yield owner
+    finally:
+        terminate_children(owner)
+        _job_id.reset(token)
 
 
 def run(*args, **kwargs):

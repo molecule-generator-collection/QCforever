@@ -15,10 +15,25 @@ budget:
   maximum: 100
   raw_attempt_multiplier: 2
 relaxation:
-  implementation: continuous
+  # auto: batched SH; PM6 checkpoint restart or xTB retained processes.
+  implementation: auto
+  algorithm: sh
+  convergence_fraction: 0.20
+  first_interval: 1
+  subsequent_interval: 10
+  initial_steps_per_candidate: 20
+  budget_increment_steps_per_candidate: 20
+  maximum_budget_rounds: 50
+  initial_delta_force: 1.0
+  delta_force_floor: 0.000001
+  parallel_candidates: auto  # Up to nproc one-core candidates; 1 restores sequential execution.
+  timeout_seconds_per_call: 1800
   maximum_cycles: 1000
   xtb_executable: xtb
   xtb_opt_level: normal
+  xtb_accuracy: 1.0
+  xtb_pool_memory_mb: 8192
+  xtb_active_timeout_seconds: 1800
 generators:
   ditmc: {}
   torsional_diffusion: {}

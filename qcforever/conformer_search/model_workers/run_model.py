@@ -124,6 +124,7 @@ def generate_batch(args, model, message, initialization_seconds, number):
         'worker_pid': os.getpid(), 'request_number': number,
         'model_initialization_count': 1, 'model_reused': number > 1,
         'initialization_seconds': initialization_seconds if number == 1 else 0.0,
+        'initialization_timings': getattr(args, 'initialization_timings', {}) if number == 1 else {},
         'generation_seconds': seconds, 'source': str(args.source), 'checkpoint': str(args.checkpoint),
         'device': args.device_info, 'parameter_devices': args.parameter_devices,
         'filtering': False, 'force_field_optimization': False, 'semiempirical_relaxation': False,

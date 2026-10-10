@@ -1,10 +1,69 @@
 """Search settings: read options/YAML, validate values, and resolve resource limits."""
 from dataclasses import asdict, dataclass, field
+from copy import deepcopy
 import json
 import math
 from pathlib import Path
 
 from rdkit.Chem import rdMolDescriptors
+
+
+GRAYBOX_DEFAULTS = dict(
+    algorithm='sh', convergence_fraction=0.20, first_interval=1,
+    subsequent_interval=10, initial_steps_per_candidate=20,
+    budget_increment_steps_per_candidate=20, maximum_budget_rounds=50,
+    initial_delta_force=1.0, delta_force_floor=1e-6,
+    parallel_candidates='auto', timeout_seconds_per_call=1800,
+)
+
+
+def resolve_relaxation(settings, method):
+    """Resolve backend-dependent defaults before generation or any native run."""
+    result = deepcopy(settings)
+    implementation = result.get('implementation', 'auto')
+    if implementation == 'auto':
+        implementation = 'graybox'
+    result['implementation'] = implementation
+    if implementation == 'graybox':
+        if method == 'pm6':
+            result['pm6_optimizer'] = 'rfo'
+        else:
+            result.setdefault('xtb_pool_memory_mb', 8192)
+            result.setdefault('xtb_active_timeout_seconds', 1800)
+        result.update({key: result.get(key, value) for key, value in GRAYBOX_DEFAULTS.items()})
+    return result
+
+
+def validate_relaxation(settings):
+    allowed = {'implementation', 'maximum_cycles', 'xtb_executable', 'xtb_opt_level', 'pm6_optimizer',
+               'xtb_accuracy', 'xtb_scf_iterations', 'xtb_pool_memory_mb', 'xtb_active_timeout_seconds'} | set(GRAYBOX_DEFAULTS)
+    if set(settings) - allowed:
+        raise ValueError('Unknown relaxation setting: ' + ', '.join(sorted(set(settings) - allowed)))
+    if settings.get('implementation', 'auto') not in ('auto', 'continuous', 'graybox'):
+        raise ValueError('relaxation.implementation must be auto, continuous or graybox')
+    if settings.get('pm6_optimizer', 'rfo') != 'rfo':
+        raise ValueError('Explicit pm6_optimizer currently supports rfo only; omit for legacy continuous Opt')
+    if settings.get('algorithm', 'sh') not in ('laqa', 'sr', 'sh'):
+        raise ValueError('relaxation.algorithm must be laqa, sr or sh')
+    fraction = settings.get('convergence_fraction', 0.20)
+    if isinstance(fraction, bool) or not isinstance(fraction, (int, float)) or not math.isfinite(fraction) or not 0 < fraction <= 1:
+        raise ValueError('convergence_fraction must be in (0, 1]')
+    integers = {'maximum_cycles': 1000, **{k: v for k, v in GRAYBOX_DEFAULTS.items() if type(v) is int}}
+    integers.update(xtb_scf_iterations=250, xtb_pool_memory_mb=8192, xtb_active_timeout_seconds=1800)
+    for key, default in integers.items():
+        value = settings.get(key, default)
+        if type(value) is not int or value < 1:
+            raise ValueError(f'{key} must be a positive integer')
+    workers = settings.get('parallel_candidates', 'auto')
+    if workers != 'auto' and (type(workers) is not int or workers < 1):
+        raise ValueError('parallel_candidates must be auto or a positive integer')
+    for key in ('initial_delta_force', 'delta_force_floor'):
+        value = settings.get(key, GRAYBOX_DEFAULTS[key])
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+            raise ValueError(f'{key} must be finite and positive')
+    accuracy = settings.get('xtb_accuracy', 1.0)
+    if isinstance(accuracy, bool) or not isinstance(accuracy, (int, float)) or not math.isfinite(accuracy) or accuracy <= 0:
+        raise ValueError('xtb_accuracy must be finite and positive')
 
 
 @dataclass(frozen=True)
@@ -87,7 +146,7 @@ class SearchConfig:
     workers: int = 8
     device: str = 'auto'
     mm_method: str = 'mmff94s'
-    relaxation: dict = field(default_factory=lambda: {'implementation': 'continuous', 'maximum_cycles': 1000})
+    relaxation: dict = field(default_factory=lambda: {'implementation': 'auto', 'maximum_cycles': 1000})
     budget: CandidateBudget = field(default_factory=CandidateBudget)
     validation: ValidationSettings = field(default_factory=ValidationSettings)
     generators: dict = field(default_factory=dict)
@@ -104,17 +163,11 @@ class SearchConfig:
             raise ValueError('device must be auto, cpu or gpu')
         if self.workers < 1 or self.mm_method not in ('mmff94s', 'uff', 'none'):
             raise ValueError('Invalid worker count or MM method')
-        if self.relaxation.get('implementation') != 'continuous':
-            raise ValueError('Only continuous relaxation is enabled; LAQA remains under study')
+        validate_relaxation(self.relaxation)
         if self.threads < 1 or not 0 <= self.seed < 2**31:
             raise ValueError('threads must be positive and seed must fit a signed 32-bit integer')
         if 'cores_per_calculation' in self.relaxation:
             raise ValueError('Remove relaxation.cores_per_calculation: xTB/PM6 use 1 core per candidate, with workers derived from nproc')
-        allowed = {'implementation', 'maximum_cycles', 'xtb_executable', 'xtb_opt_level'}
-        if set(self.relaxation)-allowed:
-            raise ValueError('Unknown relaxation setting')
-        if not isinstance(self.relaxation.get('maximum_cycles', 1000), int) or self.relaxation.get('maximum_cycles', 1000) < 1:
-            raise ValueError('maximum_cycles must be a positive integer')
 
     @classmethod
     def from_mapping(cls, value):
@@ -195,8 +248,9 @@ LEVEL_OPTIONS = {'optconf_low': 'low', 'optconf_medium': 'medium', 'optconf_high
 def parse_conformer_options(option_string, override=None):
     """Read optconf options while leaving other QCforever properties untouched."""
     tokens = option_string.split()
-    if 'laqa' in [t.lower() for t in tokens]:
-        raise NotImplementedError('The laqa option is reserved; LAQA is not enabled yet. Omit it to relax all candidates.')
+    graybox_options = [t.lower() for t in tokens if t.lower() == 'laqa' or t.lower().startswith('laqa=')]
+    if len(graybox_options) > 1:
+        raise ValueError('Specify laqa at most once')
     unknown_levels = [t for t in tokens if t.lower().startswith('optconf_')
                       and t.lower() not in LEVEL_OPTIONS]
     if unknown_levels:
@@ -208,15 +262,30 @@ def parse_conformer_options(option_string, override=None):
     if len(selected) > 1 or len(methods) > 1:
         raise ValueError('Specify one optconf backend and at most one level')
     if not methods:
-        if selected or override is not None:
+        if selected or override is not None or graybox_options:
             raise ValueError('conformer settings require optconf')
         return None
     if methods[0] not in ('xtb', 'pm6'):
         raise ValueError('optconf supports xtb or pm6')
-    return SearchConfig.resolve(selected[0] if selected else 'low', override)
+    config = SearchConfig.resolve(selected[0] if selected else 'low', override)
+    value = config.to_mapping()
+    if graybox_options:
+        option = graybox_options[0]
+        if option == 'laqa=off':
+            value['relaxation']['implementation'] = 'continuous'
+        else:
+            try:
+                percentage = 20.0 if option == 'laqa' else float(option.split('=', 1)[1])
+            except ValueError as exc:
+                raise ValueError('Use laqa, laqa=off or laqa=<percentage>') from exc
+            if not math.isfinite(percentage) or not 0 < percentage <= 100:
+                raise ValueError('laqa percentage must be in (0, 100]')
+            value['relaxation'].update(implementation='graybox', convergence_fraction=percentage / 100)
+    value['relaxation'] = resolve_relaxation(value['relaxation'], methods[0])
+    return SearchConfig.from_mapping(value)
 
 
 def calculation_tokens(option_string):
     """Remove only search-level tokens before the existing property parser runs."""
     return [t for t in option_string.split()
-            if t.lower() not in LEVEL_OPTIONS]
+            if t.lower() not in LEVEL_OPTIONS and t.lower() != 'laqa' and not t.lower().startswith('laqa=')]

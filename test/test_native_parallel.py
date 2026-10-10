@@ -11,7 +11,7 @@ from rdkit.Chem import AllChem
 
 from qcforever.conformer_search.settings import SearchConfig
 from qcforever.conformer_search.generate_conformers import prepare_candidates
-from qcforever.conformer_search.optimize_semiempirical import (
+from qcforever.conformer_search.optimize_conformers import (
     native_thread_environment, optimize_with_pm6, optimize_candidates, _initialize_native_worker,
 )
 
@@ -72,6 +72,7 @@ def test_pm6_parallel_isolation_order_and_failure(tmp_path, monkeypatch, nproc):
     ref = Chem.AddHs(Chem.MolFromSmiles('CCCC'))
     assert AllChem.EmbedMolecule(ref, randomSeed=42) == 0
     cfg = SearchConfig.resolve('low', {
+        'relaxation': {'implementation': 'continuous'},
         'budget': {'formula': 'fixed', 'fixed': 10}, 'mm_method': 'none', 'threads': 1,
         'validation': {'duplicate_rmsd_angstrom': 0}})
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, allocated_cores=nproc,
