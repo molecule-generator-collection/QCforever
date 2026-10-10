@@ -9,7 +9,7 @@ from rdkit.Chem import rdMolDescriptors
 
 
 GRAYBOX_DEFAULTS = dict(
-    algorithm='sh', convergence_fraction=0.20, first_interval=1,
+    algorithm='sh', convergence_fraction=0.50, first_interval=1,
     subsequent_interval=10, initial_steps_per_candidate=20,
     budget_increment_steps_per_candidate=20, maximum_budget_rounds=50,
     initial_delta_force=1.0, delta_force_floor=1e-6,
@@ -45,7 +45,7 @@ def validate_relaxation(settings):
         raise ValueError('Explicit pm6_optimizer currently supports rfo only; omit for legacy continuous Opt')
     if settings.get('algorithm', 'sh') not in ('laqa', 'sr', 'sh'):
         raise ValueError('relaxation.algorithm must be laqa, sr or sh')
-    fraction = settings.get('convergence_fraction', 0.20)
+    fraction = settings.get('convergence_fraction', GRAYBOX_DEFAULTS['convergence_fraction'])
     if isinstance(fraction, bool) or not isinstance(fraction, (int, float)) or not math.isfinite(fraction) or not 0 < fraction <= 1:
         raise ValueError('convergence_fraction must be in (0, 1]')
     integers = {'maximum_cycles': 1000, **{k: v for k, v in GRAYBOX_DEFAULTS.items() if type(v) is int}}
@@ -275,7 +275,8 @@ def parse_conformer_options(option_string, override=None):
             value['relaxation']['implementation'] = 'continuous'
         else:
             try:
-                percentage = 20.0 if option == 'laqa' else float(option.split('=', 1)[1])
+                percentage = (100 * GRAYBOX_DEFAULTS['convergence_fraction']
+                              if option == 'laqa' else float(option.split('=', 1)[1]))
             except ValueError as exc:
                 raise ValueError('Use laqa, laqa=off or laqa=<percentage>') from exc
             if not math.isfinite(percentage) or not 0 < percentage <= 100:

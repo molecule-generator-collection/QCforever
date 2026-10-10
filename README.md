@@ -204,11 +204,13 @@ select the default PM6 method. For example: `"optconf=xtb optconf_medium energy"
 Install the corresponding executable separately; PM6 requires Gaussian 16 even
 when the subsequent property calculation uses GAMESS.
 
-By default, the search stops when 20% of the initial relaxation candidates have
+By default (`laqa=50`), the search stops when 50% of the initial relaxation candidates have
 converged. To spend more effort on relaxation, increase this target:
 
 | Option | Behavior |
 |---|---|
+| Omitted, `laqa`, or `laqa=50` | Stop at 50% convergence (default) |
+| `laqa=20` | Stop at 20% convergence |
 | `laqa=80` | Stop at 80% convergence |
 | `laqa=100` | Target all candidates; failures/safety limits may prevent completion |
 | `laqa=off` | Relax all candidates continuously, without SH/LAQA scheduling |

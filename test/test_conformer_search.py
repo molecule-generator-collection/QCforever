@@ -56,6 +56,29 @@ def test_defaults_and_options():
         parse_conformer_options('optconf_high uv')
 
 
+@pytest.mark.parametrize('backend', ['xtb', 'pm6'])
+@pytest.mark.parametrize('profile', ['low', 'medium', 'high'])
+@pytest.mark.parametrize('option', ['', 'laqa', 'laqa=50'])
+def test_default_convergence_target_is_half(backend, profile, option):
+    cfg = parse_conformer_options(f'optconf={backend} optconf_{profile} {option}')
+    assert cfg.relaxation['implementation'] == 'graybox'
+    assert cfg.relaxation['convergence_fraction'] == .5
+    assert SearchConfig.resolve(profile).relaxation['convergence_fraction'] == .5
+
+
+def test_explicit_convergence_settings_remain_available():
+    from qcforever.conformer_search.settings import resolve_relaxation
+
+    for percentage in (20, 80, 100):
+        cfg = parse_conformer_options(f'optconf laqa={percentage}')
+        assert cfg.relaxation['convergence_fraction'] == percentage / 100
+    cfg = parse_conformer_options('optconf', {'relaxation': {'convergence_fraction': .3}})
+    assert cfg.relaxation['convergence_fraction'] == .3
+    assert parse_conformer_options('optconf laqa=off').relaxation['implementation'] == 'continuous'
+    assert resolve_relaxation({}, 'xtb')['convergence_fraction'] == .5
+    assert resolve_relaxation({}, 'pm6')['convergence_fraction'] == .5
+
+
 @pytest.mark.parametrize('level,names', [
     ('low', ['etkdgv3']),
     ('medium', ['torsional_diffusion', 'etkdgv3']),

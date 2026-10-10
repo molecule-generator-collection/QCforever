@@ -18,7 +18,7 @@ relaxation:
   # auto: batched SH; PM6 checkpoint restart or xTB retained processes.
   implementation: auto
   algorithm: sh
-  convergence_fraction: 0.20
+  convergence_fraction: 0.50
   first_interval: 1
   subsequent_interval: 10
   initial_steps_per_candidate: 20
