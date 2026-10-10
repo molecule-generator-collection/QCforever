@@ -178,10 +178,19 @@ Following options are currently available:
 
 ### Conformer search (`optconf`)
 
-Use `optconf=xtb` (GFN2-xTB) or `optconf=pm6` (Gaussian 16) to select a
-conformer before the requested Gaussian/GAMESS property calculation.
-The corresponding executable must be installed separately; PM6 requires
-Gaussian even when the subsequent calculation uses GAMESS.
+QCforever provides conformer search to prepare promising structures for subsequent
+DFT calculations. It first generates multiple candidate conformations, then
+optimizes them with a semiempirical method. LAQA-style adaptive relaxation
+(successive halving, SH, by default) focuses optimization effort on promising
+candidates to reduce the computational cost.
+
+Simply add `optconf` to the option string, for example `"optconf energy"`.
+The default search uses ETKDGv3 + MMFF94s followed by PM6, aiming to find a
+promising starting structure at a modest cost rather than exhaustively optimize
+every candidate.
+
+For more extensive exploration, choose a different generation method and/or
+increase the relaxation target using the following options.
 
 | Option | Conformer generation (fallback order) |
 |---|---|
@@ -190,10 +199,13 @@ Gaussian even when the subsequent calculation uses GAMESS.
 | `optconf_high` | DiTMC → Torsional Diffusion → ETKDGv3 + MMFF94s |
 
 Medium/high require the model installation described under Install.
-For example, set the option string to `"optconf=xtb optconf_medium energy"`.
+Use `optconf=xtb` to switch relaxation to GFN2-xTB, or `optconf=pm6` to explicitly
+select the default PM6 method. For example: `"optconf=xtb optconf_medium energy"`.
+Install the corresponding executable separately; PM6 requires Gaussian 16 even
+when the subsequent property calculation uses GAMESS.
 
-Relaxation defaults to successive halving (SH), stopping when 20% of the
-initial relaxation candidates have converged. Change this with:
+By default, the search stops when 20% of the initial relaxation candidates have
+converged. To spend more effort on relaxation, increase this target:
 
 | Option | Behavior |
 |---|---|
