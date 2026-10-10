@@ -13,114 +13,229 @@ Grey-box optimisation (LAQA (https://doi.org/10.1021/acs.jctc.1c00301)) can also
 
 ## Requirements
 
-Use Python 3.11 for the installation below, including optional learned models.
-`pip` installs QCforever's Python dependencies (RDKit, NumPy, PyYAML,
-bayesian-optimization, psutil and basis-set-exchange); the dependency versions
-are defined in [setup.py](setup.py).
+1. [Gaussian](https://gaussian.com)==16
+2. [GAMESS(sockets)](https://www.msg.chem.iastate.edu/gamess/)==30 SEP 2022 (R2)
+3. [Python](https://www.anaconda.com/download/)==3.11
+4. [RDKit](https://pypi.org/project/rdkit/)>=2023.3.3
+5. [bayesian-optimization](https://github.com/bayesian-optimization/BayesianOptimization)==1.4.3
+6. [psutil](https://github.com/giampaolo/psutil)
+7. [basis-set-exchange](https://pypi.org/project/basis-set-exchange/)>=0.12
+8. NumPy>=1.22.0
+9. PyYAML>=6
 
-Quantum-chemistry executables are separate installations:
+## Optional
 
-| Calculation | Required executable(s) |
-|---|---|
-| Gaussian properties and DFT | [Gaussian 16](https://gaussian.com): `g16`, `formchk` |
-| GAMESS properties and DFT | [GAMESS](https://www.msg.chem.iastate.edu/gamess/), sockets version 30 SEP 2022 (R2): `rungms` |
-| `optconf=pm6` conformer relaxation, including from the GAMESS workflow | Gaussian 16: `g16`, `formchk` |
-| `optconf=xtb` conformer relaxation | [xTB 6.6.1](https://github.com/grimme-lab/xtb/tree/v6.6.1): `xtb` |
-
-Install the backends you use, not necessarily both Gaussian and GAMESS.
-Selecting xTB for conformer relaxation does **not** replace Gaussian/GAMESS for
-the subsequent property calculation. `pip install QCforever` does not install
-any of these executables or supply a Gaussian license.
+1. [xtb](https://github.com/grimme-lab/xtb/tree/v6.6.1)==6.6.1
 
 ## How to use
 
-### 1. Create an environment and install xTB (Linux/macOS)
-
-The installation targets for this branch are Linux x86_64 and Apple Silicon
-macOS (arm64). Intel Macs are outside the support and validation scope.
-
-Install [Miniforge](https://github.com/conda-forge/miniforge#install) for your
-operating system and CPU architecture, following its installer instructions.
-Open a new terminal after shell initialization. On Apple Silicon, use the
-native arm64 installer and terminal, not an Intel/Rosetta Python environment.
-An existing working Conda installation can also be used.
-
-Create a dedicated environment; no administrator privileges are needed for
-the following commands:
+### Install
 
 ```bash
-conda create -n qcforever --override-channels -c conda-forge python=3.11 pip git xtb=6.6.1
-conda activate qcforever
-python --version
-xtb --version
+pip install --upgrade git+https://github.com/molecule-generator-collection/QCforever.git@feature/conformer-search
 ```
 
-Confirm Python 3.11 and xTB 6.6.1 before continuing. This installs the actual
-xTB executable and its native libraries, not a Python wrapper. See also the
-[official xTB installation guide](https://xtb-docs.readthedocs.io/en/latest/setup.html).
-If you will only use PM6, omit `xtb=6.6.1` and the `xtb --version` check.
-Activate this environment in each new terminal or batch job before using
-QCforever.
+<details>
+<summary>Optional conformer search: installation, low / medium / high and relaxation</summary>
 
-#### Alternative: keep a uv Python environment (Apple Silicon macOS)
+`optconf=xtb` or `optconf=pm6` selects the conformer-relaxation backend; low is the default profile.
+This selects a conformer before the subsequent Gaussian/GAMESS property calculation.
+Install xTB separately for xTB relaxation, or Gaussian 16 (`g16` and `formchk`) for PM6,
+including PM6 searches launched from the GAMESS workflow.
 
-If you prefer uv, keep Python in `.venv` and use a separate Miniforge installation
-only to install xTB. Do not also create the Conda Python environment above.
-Start in your chosen working directory (not the QCforever source checkout):
+#### Install learned generators
+
+Skip this step for `optconf_low` (ETKDGv3 + MMFF94s).
+For `optconf_medium`, install Torsional Diffusion:
+
+```bash
+install-conformer-models --models torsional_diffusion --device cpu
+```
+
+For `optconf_high`, install both DiTMC and Torsional Diffusion:
+
+```bash
+install-conformer-models --device cpu
+```
+
+The installer downloads dependencies/weights and runs a small ethanol generation
+and model-reuse test before registration. Allow several GB of disk space.
+DiTMC requires a C/C++ compiler. On clusters, run setup in a compute allocation.
+
+Apple Silicon CPU: Torsional Diffusion's installation/generation test has passed
+on one Mac; DiTMC and full QC workflows are not yet validated there.
+
+<details>
+<summary>Model installation details: compilers, GPU, locations and troubleshooting</summary>
+
+DiTMC also needs a C/C++ compiler (`cc` and `c++`). On macOS, install Apple's
+Command Line Tools with `xcode-select --install` if absent. On Linux, use your
+site's compiler module or distribution build tools (for example `build-essential`
+on Ubuntu/Debian); ask the administrator on shared systems. The installer checks
+for Python 3.11 development headers and does not install system packages itself.
+
+Models use separate Python 3.11 environments and pinned official source/weights.
+The test generates 1 + 1 ethanol candidates; it does not run xTB/PM6 relaxation.
+Existing Python environments are not modified; no per-job YAML is needed.
+The DiTMC archive alone is about 1.9 GB.
+
+- Default installation: `~/.local/share/qcforever/conformers`.
+- Default registration: `~/.config/qcforever/conformer_models.json`.
+- Use `--directory /path/to/new-directory` to choose a different installation
+  location. Do not pre-populate it with copied model files: nonempty unmanaged
+  directories are deliberately refused. XDG data/config settings and
+  `QCFOREVER_MODEL_REGISTRY` can override the default locations.
+- A failed setup exits nonzero and prints its log directory. Correct the reported
+  issue and rerun the same command; verified downloads are reused and previous
+  working registrations are preserved.
+- Package installation allows 120 seconds of network inactivity before timing
+  out. This is not a total installation time limit; a longer network outage can
+  still require rerunning setup.
+
+Linux x86_64 CPU/CUDA setup has been exercised. Intel Macs are outside the supported targets;
+the automatic model installer rejects them because the pinned learned-model
+dependencies do not provide Intel macOS wheels. Windows and Linux ARM
+model installation are not supported by this installer. macOS Metal/MPS
+inference is not enabled.
+
+For Linux NVIDIA GPUs, use `--device gpu` in an appropriate allocation with a
+CUDA-12-compatible driver. Without `--device`, a visible NVIDIA GPU is selected,
+otherwise CPU. On a cluster, run model installation/testing in a compute
+allocation, not on a login node. `--threads` defaults to 4 CPU cores for the
+tests. `install-conformer-models --dry-run --device cpu` displays the download
+plan without installing or testing anything; `--help` lists all options.
+
+</details>
+
+#### Choose generation and relaxation settings
+
+Add `optconf=xtb` or `optconf=pm6` to the option string, then choose a profile:
+
+| Profile | Generators in fallback order |
+|---|---|
+| `optconf_low` (default) | ETKDGv3 + MMFF94s |
+| `optconf_medium` | Torsional Diffusion → ETKDGv3 + MMFF94s |
+| `optconf_high` | DiTMC → Torsional Diffusion → ETKDGv3 + MMFF94s |
+
+Example: `optconf=xtb optconf_medium energy` selects a conformer with xTB,
+then runs the requested DFT energy calculation. Medium/high require the
+optional model installation above.
+
+Both relaxation backends default to SH with a 20% convergence target:
+
+| Option (after either `optconf=xtb` or `optconf=pm6`) | Behavior |
+|---|---|
+| Omitted, or `laqa` | 20% convergence target |
+| `laqa=80` | 80% convergence target |
+| `laqa=100` | Target all candidates; failures and safety limits can prevent completion |
+| `laqa=off` | Continuous relaxation of all candidates |
+
+These options control conformer selection, not the subsequent DFT calculation.
+
+<details>
+<summary>Advanced settings: YAML, parallelism and convergence targets</summary>
+
+Optional `job.conformer_config = 'conformer.yaml'` overrides
+[`defaults.yaml`](qcforever/conformer_search/defaults.yaml).
+
+`laqa` is the user-facing option; the actual algorithm defaults to `sh`.
+An explicit percentage overrides the YAML fraction, not its algorithm.
+For example:
+
+```yaml
+relaxation:
+  algorithm: sh                 # sh, sr, or laqa
+  convergence_fraction: 0.20
+  first_interval: 1
+  subsequent_interval: 10
+  parallel_candidates: auto     # Up to nproc; 1 selects sequential execution
+```
+
+Relaxation uses one core per candidate, up to `nproc` concurrent candidates
+within the CPU allocation. CPU model generation uses four cores per worker.
+Gaussian memory is per worker; account for all concurrent workers.
+
+The convergence target is `ceil(fraction * initial_candidates)`, after
+generation/MM/filtering. Its denominator does not shrink after failures.
+Only native convergence counts; final geometry/stereo checks remain separate.
+Selection and stopping occur between complete batches, so costs and converged
+counts can exceed the target. Parallel and sequential searches need not select
+the same final structure.
+
+</details>
+
+<details>
+<summary>Algorithm details, optimizer state and result files</summary>
+
+SH/SR start with 20 evaluations per initial candidate and add another 20 as
+needed, re-admitting unfinished candidates without resetting their progress.
+Within each round, SH retains the best half and SR rejects the worst candidate
+at each completed stage; residual budget goes to unfinished candidates ranked
+by energy. LAQA instead selects the lowest current `E/N - F²/(2ΔF)` scores.
+PM6 uses mean atomic force; xTB uses ANC gradient norm divided by `sqrt(N)`,
+recorded as the approximate `laqa_norm` policy. No future energy enters selection.
+
+PM6 graybox uses Gaussian16 PM6-RFO with checkpoint restart, tight optimization
+and SCF convergence, and cumulative cycle limits 1,11,21,… .
+Both `g16` and `formchk` must be on PATH. `laqa=off` retains the legacy
+Gaussian optimizer; set `relaxation.pm6_optimizer: rfo` for a continuous-RFO
+comparison.
+
+xTB graybox keeps each optimizer process alive using POSIX stop/resume signals;
+it does not restart from coordinates. Defaults remain GFN2-xTB, `normal`,
+accuracy 1.0. Paused processes consume memory. The default 8192 MB pool RSS guard
+is a sampled safeguard, not a scheduler memory reservation. Use scheduler-owned
+jobs and sufficient memory. Live state cannot resume after QCforever exits.
+On Windows, use `laqa=off`.
+
+Results and scalar histories are saved under `conformer_search/electronic/`.
+`audit.json` distinguishes converged, failed, limited and unfinished candidates,
+records actual evaluations and elapsed time, and reports unmet convergence
+targets. Only converged structures proceed to final selection.
+
+</details>
+
+<details>
+<summary>Updating learned generators</summary>
+
+Explicit YAML model settings override registered models. To update an existing
+Torsional Diffusion installation, rerun
+`install-conformer-models --models torsional_diffusion --directory <same-directory>`.
+Setup tests the new private environment before replacing its registration.
+Completed lookup tables are read concurrently; only first-time construction
+requires exclusive access. `model_execution.json` records initialization and
+generation timings. Setup checks basic inference, not validity for every molecule.
+
+</details>
+
+</details>
+
+<details>
+<summary>Python environment, backend checks and a worked example</summary>
+
+#### Python environment
+
+Targets: Linux x86_64 and Apple Silicon macOS (arm64), not Intel Macs.
+Use a Python 3.11 environment; for example, with uv:
 
 ```bash
 uv venv --python 3.11 --seed .venv
 source .venv/bin/activate
 ```
 
-Skip those two commands if this uv environment is already active. The following
-installs native arm64 tools under the working directory without updating an
-existing Anaconda installation or initializing Conda in your shell:
+Skip environment creation if you already have an active Python 3.11 environment.
+Git is needed for the next step.
+
+Python dependencies are installed by pip as specified in [setup.py](setup.py).
+Gaussian, GAMESS and xTB executables must be installed separately.
+To verify the Python installation:
 
 ```bash
-unset PYTHONPATH
-mkdir -p .tools
-curl -fL --output .tools/Miniforge3-MacOSX-arm64.sh \
-  https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh
-bash .tools/Miniforge3-MacOSX-arm64.sh -b -p "$PWD/.tools/miniforge3"
-```
-
-`unset PYTHONPATH` applies only to the current shell; it prevents packages from
-another Python installation from leaking into these environments and does not
-edit your shell configuration files.
-
-Proceed only after the download and installation succeed. If the target already
-exists, do not overwrite it; check whether its `bin/conda` is a working native
-Miniforge installation first. Then install xTB in its own environment:
-
-```bash
-./.tools/miniforge3/bin/conda create --prefix "$PWD/.tools/xtb" \
-  --platform osx-arm64 --override-channels -c conda-forge xtb=6.6.1
-export PATH="$PWD/.venv/bin:$PWD/.tools/xtb/bin:$PATH"
-xtb --version
-python -c "import sys; print(sys.executable)"
-```
-
-Confirm xTB 6.6.1 and the Python executable under `.venv`. Do not activate the
-xTB Conda environment: the explicit PATH above preserves the uv Python as the
-first choice. In each new terminal, return to this working directory, run
-`source .venv/bin/activate`, and repeat the `export PATH` command. Git is also
-needed for the next installation step (`git --version`); on macOS it is included
-with Apple's Command Line Tools. This alternative installation procedure still
-needs end-to-end validation; it is not a completed macOS calculation test.
-
-### 2. Install QCforever from this branch
-
-```bash
-python -m pip install --upgrade "git+https://github.com/molecule-generator-collection/QCforever.git@feature/conformer-search"
 python -m pip check
 python -c "import qcforever; print(qcforever.__file__)"
 ```
 
-The commands above install the published contents of `feature/conformer-search`.
-For a reproducible version, replace the branch name after `@` with a commit SHA.
-An import or `pip check` success checks Python installation, not native
-calculations or learned-model generation.
+#### Gaussian/GAMESS configuration
 
 Install Gaussian/GAMESS separately according to their distribution instructions
 and your license/site configuration. Load the site's module or vendor-provided
@@ -139,60 +254,8 @@ the executable is licensed, configured correctly, or compatible with the host.
 Gaussian/GAMESS scratch directories must be configured and writable according
 to the vendor/site instructions.
 
-### 3. Install optional learned conformer generators
 
-Skip this step for `optconf_low` (ETKDGv3 + MMFF94s).
-For `optconf_medium`, install Torsional Diffusion:
-
-```bash
-install-conformer-models --models torsional_diffusion --device cpu
-```
-
-For `optconf_high`, install both DiTMC and Torsional Diffusion:
-
-```bash
-install-conformer-models --device cpu
-```
-
-DiTMC also needs a C/C++ compiler (`cc` and `c++`). On macOS, install Apple's
-Command Line Tools with `xcode-select --install` if absent. On Linux, use your
-site's compiler module or distribution build tools (for example `build-essential`
-on Ubuntu/Debian); ask the administrator on shared systems. The installer checks
-for Python development headers, supplied by the Conda Python above, and does
-not install system packages itself.
-
-The model installer creates separate Python 3.11 environments, downloads pinned
-official source/weights, and registers each model only after a real ethanol
-generation/reuse test (1 + 1 candidates) passes. Existing Python environments
-are not modified; no per-job YAML is needed. Allow several GB for downloads and
-installed files (the DiTMC archive alone is about 1.9 GB).
-
-- Default installation: `~/.local/share/qcforever/conformers`.
-- Default registration: `~/.config/qcforever/conformer_models.json`.
-- Use `--directory /path/to/new-directory` to choose a different installation
-  location. Do not pre-populate it with copied model files: nonempty unmanaged
-  directories are deliberately refused. XDG data/config settings and
-  `QCFOREVER_MODEL_REGISTRY` can override the default locations.
-- A failed setup exits nonzero and prints its log directory. Correct the reported
-  issue and rerun the same command; verified downloads are reused and previous
-  working registrations are preserved.
-
-Linux x86_64 CPU/CUDA setup has been exercised. The Apple Silicon macOS CPU
-installation route is implemented, but **end-to-end fresh-install and calculation
-validation is still pending**. Intel Macs are outside the supported targets;
-the automatic model installer rejects them because the pinned learned-model
-dependencies do not provide Intel macOS wheels. Windows and Linux ARM
-model installation are not supported by this installer. macOS Metal/MPS
-inference is not enabled.
-
-For Linux NVIDIA GPUs, use `--device gpu` in an appropriate allocation with a
-CUDA-12-compatible driver. Without `--device`, a visible NVIDIA GPU is selected,
-otherwise CPU. On a cluster, run model installation/testing in a compute
-allocation, not on a login node. `--threads` defaults to 4 CPU cores for the
-tests. `install-conformer-models --dry-run --device cpu` displays the download
-plan without installing or testing anything; `--help` lists all options.
-
-### 4. Run an example
+#### Worked example: medium/xTB followed by Gaussian
 
 The example scripts and `Samples` are in the Git repository, not installed as
 commands by pip. Download them into a new working directory:
@@ -234,9 +297,12 @@ with `optconf=pm6` for Gaussian PM6 relaxation. Use separate working directories
 when comparing runs. Model setup tests confirm model availability, not that
 every molecule will succeed; the search's configured fallback routes still apply.
 
-The original example scripts `gaussian_main.py` and `gamess_main.py` are also
-available in `qcforever-examples`. Copy the selected script to your working
-directory and edit its options as needed:
+
+</details>
+
+### Example
+
+Example codes for QCforever (gaussian_main.py and gamess_main.py) are prepared.
 
 For Gaussian
 ```bash
@@ -339,85 +405,6 @@ Following options are currently available:
 |stable| try to find a stable structure when the negative frequency is detected.|:white_check_mark:||
 |optspin| try to find a suitable spin multiplicity.|:white_check_mark:||
 |optconf| try to find a stable molecular conformation with PM6 (Gaussian16).|:white_check_mark:|:white_check_mark:|
-
-### Configurable conformer search (development)
-
-`optconf=xtb` / `optconf=pm6` default to `optconf_low` (ETKDGv3 and MMFF94s).
-Add `optconf_medium` or `optconf_high` for learned-generator fallback routes.
-Optional `job.conformer_config = 'conformer.yaml'` overrides
-[`defaults.yaml`](qcforever/conformer_search/defaults.yaml).
-
-#### Relaxation options
-
-Both backends default to graybox SH, stopping when 20% of the initial relaxation
-pool has converged. This affects conformer selection, not the subsequent DFT job.
-
-| Option (after either `optconf=xtb` or `optconf=pm6`) | Behavior |
-|---|---|
-| Omitted, or `laqa` | 20% convergence target |
-| `laqa=80` | 80% convergence target |
-| `laqa=100` | Target all candidates; failures and safety limits can prevent completion |
-| `laqa=off` | Continuous relaxation of all candidates |
-
-`laqa` is the user-facing option; the actual algorithm defaults to `sh`.
-An explicit percentage overrides the YAML fraction, not its algorithm.
-For example:
-
-```yaml
-relaxation:
-  algorithm: sh                 # sh, sr, or laqa
-  convergence_fraction: 0.20
-  first_interval: 1
-  subsequent_interval: 10
-  parallel_candidates: auto     # Up to nproc; 1 selects sequential execution
-```
-
-Relaxation uses one core per candidate, up to `nproc` concurrent candidates
-within the CPU allocation. CPU model generation uses four cores per worker.
-Gaussian memory is per worker; account for all concurrent workers.
-
-The convergence target is `ceil(fraction * initial_candidates)`, after
-generation/MM/filtering. Its denominator does not shrink after failures.
-Only native convergence counts; final geometry/stereo checks remain separate.
-Selection and stopping occur between complete batches, so costs and converged
-counts can exceed the target. Parallel and sequential searches need not select
-the same final structure.
-
-SH/SR start with 20 evaluations per initial candidate and add another 20 as
-needed, re-admitting unfinished candidates without resetting their progress.
-Within each round, SH retains the best half and SR rejects the worst candidate
-at each completed stage; residual budget goes to unfinished candidates ranked
-by energy. LAQA instead selects the lowest current `E/N - F²/(2ΔF)` scores.
-PM6 uses mean atomic force; xTB uses ANC gradient norm divided by `sqrt(N)`,
-recorded as the approximate `laqa_norm` policy. No future energy enters selection.
-
-PM6 graybox uses Gaussian16 PM6-RFO with checkpoint restart, tight optimization
-and SCF convergence, and cumulative cycle limits 1,11,21,… .
-Both `g16` and `formchk` must be on PATH. `laqa=off` retains the legacy
-Gaussian optimizer; set `relaxation.pm6_optimizer: rfo` for a continuous-RFO
-comparison.
-
-xTB graybox keeps each optimizer process alive using POSIX stop/resume signals;
-it does not restart from coordinates. Defaults remain GFN2-xTB, `normal`,
-accuracy 1.0. Paused processes consume memory. The default 8192 MB pool RSS guard
-is a sampled safeguard, not a scheduler memory reservation. Use scheduler-owned
-jobs and sufficient memory. Live state cannot resume after QCforever exits.
-On Windows, use `laqa=off`.
-
-Results and scalar histories are saved under `conformer_search/electronic/`.
-`audit.json` distinguishes converged, failed, limited and unfinished candidates,
-records actual evaluations and elapsed time, and reports unmet convergence
-targets. Only converged structures proceed to final selection.
-
-#### Updating learned generators
-
-Explicit YAML model settings override registered models. To update an existing
-Torsional Diffusion installation, rerun
-`install-conformer-models --models torsional_diffusion --directory <same-directory>`.
-Setup tests the new private environment before replacing its registration.
-Completed lookup tables are read concurrently; only first-time construction
-requires exclusive access. `model_execution.json` records initialization and
-generation timings. Setup checks basic inference, not validity for every molecule.
 
 ## License
 

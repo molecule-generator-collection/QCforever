@@ -173,6 +173,10 @@ def test_torch_package_source_for_platform(system, tmp_path, monkeypatch):
 
     monkeypatch.setattr(install, 'run', run)
     install.install_environment('torsional_diffusion', 'cpu', sys.executable, tmp_path, None)
+    pip_commands = [command for command in commands if command[1:5] == ['-m', 'pip', '--isolated', 'install']]
+    assert len(pip_commands) == 3
+    for command in pip_commands:
+        assert command[5:7] == ['--timeout', '120']
     torch_command = next(command for command in commands if 'torch==2.6.0' in command)
     if system == 'darwin':
         assert '--index-url' not in torch_command

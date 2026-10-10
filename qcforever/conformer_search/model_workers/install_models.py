@@ -194,7 +194,8 @@ def install_environment(model, device, python, root, log):
         write_json(marker, {'model': model, 'device': device, 'recipe_sha256': digest(recipe)})
     if not (folder/'bin/python').exists():
         run([python, '-m', 'venv', folder], log)
-    pip = [executable, '-m', 'pip', '--isolated', 'install']
+    # Large scientific wheels may stall beyond pip's default 15-second timeout.
+    pip = [executable, '-m', 'pip', '--isolated', 'install', '--timeout', '120']
     if model == 'torsional_diffusion':
         backend = 'cu124' if device == 'gpu' else 'cpu'
         # macOS wheels are published on PyPI, not the Linux CPU/CUDA index.
