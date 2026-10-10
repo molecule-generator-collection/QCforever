@@ -134,3 +134,49 @@ def test_model_dispatch_after_module_rename(name, monkeypatch, tmp_path):
     monkeypatch.setattr(torsional_diffusion, 'initialize_model', lambda *a: model)
     args = SimpleNamespace(model=name, cache=tmp_path, source=tmp_path, checkpoint=tmp_path)
     assert run_model.initialize_model(args, {'threads': 1}) is model
+
+
+@pytest.mark.parametrize('system,machine', [('linux', 'x86_64'), ('darwin', 'arm64')])
+def test_supported_model_platforms(system, machine, monkeypatch):
+    monkeypatch.setattr(install.sys, 'platform', system)
+    monkeypatch.setattr(install.platform, 'machine', lambda: machine)
+    monkeypatch.setattr(install.subprocess, 'check_output', lambda *a, **k: '3.11\n')
+    monkeypatch.setattr(install.subprocess, 'run', lambda *a, **k: None)
+    install.check_platform(sys.executable, ['torsional_diffusion'], 'cpu')
+
+
+def test_mac_cuda_fails_before_installation(monkeypatch):
+    monkeypatch.setattr(install.sys, 'platform', 'darwin')
+    monkeypatch.setattr(install.platform, 'machine', lambda: 'arm64')
+    with pytest.raises(RuntimeError, match='CPU only'):
+        install.check_platform(sys.executable, ['torsional_diffusion'], 'gpu')
+
+
+def test_intel_mac_models_fail_before_installation(monkeypatch):
+    monkeypatch.setattr(install.sys, 'platform', 'darwin')
+    monkeypatch.setattr(install.platform, 'machine', lambda: 'x86_64')
+    with pytest.raises(RuntimeError, match='Intel macOS wheels'):
+        install.check_platform(sys.executable, ['torsional_diffusion'], 'cpu')
+
+
+@pytest.mark.parametrize('system', ['linux', 'darwin'])
+def test_torch_package_source_for_platform(system, tmp_path, monkeypatch):
+    """Inspect installation commands without invoking pip or model inference."""
+    monkeypatch.setattr(install.sys, 'platform', system)
+    monkeypatch.setattr(install.platform, 'machine', lambda: 'arm64' if system == 'darwin' else 'x86_64')
+    commands = []
+
+    def run(argv, log, *, capture=False):
+        commands.append(list(map(str, argv)))
+        if capture:
+            return str(tmp_path/'site') if 'sysconfig' in str(argv) else ''
+
+    monkeypatch.setattr(install, 'run', run)
+    install.install_environment('torsional_diffusion', 'cpu', sys.executable, tmp_path, None)
+    torch_command = next(command for command in commands if 'torch==2.6.0' in command)
+    if system == 'darwin':
+        assert '--index-url' not in torch_command
+    else:
+        assert torch_command[-2:] == ['--index-url', 'https://download.pytorch.org/whl/cpu']
+    pyg_command = next(command for command in commands if 'torch-scatter==2.1.2' in command)
+    assert '--only-binary=:all:' in pyg_command

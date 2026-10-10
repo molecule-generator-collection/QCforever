@@ -13,47 +13,230 @@ Grey-box optimisation (LAQA (https://doi.org/10.1021/acs.jctc.1c00301)) can also
 
 ## Requirements
 
-1. [Gaussian](https://gaussian.com)==16
-2. [GAMESS(sockets)](https://www.msg.chem.iastate.edu/gamess/)==30 SEP 2022 (R2)
-3. [Python](https://www.anaconda.com/download/)==3.11
-4. [rdkit-pypi](https://anaconda.org/rdkit/rdkit)==2023.09.1
-5. [bayesian-optimization](https://github.com/bayesian-optimization/BayesianOptimization)==1.4.3
-6. [psutil](https://github.com/giampaolo/psutil)
-7. [basis-set-exchange](https://pypi.org/project/basis-set-exchange/)=0.12
+Use Python 3.11 for the installation below, including optional learned models.
+`pip` installs QCforever's Python dependencies (RDKit, NumPy, PyYAML,
+bayesian-optimization, psutil and basis-set-exchange); the dependency versions
+are defined in [setup.py](setup.py).
 
-## Optional
+Quantum-chemistry executables are separate installations:
 
-1. [xtb](https://github.com/grimme-lab/xtb/tree/v6.6.1)==6.6.1
+| Calculation | Required executable(s) |
+|---|---|
+| Gaussian properties and DFT | [Gaussian 16](https://gaussian.com): `g16`, `formchk` |
+| GAMESS properties and DFT | [GAMESS](https://www.msg.chem.iastate.edu/gamess/), sockets version 30 SEP 2022 (R2): `rungms` |
+| `optconf=pm6` conformer relaxation, including from the GAMESS workflow | Gaussian 16: `g16`, `formchk` |
+| `optconf=xtb` conformer relaxation | [xTB 6.6.1](https://github.com/grimme-lab/xtb/tree/v6.6.1): `xtb` |
+
+Install the backends you use, not necessarily both Gaussian and GAMESS.
+Selecting xTB for conformer relaxation does **not** replace Gaussian/GAMESS for
+the subsequent property calculation. `pip install QCforever` does not install
+any of these executables or supply a Gaussian license.
 
 ## How to use
 
-### Install
+### 1. Create an environment and install xTB (Linux/macOS)
+
+The installation targets for this branch are Linux x86_64 and Apple Silicon
+macOS (arm64). Intel Macs are outside the support and validation scope.
+
+Install [Miniforge](https://github.com/conda-forge/miniforge#install) for your
+operating system and CPU architecture, following its installer instructions.
+Open a new terminal after shell initialization. On Apple Silicon, use the
+native arm64 installer and terminal, not an Intel/Rosetta Python environment.
+An existing working Conda installation can also be used.
+
+Create a dedicated environment; no administrator privileges are needed for
+the following commands:
 
 ```bash
-pip install --upgrade git+https://github.com/molecule-generator-collection/QCforever.git@feature/conformer-search
+conda create -n qcforever --override-channels -c conda-forge python=3.11 pip git xtb=6.6.1
+conda activate qcforever
+python --version
+xtb --version
 ```
 
-### Install (optional for detailed conformation search)
+Confirm Python 3.11 and xTB 6.6.1 before continuing. This installs the actual
+xTB executable and its native libraries, not a Python wrapper. See also the
+[official xTB installation guide](https://xtb-docs.readthedocs.io/en/latest/setup.html).
+If you will only use PM6, omit `xtb=6.6.1` and the `xtb --version` check.
+Activate this environment in each new terminal or batch job before using
+QCforever.
 
-To enable DiTMC and Torsional Diffusion for `optconf_medium` and `optconf_high`:
+#### Alternative: keep a uv Python environment (Apple Silicon macOS)
+
+If you prefer uv, keep Python in `.venv` and use a separate Miniforge installation
+only to install xTB. Do not also create the Conda Python environment above.
+Start in your chosen working directory (not the QCforever source checkout):
 
 ```bash
-install-conformer-models
+uv venv --python 3.11 --seed .venv
+source .venv/bin/activate
 ```
 
-Requires Linux x86_64, Python 3.11 and a C/C++ compiler. This command creates
-separate model environments, downloads the official source/weights, and registers
-each model only after an ethanol generation/reuse test passes. No per-job YAML
-is needed. Existing Python environments are not changed. The first setup needs
-several GB of downloads/disk space (the DiTMC archive alone is about 1.9 GB).
-Setup uses a visible NVIDIA GPU when available, otherwise CPU; use `--device cpu`
-or `--device gpu` to choose explicitly. On a cluster, run the generation tests
-inside an appropriate CPU/GPU allocation, not on a login node.
-Run `install-conformer-models --help` for setup options.
+Skip those two commands if this uv environment is already active. The following
+installs native arm64 tools under the working directory without updating an
+existing Anaconda installation or initializing Conda in your shell:
 
-### Example
+```bash
+unset PYTHONPATH
+mkdir -p .tools
+curl -fL --output .tools/Miniforge3-MacOSX-arm64.sh \
+  https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-arm64.sh
+bash .tools/Miniforge3-MacOSX-arm64.sh -b -p "$PWD/.tools/miniforge3"
+```
 
-Example codes for QCforever (gaussian_main.py and gamess_main.py) are prepared.
+`unset PYTHONPATH` applies only to the current shell; it prevents packages from
+another Python installation from leaking into these environments and does not
+edit your shell configuration files.
+
+Proceed only after the download and installation succeed. If the target already
+exists, do not overwrite it; check whether its `bin/conda` is a working native
+Miniforge installation first. Then install xTB in its own environment:
+
+```bash
+./.tools/miniforge3/bin/conda create --prefix "$PWD/.tools/xtb" \
+  --platform osx-arm64 --override-channels -c conda-forge xtb=6.6.1
+export PATH="$PWD/.venv/bin:$PWD/.tools/xtb/bin:$PATH"
+xtb --version
+python -c "import sys; print(sys.executable)"
+```
+
+Confirm xTB 6.6.1 and the Python executable under `.venv`. Do not activate the
+xTB Conda environment: the explicit PATH above preserves the uv Python as the
+first choice. In each new terminal, return to this working directory, run
+`source .venv/bin/activate`, and repeat the `export PATH` command. Git is also
+needed for the next installation step (`git --version`); on macOS it is included
+with Apple's Command Line Tools. This alternative installation procedure still
+needs end-to-end validation; it is not a completed macOS calculation test.
+
+### 2. Install QCforever from this branch
+
+```bash
+python -m pip install --upgrade "git+https://github.com/molecule-generator-collection/QCforever.git@feature/conformer-search"
+python -m pip check
+python -c "import qcforever; print(qcforever.__file__)"
+```
+
+The commands above install the published contents of `feature/conformer-search`.
+For a reproducible version, replace the branch name after `@` with a commit SHA.
+An import or `pip check` success checks Python installation, not native
+calculations or learned-model generation.
+
+Install Gaussian/GAMESS separately according to their distribution instructions
+and your license/site configuration. Load the site's module or vendor-provided
+environment before running QCforever. Check the executables for your backend:
+
+```bash
+# Gaussian workflows and/or PM6 conformer relaxation:
+command -v g16
+command -v formchk
+# GAMESS workflows:
+command -v rungms
+```
+
+These commands must return paths. A path check alone does not establish that
+the executable is licensed, configured correctly, or compatible with the host.
+Gaussian/GAMESS scratch directories must be configured and writable according
+to the vendor/site instructions.
+
+### 3. Install optional learned conformer generators
+
+Skip this step for `optconf_low` (ETKDGv3 + MMFF94s).
+For `optconf_medium`, install Torsional Diffusion:
+
+```bash
+install-conformer-models --models torsional_diffusion --device cpu
+```
+
+For `optconf_high`, install both DiTMC and Torsional Diffusion:
+
+```bash
+install-conformer-models --device cpu
+```
+
+DiTMC also needs a C/C++ compiler (`cc` and `c++`). On macOS, install Apple's
+Command Line Tools with `xcode-select --install` if absent. On Linux, use your
+site's compiler module or distribution build tools (for example `build-essential`
+on Ubuntu/Debian); ask the administrator on shared systems. The installer checks
+for Python development headers, supplied by the Conda Python above, and does
+not install system packages itself.
+
+The model installer creates separate Python 3.11 environments, downloads pinned
+official source/weights, and registers each model only after a real ethanol
+generation/reuse test (1 + 1 candidates) passes. Existing Python environments
+are not modified; no per-job YAML is needed. Allow several GB for downloads and
+installed files (the DiTMC archive alone is about 1.9 GB).
+
+- Default installation: `~/.local/share/qcforever/conformers`.
+- Default registration: `~/.config/qcforever/conformer_models.json`.
+- Use `--directory /path/to/new-directory` to choose a different installation
+  location. Do not pre-populate it with copied model files: nonempty unmanaged
+  directories are deliberately refused. XDG data/config settings and
+  `QCFOREVER_MODEL_REGISTRY` can override the default locations.
+- A failed setup exits nonzero and prints its log directory. Correct the reported
+  issue and rerun the same command; verified downloads are reused and previous
+  working registrations are preserved.
+
+Linux x86_64 CPU/CUDA setup has been exercised. The Apple Silicon macOS CPU
+installation route is implemented, but **end-to-end fresh-install and calculation
+validation is still pending**. Intel Macs are outside the supported targets;
+the automatic model installer rejects them because the pinned learned-model
+dependencies do not provide Intel macOS wheels. Windows and Linux ARM
+model installation are not supported by this installer. macOS Metal/MPS
+inference is not enabled.
+
+For Linux NVIDIA GPUs, use `--device gpu` in an appropriate allocation with a
+CUDA-12-compatible driver. Without `--device`, a visible NVIDIA GPU is selected,
+otherwise CPU. On a cluster, run model installation/testing in a compute
+allocation, not on a login node. `--threads` defaults to 4 CPU cores for the
+tests. `install-conformer-models --dry-run --device cpu` displays the download
+plan without installing or testing anything; `--help` lists all options.
+
+### 4. Run an example
+
+The example scripts and `Samples` are in the Git repository, not installed as
+commands by pip. Download them into a new working directory:
+
+```bash
+git clone --branch feature/conformer-search --single-branch https://github.com/molecule-generator-collection/QCforever.git qcforever-examples
+mkdir qcforever-example-run
+cp qcforever-examples/Samples/ethanol.sdf qcforever-example-run/
+cd qcforever-example-run
+python -c "import qcforever; print(qcforever.__file__)"
+```
+
+The import path should point into the active environment's `site-packages`,
+not the cloned repository. Running outside the source checkout avoids masking
+installation problems with local source files. Do not add the clone to
+`PYTHONPATH` for this check.
+
+For a small medium/xTB example, save the following as `run_medium_xtb.py` in
+that directory and run `python run_medium_xtb.py` with the `qcforever`
+environment active and Gaussian configured:
+
+```python
+from qcforever.gaussian_run import GaussianRunPack
+
+job = GaussianRunPack.GaussianDFTRun(
+    'B3LYP', 'STO-3G', 4,
+    'optconf=xtb optconf_medium energy',
+    'ethanol.sdf',
+)
+result = job.run_gaussian()
+print(result)
+```
+
+This requests medium conformer generation, GFN2-xTB relaxation (default SH
+20% convergence target), then a Gaussian B3LYP/STO-3G single-point energy.
+It is **not** an xTB-only calculation. Replace `optconf_medium` with
+`optconf_low` or `optconf_high` to select the other profiles, and `optconf=xtb`
+with `optconf=pm6` for Gaussian PM6 relaxation. Use separate working directories
+when comparing runs. Model setup tests confirm model availability, not that
+every molecule will succeed; the search's configured fallback routes still apply.
+
+The original example scripts `gaussian_main.py` and `gamess_main.py` are also
+available in `qcforever-examples`. Copy the selected script to your working
+directory and edit its options as needed:
 
 For Gaussian
 ```bash

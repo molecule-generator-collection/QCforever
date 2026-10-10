@@ -52,7 +52,7 @@ def main(argv=None):
         python = shutil.which(args.python)
         if not python:
             raise RuntimeError(f'Python executable not found: {args.python}')
-        check_platform(python, args.models)
+        check_platform(python, args.models, device)
         read_registry()  # Report malformed registration before expensive installation.
         with setup_lock(args.directory):
             run_root = args.directory/'logs'/f'{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}'
@@ -68,7 +68,7 @@ def main(argv=None):
             if failures:
                 print('Setup incomplete. Fix the reported issue and rerun the same command; verified downloads are reused.', file=sys.stderr)
                 return 1
-        print('Setup complete. Use optconf_medium / optconf_high; no per-job YAML is required.')
+        print('Setup complete for: '+', '.join(args.models)+'. No per-job YAML is required.')
         return 0
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         print(f'Setup failed: {exc}', file=sys.stderr)
@@ -178,7 +178,8 @@ def install_environment(model, device, python, root, log):
     recipe = PACKAGE/'requirements'/('ditmc-cpu.txt' if model == 'ditmc' else 'torsional-cpu.txt')
     # A changed adapter gets a new environment. Never overwrite a registered
     # working installation during an update that may subsequently fail.
-    content = recipe.read_bytes()+b''.join(p.read_bytes() for p in sorted(PACKAGE.glob('*.py')))
+    content = (f'{sys.platform}-{platform.machine()}'.encode() + recipe.read_bytes()
+               + b''.join(p.read_bytes() for p in sorted(PACKAGE.glob('*.py'))))
     fingerprint = hashlib.sha256(content).hexdigest()[:12]
     folder = root/'envs'/f'{model}-{device}-{fingerprint}'
     marker = folder/'.qcforever-environment.json'
@@ -196,7 +197,11 @@ def install_environment(model, device, python, root, log):
     pip = [executable, '-m', 'pip', '--isolated', 'install']
     if model == 'torsional_diffusion':
         backend = 'cu124' if device == 'gpu' else 'cpu'
-        run(pip+['torch==2.6.0', '--index-url', f'https://download.pytorch.org/whl/{backend}'], log)
+        # macOS wheels are published on PyPI, not the Linux CPU/CUDA index.
+        torch_index = []
+        if sys.platform != 'darwin':
+            torch_index = ['--index-url', f'https://download.pytorch.org/whl/{backend}']
+        run(pip+['torch==2.6.0']+torch_index, log)
         run(pip+['torch-scatter==2.1.2', 'torch-cluster==1.6.3', '--only-binary=:all:',
                  '-f', f'https://data.pyg.org/whl/torch-2.6.0+{backend}.html'], log)
     extra = (['jax-cuda12-plugin[with_cuda]==0.5.1', 'jax-cuda12-pjrt==0.5.1']
@@ -223,9 +228,18 @@ def worker_options(model, python, source, checkpoint, cache):
         '--request', '{request}', '--output', '{output}']}
 
 
-def check_platform(python, models):
-    if sys.platform != 'linux' or platform.machine() != 'x86_64':
-        raise RuntimeError('Automatic model setup currently supports Linux x86_64 only')
+def check_platform(python, models, device='cpu'):
+    supported = (sys.platform == 'linux' and platform.machine() == 'x86_64'
+                 or sys.platform == 'darwin' and platform.machine() == 'arm64')
+    if not supported:
+        raise RuntimeError('Model setup supports Linux x86_64 and Apple Silicon macOS. '
+                           'The pinned PyTorch/JAX versions do not provide Intel macOS wheels.')
+    if sys.platform == 'darwin' and device == 'gpu':
+        raise RuntimeError('macOS model inference currently supports CPU only; use --device cpu. '
+                           'CUDA is unavailable and Metal inference is not validated.')
+    if sys.platform == 'darwin':
+        print('Apple Silicon CPU setup: end-to-end validation is pending. '
+              'Models are registered only if the local generation tests pass.', flush=True)
     version = subprocess.check_output([python, '-c', 'import sys; print("%d.%d" % sys.version_info[:2])'], text=True).strip()
     if version != '3.11':
         raise RuntimeError('Model environments require Python 3.11; supply --python /path/to/python3.11')
