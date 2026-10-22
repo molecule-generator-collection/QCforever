@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import subprocess
 import time
 from unittest.mock import patch
 
@@ -14,6 +15,7 @@ from qcforever.conformer_search.generate_conformers import prepare_candidates
 from qcforever.conformer_search.optimize_conformers import (
     native_thread_environment, optimize_with_pm6, optimize_candidates, _initialize_native_worker,
 )
+from qcforever.conformer_search.run_pm6 import PM6Candidate
 
 
 def test_native_worker_affinity(monkeypatch):
@@ -34,32 +36,39 @@ def _copies(reference, count, *args):
 
 
 def _pm6_adapter(mol, folder, charge, multiplicity, cores, memory, settings):
-    """Exercise the real PM6 input/environment adapter inside spawned workers."""
-    from qcforever.laqa_fafoom.pyg16 import g16Object
+    """Exercise continuous RFO input, parsing, and isolation in spawned workers."""
     before_cwd, before_env = Path.cwd(), dict(os.environ)
     index = int(folder.name.split('_')[-1])
+    assert cores == 1 and settings['pm6_optimizer'] == 'rfo'
 
-    def run(obj):
-        assert Path.cwd() == folder
-        text = Path('Gau_molecule.com').read_text()
-        assert cores == 1
+    def run(command, cwd, env, **kwargs):
+        assert Path.cwd() == before_cwd
+        text = (cwd / 'input.com').read_text()
         assert '%nprocshared=1' in text and '%mem=1GB' in text
-        assert all(os.environ[k] == v for k, v in native_thread_environment(1).items())
+        assert 'PM6 NoSymm SCF=(Tight,MaxCycle=512)' in text
+        assert 'Opt=(RFO,Tight,MaxCycles=1000)' in text and 'Restart' not in text
+        assert all(env[key] == value for key, value in native_thread_environment(1).items())
+        assert env['GAUSS_SCRDIR'] == str(cwd / 'scratch')
         start = time.monotonic()
         time.sleep(0.4 + (index % 3) * 0.1)
-        Path('interval.json').write_text(json.dumps({
+        (folder / 'interval.json').write_text(json.dumps({
             'start': start, 'end': time.monotonic(), 'pid': os.getpid()}))
         if index == 1:
-            Path('Gau_molecule.log').write_text('SCF failed\n')
-            raise RuntimeError('synthetic SCF failure')
-        obj.energy = -10 - index
-        obj.sdf_string_opt = obj.sdf_string
-        Path('Gau_molecule.log').write_text(
-            f'SCF Done: E(PM6) = {obj.energy}.0 A.U.\n'
-            'Stationary point found\nNormal termination of Gaussian\n')
+            log = 'SCF has not converged\nError termination\n'
+        else:
+            log = f'SCF Done: E(RPM6) = {-10.0-index} A.U. after 3 cycles\n'
+            log += ' Forces (Hartrees/Bohr)\n Center Atomic Forces\n Number Number X Y Z\n'
+            log += ''.join(f'{i+1} {atom.GetAtomicNum()} 0.0 0.0 0.0\n'
+                           for i, atom in enumerate(mol.GetAtoms()))
+            log += ' ----\nStationary point found\nNormal termination of Gaussian\n'
+        (cwd / 'input.log').write_text(log)
+        return subprocess.CompletedProcess(command, 1 if index == 1 else 0)
 
     try:
-        with patch('shutil.which', return_value='/fake/g16'), patch.object(g16Object, 'run_g16', run):
+        with patch('shutil.which', side_effect=lambda name: '/fake/' + name), \
+             patch('qcforever.conformer_search.run_pm6.job_timeout.run', side_effect=run), \
+             patch.object(PM6Candidate, '_read_final_coordinates',
+                          lambda candidate, call: candidate.mol.GetConformer().GetPositions()):
             return optimize_with_pm6(mol, folder, charge, multiplicity, cores, memory, settings)
     finally:
         assert Path.cwd() == before_cwd
@@ -86,6 +95,10 @@ def test_pm6_parallel_isolation_order_and_failure(tmp_path, monkeypatch, nproc):
     assert [r['prepared_index'] for r in audit['candidate_runs']] == list(range(10))
     progress = json.loads((tmp_path/'run/electronic/progress.json').read_text())
     assert progress == audit['candidate_runs']
+    blocks = [json.loads(path.read_text()) for path in (tmp_path/'run/electronic').glob('*/call_*/result.json')]
+    assert len(blocks) == 10
+    assert sum(block['evaluations'] for block in blocks) == 9
+    assert sum(block['scf_cycles'] for block in blocks) == 27
     intervals = [json.loads(p.read_text()) for p in (tmp_path/'run/electronic').glob('*/interval.json')]
     events = sorted([(r['start'], 1) for r in intervals] + [(r['end'], -1) for r in intervals])
     active = maximum = 0

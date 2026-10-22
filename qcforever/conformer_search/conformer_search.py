@@ -4,12 +4,15 @@ Start with configured_confopt. The detailed generation and optimization records
 remain under conformer_search; optimized_structures.sdf is the QCforever handoff.
 """
 import json
+import shutil
+from contextlib import chdir
 from dataclasses import replace
 from pathlib import Path
 
 from .settings import SearchConfig, resolve_relaxation
 from .generate_conformers import prepare_candidates
 from .optimize_conformers import optimize_candidates
+from .run_pm6 import remove_pm6_checkpoints
 from .structure_file_io import read_input_structure
 from .calculation_logs import write_json
 
@@ -24,14 +27,61 @@ def configured_confopt(infilename, charge, multiplicity, method, nproc, memory, 
         config = SearchConfig.load(config) if isinstance(config, (str, Path)) else SearchConfig.from_mapping(config)
     if method not in ('xtb', 'pm6'):
         raise ValueError('optconf backend must be xtb or pm6')
+    if config.profile == 'legacy':
+        return _run_legacy_confopt(infilename, charge, multiplicity, method, nproc, memory)
     config = replace(config, relaxation=resolve_relaxation(config.relaxation, method))
     reference = read_input_structure(infilename, charge)
     root = Path.cwd()/'conformer_search'
     prepared = prepare_candidates(reference, root, config, allocated_cores=nproc)
     if prepared.initial_sdf is None:
         raise RuntimeError(f'Conformer preparation stopped: {prepared.state}; see {prepared.status_path}')
-    audit = optimize_candidates(prepared, reference, config, charge, multiplicity, method, nproc, memory)
-    return _save_search_summary(root, prepared, config, method, audit)
+    # Preparation created a fresh run directory. An existing run is rejected
+    # before this point, so cleanup cannot remove an earlier run's checkpoints.
+    try:
+        audit = optimize_candidates(prepared, reference, config, charge, multiplicity, method, nproc, memory)
+        return _save_search_summary(root, prepared, config, method, audit)
+    finally:
+        # Both execution modes have joined their workers before returning or
+        # raising. Paused candidates no longer need their restart files here.
+        if method == 'pm6':
+            remove_pm6_checkpoints(root / 'electronic')
+
+
+def _run_legacy_confopt(infilename, charge, multiplicity, method, nproc, memory):
+    """Run the original FAFOOM generation and LAQA relaxation unchanged.
+
+    Legacy initialization appends to its SDF, so require a fresh working
+    directory. Only its newly produced result may become the DFT handoff.
+    The Gaussian/GAMESS caller performs the usual read_selected_structure
+    check; modern candidate filtering and convergence quotas do not apply.
+    """
+    from qcforever.laqa_fafoom.laqa_confopt_QCforever import LAQA_confopt_main
+
+    source = Path(infilename).resolve()
+    root = Path.cwd() / 'conformer_search'
+    legacy_directory = root / 'legacy'
+    legacy_directory.mkdir(parents=True, exist_ok=False)
+    summary = {
+        'state': 'succeeded', 'profile': 'legacy', 'backend': method,
+        'relaxation_implementation': 'legacy',
+        'relaxation_algorithm': 'legacy_laqa',
+        'structure_check_state': 'not_run_legacy',
+        'details_directory': 'conformer_search',
+        'legacy_directory': 'conformer_search/legacy',
+    }
+    try:
+        with chdir(legacy_directory):
+            LAQA_confopt_main(str(source), charge, multiplicity, method, nproc, memory)
+        optimized = legacy_directory / 'optimized_structures.sdf'
+        if not optimized.is_file() or optimized.stat().st_size == 0:
+            raise RuntimeError('Legacy FAFOOM/LAQA did not produce an optimized structure')
+        shutil.copyfile(optimized, root.parent / 'optimized_structures.sdf')
+    except Exception as exc:
+        summary.update(state='failed', error=f'{type(exc).__name__}: {exc}')
+        write_json(root / 'summary.json', summary)
+        raise
+    write_json(root / 'summary.json', summary)
+    return summary
 
 
 def _save_search_summary(root, prepared, config, method, audit):
@@ -76,11 +126,18 @@ def _save_search_summary(root, prepared, config, method, audit):
                                       'requested_raw': s['requested_raw'], 'returned_raw': s['returned_raw']}
                                      for s in status['stages']]}
     write_json(root/'summary.json', summary)
+    if summary['structure_check_warning']:
+        print('WARNING: Conformer search selected a structure with '
+              f"{summary['structure_check_warning']}. It will still be used for the subsequent calculation. "
+              f"Check {root/'electronic/audit.json'} before interpreting the result.")
+    if summary['search_warning']:
+        print('WARNING: Conformer search did not reach its convergence target. '
+              f"A converged candidate was selected; see {root/'summary.json'}.")
     return summary
 
 
 def read_selected_structure(summary):
-    """Gaussian handoff: distinguish a successful search from failed readback.
+    """QC handoff: distinguish a successful search from failed readback.
 
     Mutate the returned summary so the caller's optconf flag and detailed
     status agree. Never use an old optimized_structures.sdf after search failure.

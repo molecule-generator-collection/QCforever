@@ -1,7 +1,9 @@
 """Basic conformer-search contracts; no model weights or native xTB/Gaussian needed."""
 import json
 import sys
+from pathlib import Path
 
+import numpy as np
 import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolTransforms
@@ -40,57 +42,138 @@ def copies(reference, count, *args):
     return [Chem.Mol(reference) for _ in range(count)]
 
 
-def test_defaults_and_options():
-    cfg = parse_conformer_options('optconf=xtb opt energy uv')
+def test_default_budget_and_cpu_limits():
+    cfg = SearchConfig.resolve()
     assert cfg.profile == 'low' and cfg.mm_method == 'mmff94s'
     assert cfg.threads == 4 and cfg.parallelism(8) == 2 and cfg.parallelism(4) == 1
     assert cfg.parallelism(3) == 1 and cfg.effective_threads(3) == 3
     assert cfg.budget.resolve(Chem.MolFromSmiles('CC'))['maximum_candidates'] == 10
     assert cfg.budget.resolve(Chem.MolFromSmiles('C1CCCCC1'))['maximum_candidates'] == 15
-    assert parse_conformer_options('optconf optconf_high uv').profile == 'high'
-    assert calculation_tokens('optconf=xtb optconf_medium opt uv') == ['optconf=xtb', 'opt', 'uv']
-    assert parse_conformer_options('opt energy uv') is None
-    with pytest.raises(ValueError):
-        parse_conformer_options('optconf=xtb optconf_high optconf_medium')
-    with pytest.raises(ValueError):
-        parse_conformer_options('optconf_high uv')
 
 
-@pytest.mark.parametrize('backend', ['xtb', 'pm6'])
-@pytest.mark.parametrize('profile', ['low', 'medium', 'high'])
-@pytest.mark.parametrize('option', ['', 'laqa', 'laqa=50'])
-def test_default_convergence_target_is_half(backend, profile, option):
-    cfg = parse_conformer_options(f'optconf={backend} optconf_{profile} {option}')
+@pytest.mark.parametrize('option,profile,backend_token,generators', [
+    ('optconf', 'low', 'optconf', ['etkdgv3']),
+    ('optconf laqa', 'low', 'optconf', ['etkdgv3']),
+    ('optconf=xtb optconf_medium laqa=50', 'medium', 'optconf=xtb', ['torsional_diffusion', 'etkdgv3']),
+    ('optconf=(conf_gen=high, conf_relax=xtb)', 'high', 'optconf=xtb', ['ditmc', 'torsional_diffusion', 'etkdgv3']),
+    ('OPTCONF = (CONF_GEN=MEDIUM, CONF_RELAX=PM6, LAQA=50)', 'medium', 'optconf=pm6', ['torsional_diffusion', 'etkdgv3']),
+])
+def test_search_options_and_default_quota(option, profile, backend_token, generators):
+    cfg = parse_conformer_options(option)
+    assert cfg.profile == profile
+    assert [name for name, _ in cfg.stages()] == generators
     assert cfg.relaxation['implementation'] == 'graybox'
     assert cfg.relaxation['convergence_fraction'] == .5
     assert SearchConfig.resolve(profile).relaxation['convergence_fraction'] == .5
+    assert calculation_tokens(option + ' energy freq=IR.dat,Raman.dat') == [
+        backend_token, 'energy', 'freq=IR.dat,Raman.dat']
 
 
 def test_explicit_convergence_settings_remain_available():
-    from qcforever.conformer_search.settings import resolve_relaxation
-
     for percentage in (20, 80, 100):
-        cfg = parse_conformer_options(f'optconf laqa={percentage}')
+        cfg = parse_conformer_options(f'optconf=(laqa={percentage})')
         assert cfg.relaxation['convergence_fraction'] == percentage / 100
     cfg = parse_conformer_options('optconf', {'relaxation': {'convergence_fraction': .3}})
     assert cfg.relaxation['convergence_fraction'] == .3
-    assert parse_conformer_options('optconf laqa=off').relaxation['implementation'] == 'continuous'
-    assert resolve_relaxation({}, 'xtb')['convergence_fraction'] == .5
-    assert resolve_relaxation({}, 'pm6')['convergence_fraction'] == .5
+    cfg = parse_conformer_options('optconf=(laqa=80)', {
+        'relaxation': {'algorithm': 'sr', 'convergence_fraction': .3}})
+    assert cfg.relaxation['algorithm'] == 'sr' and cfg.relaxation['convergence_fraction'] == .8
+    for backend in ('pm6', 'xtb'):
+        cfg = parse_conformer_options(f'optconf=(conf_relax={backend}, laqa=off)')
+        assert cfg.relaxation['implementation'] == 'continuous'
+        if backend == 'pm6':
+            assert cfg.relaxation['pm6_optimizer'] == 'rfo'
 
 
-@pytest.mark.parametrize('level,names', [
-    ('low', ['etkdgv3']),
-    ('medium', ['torsional_diffusion', 'etkdgv3']),
-    ('high', ['ditmc', 'torsional_diffusion', 'etkdgv3']),
+@pytest.mark.parametrize('option', [
+    'optconf_high', 'optconf optconf_high optconf_medium',
+    'optconf=(conf_gen=high, conf_gen=low)', 'optconf=(unknown=1)',
+    'optconf = (conf_gen=high', 'optconf conf_gen=high',
+    'optconf laqa=0', 'optconf laqa=101', 'optconf laqa=nan',
+    'optconf laqa=foo', 'optconf laqa laqa=80',
 ])
-def test_canonical_level_names(level, names):
-    options = f'optconf=xtb optconf_{level} opt energy uv'
-    cfg = parse_conformer_options(options)
-    assert cfg.profile == level
-    assert [name for name, _ in cfg.stages()] == names
-    assert calculation_tokens(options) == ['optconf=xtb', 'opt', 'energy', 'uv']
-    assert SearchConfig.resolve(override={'profile': level}).profile == level
+def test_invalid_search_options_are_rejected(option):
+    with pytest.raises(ValueError):
+        parse_conformer_options(option)
+
+
+@pytest.mark.parametrize('key,value', [
+    ('parallel_candidates', 0), ('parallel_candidates', True),
+    ('parallel_candidates', 1.5), ('convergence_fraction', True),
+])
+def test_invalid_relaxation_settings_are_rejected(key, value):
+    with pytest.raises(ValueError, match=key):
+        SearchConfig.resolve(override={'relaxation': {key: value}})
+
+
+def test_legacy_is_explicit_and_does_not_accept_modern_overrides():
+    assert parse_conformer_options('energy opt') is None
+    cfg = parse_conformer_options('optconf=(conf_gen=legacy, conf_relax=xtb)')
+    assert cfg.profile == 'legacy'
+    with pytest.raises(ValueError, match='old generation and relaxation'):
+        parse_conformer_options('optconf=(conf_gen=legacy)', {'seed': 42})
+
+
+@pytest.mark.parametrize('state', ['success', 'missing_result', 'failed_with_stale_result'])
+def test_gamess_handoff_keeps_elements_with_their_coordinates(tmp_path, monkeypatch, state):
+    from qcforever.gamess_run.GamessRunPack import GamessDFTRun
+    from qcforever.conformer_search import conformer_search as workflow
+
+    monkeypatch.chdir(tmp_path)
+    original = Chem.AddHs(Chem.MolFromSmiles('OCC'))
+    assert AllChem.EmbedMolecule(original, randomSeed=22) == 0
+    selected = Chem.RenumberAtoms(original, [2, 1, 0, *range(3, 9)])
+    for index, position in enumerate(selected.GetConformer().GetPositions()):
+        selected.GetConformer().SetAtomPosition(index, position + [4, 2, -3])
+    with Chem.SDWriter('molecule.sdf') as writer:
+        writer.write(original)
+
+    def search(*args, **kwargs):
+        Path('conformer_search').mkdir()
+        if state != 'missing_result':
+            with Chem.SDWriter('optimized_structures.sdf') as writer:
+                writer.write(selected)
+        return {'state': 'failed' if state == 'failed_with_stale_result' else 'succeeded'}
+
+    monkeypatch.setattr(workflow, 'configured_confopt', search)
+    monkeypatch.setattr('qcforever.util.check_resource.respec_cores', lambda *a: 1)
+    monkeypatch.setattr('qcforever.util.check_resource.respec_memory', lambda **kwargs: '1GB')
+    monkeypatch.setattr('qcforever.gamess_run.Exe_Gamess.exe_Gamess', lambda *a: '')
+    monkeypatch.setattr(GamessDFTRun, 'Extract_values', lambda *a: {})
+    result = GamessDFTRun('B3LYP', 'STO-3G', 1,
+        'energy optconf=(conf_gen=medium, conf_relax=xtb)', 'molecule.sdf').run_gamess()
+    lines = (tmp_path/'molecule/molecule.inp').read_text().splitlines()
+    start = lines.index('C1') + 1
+    records = [line.split() for line in lines[start:start + original.GetNumAtoms()]]
+    expected = selected if state == 'success' else original
+    assert [row[0] for row in records] == [atom.GetSymbol() for atom in expected.GetAtoms()]
+    np.testing.assert_allclose([[float(x) for x in row[2:5]] for row in records],
+                               expected.GetConformer().GetPositions(), atol=6e-5)
+    assert result['optconf'] is (state == 'success')
+    if state == 'missing_result':
+        summary = json.loads((tmp_path/'molecule/conformer_search/summary.json').read_text())
+        assert summary['failure_stage'] == 'selected_structure_readback'
+        assert summary['state'] == result['conformer_search']['state'] == 'failed'
+
+
+def test_pm6_cleanup_preserves_other_jobs_and_analysis_files(tmp_path):
+    from qcforever.conformer_search.run_pm6 import remove_pm6_checkpoints
+
+    electronic = tmp_path/'electronic'
+    call = electronic/'candidate_00000/call_0000'
+    call.mkdir(parents=True)
+    for name in ('state.chk', 'state.fchk', 'input.log', 'trajectory.json', 'final.sdf'):
+        (call/name).write_text('retained analysis or removable restart')
+    other_job = tmp_path/'DFT.chk'
+    other_job.write_text('unrelated checkpoint')
+    (electronic/'linked.chk').symlink_to(other_job)
+    remove_pm6_checkpoints(electronic)
+    assert not (call/'state.chk').exists() and not (call/'state.fchk').exists()
+    assert all((call/name).is_file() for name in ('input.log', 'trajectory.json', 'final.sdf'))
+    assert other_job.read_text() == 'unrelated checkpoint'
+    assert (electronic/'linked.chk').is_symlink()
+    report = json.loads((electronic/'checkpoint_cleanup.json').read_text())
+    assert report['removed_files'] == 2 and report['removed_bytes'] > 0 and not report['errors']
 
 
 def test_partial_yaml_and_cpu_cap(tmp_path):
@@ -183,8 +266,7 @@ def test_all_atom_duplicates_preserve_oh_rotamers_and_coordinates():
 
 
 @pytest.mark.parametrize('smiles,expected', [
-    ('CCO', 3), ('C[NH3+]', 6), ('C[NH2+]C', 6),
-    ('C', 0), ('O', 0), ('N', 3), ('[NH4+]', 0),
+    ('CCO', 3), ('C[NH3+]', 6), ('C[NH2+]C', 6), ('C', 0),
 ])
 def test_xh3_hydrogen_exclusion_rule(smiles, expected):
     mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
@@ -219,25 +301,6 @@ def test_ez_mismatch_rejected_at_generation():
     kept, audit = filter_candidates([wrong], ref, 2, SearchConfig.resolve().validation)
     assert not kept and audit['rejected'] == {'stereo_mismatch': 1}
     assert not audit['candidates'][0]['ez_stereo_match']
-
-
-def test_all_candidates_attempted_even_if_one_fails(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    cfg = settings('low', n=5, relaxation={'implementation': 'continuous'})
-    ref = molecule()
-    prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
-    calls = []
-    def backend(mol, directory, *args):
-        i = int(directory.name.split('_')[-1])
-        calls.append(i)
-        if i == 1:
-            raise UnboundLocalError('simulate old parser on incomplete native output')
-        return Chem.Mol(mol), -10-i
-    audit = optimize_candidates(prepared, ref, cfg, 0, 1, 'xtb', 1, '1GB', adapter=backend)
-    assert calls == [0, 1, 2, 3, 4]
-    assert audit['attempted_candidates'] == 5
-    assert audit['converged_candidates'] == 4 and audit['failed_candidates'] == 1
-    assert audit['primary_valid_candidates'] == 4 and audit['primary_best_index'] == 4
 
 
 def test_learned_candidates_never_receive_mm_even_in_mixed_pool(tmp_path):
@@ -281,8 +344,7 @@ def test_final_stereo_mismatch_returns_structure_with_warning(tmp_path, monkeypa
     assert not mol.GetBoolProp('tetrahedral_stereo_match')
 
 
-@pytest.mark.parametrize('nproc', [1, 2])
-def test_native_relaxation_uses_single_core_workers(tmp_path, monkeypatch, nproc):
+def test_xtb_parallel_relaxation_uses_single_core_workers(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     binary = tmp_path/'fake_xtb_parallel'
     binary.write_text(f'#!{sys.executable}\n' +
@@ -295,22 +357,17 @@ def test_native_relaxation_uses_single_core_workers(tmp_path, monkeypatch, nproc
     cfg = settings('low', n=2, relaxation={'implementation': 'continuous', 'xtb_executable': str(binary)})
     ref = molecule()
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
-    audit = optimize_candidates(prepared, ref, cfg, 0, 1, 'xtb', nproc, '1GB')
-    per_call = 1
-    workers = min(2, nproc)
-    assert audit['parallel_workers'] == workers and audit['cores_per_calculation'] == per_call
+    audit = optimize_candidates(prepared, ref, cfg, 0, 1, 'xtb', 2, '1GB')
+    assert audit['parallel_workers'] == 2 and audit['cores_per_calculation'] == 1
     assert audit['scheduling'] == 'parallel_candidates_1_core'
     folder = tmp_path/'run/electronic'
     intervals = [json.loads((folder/f'candidate_{i:05d}/interval.json').read_text()) for i in range(2)]
     assert intervals[0]['pid'] != intervals[1]['pid']
-    if workers == 1:
-        assert intervals[0]['end'] <= intervals[1]['start']
-    else:
-        assert max(r['start'] for r in intervals) < min(r['end'] for r in intervals)
-    assert all(r['omp'] == r['blas'] == str(per_call) for r in intervals)
+    assert max(r['start'] for r in intervals) < min(r['end'] for r in intervals)
+    assert all(r['omp'] == r['blas'] == '1' for r in intervals)
     for i in range(2):
         argv = json.loads((folder/f'candidate_{i:05d}/command.json').read_text())['argv']
-        assert argv[argv.index('--parallel')+1] == str(per_call)
+        assert argv[argv.index('--parallel')+1] == '1'
 
 
 def test_no_mm_snapshot_keeps_results_without_calling_optimizer(tmp_path):

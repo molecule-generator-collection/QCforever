@@ -32,20 +32,20 @@ Grey-box optimisation (LAQA (https://doi.org/10.1021/acs.jctc.1c00301)) can also
 ### Install
 
 ```bash
-pip install --upgrade git+https://github.com/molecule-generator-collection/QCforever.git@feature/conformer-search
+pip install --upgrade git+https://github.com/molecule-generator-collection/QCforever.git
 ```
 
 <details>
 <summary>Optional conformer model installation</summary>
 
-No additional models are needed for `optconf_low`.
-For `optconf_medium`, install Torsional Diffusion:
+No additional models are needed for `conf_gen=low` or `conf_gen=legacy`.
+For `conf_gen=medium`, install Torsional Diffusion:
 
 ```bash
 install-conformer-models --models torsional_diffusion --device cpu
 ```
 
-For `optconf_high`, install both DiTMC and Torsional Diffusion:
+For `conf_gen=high`, install both DiTMC and Torsional Diffusion:
 
 ```bash
 install-conformer-models --device cpu
@@ -189,22 +189,25 @@ The default search uses ETKDGv3 + MMFF94s followed by PM6, aiming to find a
 promising starting structure at a modest cost rather than exhaustively optimize
 every candidate.
 
-For more extensive exploration, choose a different generation method and/or
-increase the relaxation target using the following options.
+To change generation or relaxation, group the settings inside `optconf=(...)`:
 
-| Option | Conformer generation (fallback order) |
+```python
+option = "optconf=(conf_gen=medium, conf_relax=xtb, laqa=50) energy"
+```
+
+| `conf_gen` | Conformer generation (fallback order) |
 |---|---|
-| `optconf_low` (default) | ETKDGv3 + MMFF94s |
-| `optconf_medium` | Torsional Diffusion → ETKDGv3 + MMFF94s |
-| `optconf_high` | DiTMC → Torsional Diffusion → ETKDGv3 + MMFF94s |
+| `low` (default) | ETKDGv3 + MMFF94s |
+| `medium` | Torsional Diffusion → ETKDGv3 + MMFF94s |
+| `high` | DiTMC → Torsional Diffusion → ETKDGv3 + MMFF94s |
+| `legacy` | The complete old FAFOOM generation **and relaxation** workflow |
 
 Medium/high require the model installation described under Install.
-Use `optconf=xtb` to switch relaxation to GFN2-xTB, or `optconf=pm6` to explicitly
-select the default PM6 method. For example: `"optconf=xtb optconf_medium energy"`.
+Set `conf_relax=xtb` for GFN2-xTB or `conf_relax=pm6` for PM6 (default).
 Install the corresponding executable separately; PM6 requires Gaussian 16 even
 when the subsequent property calculation uses GAMESS.
 
-By default (`laqa=50`), the search stops when 50% of the initial relaxation candidates have
+For low/medium/high, the default (`laqa=50`) stops when 50% of the initial relaxation candidates have
 converged. To spend more effort on relaxation, increase this target:
 
 | Option | Behavior |
@@ -213,14 +216,27 @@ converged. To spend more effort on relaxation, increase this target:
 | `laqa=20` | Stop at 20% convergence |
 | `laqa=80` | Stop at 80% convergence |
 | `laqa=100` | Target all candidates; failures/safety limits may prevent completion |
-| `laqa=off` | Relax all candidates continuously, without SH/LAQA scheduling |
+| `laqa=off` | Relax all candidates continuously, with the same native optimizer and convergence criteria |
 
 These percentages refer to converged candidates, not a percentage of compute budget.
 Parallel relaxation uses one core per candidate, up to `nproc` concurrent
 candidates; xTB keeps paused processes in memory.
+PM6 uses RFO with tight optimization and SCF convergence for both adaptive and
+continuous relaxation.
+
+For the unchanged old workflow, use
+`"optconf=(conf_gen=legacy, conf_relax=xtb) energy"`.
+Legacy retains its own candidate count, optimizer and stopping rules;
+`laqa` and `conformer_config` overrides cannot be combined with it.
+The older syntax (`optconf=xtb optconf_medium laqa=50`) remains supported.
 
 The selected structure is saved as `optimized_structures.sdf`; summaries and
 detailed logs are under `conformer_search/` in the calculation directory.
+After PM6 conformer search finishes, its `.chk`/`.fchk` files are removed;
+structures, logs and numerical relaxation traces are retained. This does not
+remove checkpoints from the subsequent DFT calculation.
+In low/medium/high, if only a structure with geometry/stereo warnings is available, it is used with
+a console warning; the warning is also recorded in the returned summary.
 For advanced settings, set `job.conformer_config = "conformer.yaml"`;
 see [defaults.yaml](qcforever/conformer_search/defaults.yaml).
 

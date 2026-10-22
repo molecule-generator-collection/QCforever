@@ -3,6 +3,7 @@ from dataclasses import asdict, dataclass, field
 from copy import deepcopy
 import json
 import math
+import re
 from pathlib import Path
 
 from rdkit.Chem import rdMolDescriptors
@@ -24,10 +25,11 @@ def resolve_relaxation(settings, method):
     if implementation == 'auto':
         implementation = 'graybox'
     result['implementation'] = implementation
+    # Disabling scheduling must not change the native optimizer or tolerances.
+    if method == 'pm6':
+        result['pm6_optimizer'] = 'rfo'
     if implementation == 'graybox':
-        if method == 'pm6':
-            result['pm6_optimizer'] = 'rfo'
-        else:
+        if method == 'xtb':
             result.setdefault('xtb_pool_memory_mb', 8192)
             result.setdefault('xtb_active_timeout_seconds', 1800)
         result.update({key: result.get(key, value) for key, value in GRAYBOX_DEFAULTS.items()})
@@ -42,7 +44,7 @@ def validate_relaxation(settings):
     if settings.get('implementation', 'auto') not in ('auto', 'continuous', 'graybox'):
         raise ValueError('relaxation.implementation must be auto, continuous or graybox')
     if settings.get('pm6_optimizer', 'rfo') != 'rfo':
-        raise ValueError('Explicit pm6_optimizer currently supports rfo only; omit for legacy continuous Opt')
+        raise ValueError('pm6_optimizer supports rfo only; use conf_gen=legacy for the old workflow')
     if settings.get('algorithm', 'sh') not in ('laqa', 'sr', 'sh'):
         raise ValueError('relaxation.algorithm must be laqa, sr or sh')
     fraction = settings.get('convergence_fraction', GRAYBOX_DEFAULTS['convergence_fraction'])
@@ -155,8 +157,8 @@ class SearchConfig:
     def __post_init__(self):
         if self.schema_version != 1:
             raise ValueError('Unknown schema_version')
-        if self.profile not in ('low', 'medium', 'high'):
-            raise ValueError('profile must be low, medium, or high')
+        if self.profile not in ('low', 'medium', 'high', 'legacy'):
+            raise ValueError('profile must be low, medium, high, or legacy')
         if self.candidate_retention != 'merge':
             raise ValueError('Candidates from previous stages must be retained (merge)')
         if self.device not in ('auto', 'cpu', 'gpu'):
@@ -236,18 +238,68 @@ class SearchConfig:
         return min(self.workers, allocated_cores // self.effective_threads(allocated_cores))
 
     def stages(self):
+        if self.profile == 'legacy':
+            raise ValueError('legacy uses the complete FAFOOM workflow, not generation stages')
         names = {'high': ['ditmc', 'torsional_diffusion', 'etkdgv3'],
                  'medium': ['torsional_diffusion', 'etkdgv3'], 'low': ['etkdgv3']}
         return [(name, self.mm_method) for name in names[self.profile]]
 
 
 # QCforever option strings are parsed before the working directory changes.
-LEVEL_OPTIONS = {'optconf_low': 'low', 'optconf_medium': 'medium', 'optconf_high': 'high'}
+LEVEL_OPTIONS = {'optconf_low': 'low', 'optconf_medium': 'medium',
+                 'optconf_high': 'high', 'optconf_legacy': 'legacy'}
+
+
+def _expand_conformer_options(option_string):
+    """Normalize grouped search options for the existing property parsers.
+
+    Only optconf groups are expanded. Other property arguments, including file
+    paths and comma-separated spectra, remain unchanged.
+    """
+    def expand_group(match):
+        fields = {}
+        body = match.group(1).strip()
+        items = body.split(',') if body else []
+        for item in items:
+            key, separator, value = item.strip().partition('=')
+            key, value = key.strip().lower(), value.strip().lower()
+            if not separator or not value or key not in ('conf_gen', 'conf_relax', 'laqa'):
+                raise ValueError('Use optconf=(conf_gen=low, conf_relax=pm6, laqa=50)')
+            if key in fields:
+                raise ValueError(f'Duplicate optconf setting: {key}')
+            if any(character.isspace() for character in value):
+                raise ValueError(f'Invalid optconf value: {item}')
+            fields[key] = value
+        if fields.get('conf_gen', 'low') not in ('low', 'medium', 'high', 'legacy'):
+            raise ValueError('conf_gen must be low, medium, high, or legacy')
+        if fields.get('conf_relax', 'pm6') not in ('xtb', 'pm6'):
+            raise ValueError('conf_relax must be xtb or pm6')
+        tokens = ['optconf=' + fields.get('conf_relax', 'pm6')]
+        if 'conf_gen' in fields:
+            tokens.append('optconf_' + fields['conf_gen'])
+        if 'laqa' in fields:
+            tokens.append('laqa=' + fields['laqa'])
+        return ' '.join(tokens)
+
+    expanded = re.sub(r'(?<!\S)optconf\s*=\s*\(([^()]*)\)(?=\s|$)',
+                      expand_group, option_string, flags=re.IGNORECASE)
+    tokens = expanded.split()
+    for index, token in enumerate(tokens):
+        lower = token.lower()
+        if lower.startswith(('conf_gen', 'conf_relax')):
+            raise ValueError('Put conf_gen and conf_relax inside optconf=(...)')
+        if lower == 'optconf' and index + 1 < len(tokens) and tokens[index + 1].startswith(('=', '(')):
+            raise ValueError('Malformed optconf group; check parentheses and comma-separated settings')
+        if lower.startswith('optconf='):
+            if '(' in token or ')' in token:
+                raise ValueError('Malformed optconf group; check parentheses and comma-separated settings')
+            tokens[index] = lower
+    return tokens
 
 
 def parse_conformer_options(option_string, override=None):
     """Read optconf options while leaving other QCforever properties untouched."""
-    tokens = option_string.split()
+    tokens = _expand_conformer_options(option_string)
     graybox_options = [t.lower() for t in tokens if t.lower() == 'laqa' or t.lower().startswith('laqa=')]
     if len(graybox_options) > 1:
         raise ValueError('Specify laqa at most once')
@@ -255,9 +307,9 @@ def parse_conformer_options(option_string, override=None):
                       and t.lower() not in LEVEL_OPTIONS]
     if unknown_levels:
         raise ValueError(f'Unknown conformer level: {", ".join(unknown_levels)}. '
-                         'Use optconf_low, optconf_medium, or optconf_high.')
+                         'Use conf_gen=low, medium, high, or legacy inside optconf=(...).')
     selected = [LEVEL_OPTIONS[t.lower()] for t in tokens if t.lower() in LEVEL_OPTIONS]
-    methods = [t.split('=', 1)[1] if '=' in t else 'pm6' for t in tokens
+    methods = [t.split('=', 1)[1].lower() if '=' in t else 'pm6' for t in tokens
                if t.lower() == 'optconf' or t.lower().startswith('optconf=')]
     if len(selected) > 1 or len(methods) > 1:
         raise ValueError('Specify one optconf backend and at most one level')
@@ -267,8 +319,15 @@ def parse_conformer_options(option_string, override=None):
         return None
     if methods[0] not in ('xtb', 'pm6'):
         raise ValueError('optconf supports xtb or pm6')
+    if selected == ['legacy']:
+        if graybox_options or override is not None:
+            raise ValueError('conf_gen=legacy uses the old generation and relaxation unchanged; '
+                             'laqa and conformer_config overrides are not supported')
+        return SearchConfig(profile='legacy')
     config = SearchConfig.resolve(selected[0] if selected else 'low', override)
     value = config.to_mapping()
+    if config.profile == 'legacy':
+        raise ValueError('Select legacy through optconf=(conf_gen=legacy), without conformer_config')
     if graybox_options:
         option = graybox_options[0]
         if option == 'laqa=off':
@@ -288,5 +347,5 @@ def parse_conformer_options(option_string, override=None):
 
 def calculation_tokens(option_string):
     """Remove only search-level tokens before the existing property parser runs."""
-    return [t for t in option_string.split()
+    return [t for t in _expand_conformer_options(option_string)
             if t.lower() not in LEVEL_OPTIONS and t.lower() != 'laqa' and not t.lower().startswith('laqa=')]

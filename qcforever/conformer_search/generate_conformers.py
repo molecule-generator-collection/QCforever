@@ -252,8 +252,6 @@ def generate(name, reference, attempt_cap, seed, directory, options, threads):
         return command_generator(reference, attempt_cap, seed, directory, options, threads)
     if name == 'etkdgv3':
         return etkdgv3(reference, attempt_cap, seed, directory, options, threads)
-    if name == 'etflow':
-        return etflow(reference, attempt_cap, seed, directory, options, threads)
     if name in ('ditmc', 'torsional_diffusion'):
         raise MissingGeneratorDependency(f'{name} requires an optional environment and raw-SDF command')
     raise ValueError(f'Unknown generator: {name}')
@@ -345,30 +343,6 @@ def resolve_model_device(options, requested, directory, threads):
         return result
     except (subprocess.SubprocessError, OSError, ValueError) as exc:
         raise GenerationError(f'Model device discovery failed; see {folder}/probe.out: {exc}') from exc
-
-
-def etflow(reference, attempt_cap, seed, directory, options, threads):
-    try:
-        from etflow import BaseFlow
-        import torch
-    except ImportError as exc:
-        raise MissingGeneratorDependency('ET-Flow is not installed in this Python environment') from exc
-    if not options.get('checkpoint_cache'):
-        raise MissingGeneratorDependency('ET-Flow requires an explicit checkpoint_cache')
-    device = options.get('device', 'cpu')
-    if device == 'cpu':
-        torch.set_num_threads(threads)
-    try:
-        model = BaseFlow.from_default(model=options.get('model', 'drugs-so3'),
-                                      cache=str(Path(options['checkpoint_cache']).expanduser().resolve()))
-        model = model.to(device).eval()
-        smiles = Chem.MolToSmiles(Chem.RemoveHs(reference), isomericSmiles=True)
-        generated = model.predict([smiles], max_batch_size=options.get('batch_size', 4),
-                                  num_samples=attempt_cap, seed=seed, device=device, as_mol=True)
-        value = generated[smiles]
-        return [Chem.Mol(m) for m in value] if isinstance(value, list) else split_conformers(value)
-    except (RuntimeError, ValueError, KeyError, OSError) as exc:
-        raise GenerationError(f'ET-Flow generation failed: {exc}') from exc
 
 
 def split_conformers(mol):

@@ -200,6 +200,13 @@ def stereo_audit(mol, reference):
     centers = {a.GetIdx(): a.GetProp('_CIPCode') for a in expected.GetAtoms() if a.HasProp('_CIPCode')}
     bonds = {expected_bond.GetIdx(): expected_bond.GetStereo() for expected_bond in expected.GetBonds()
              if expected_bond.GetStereo() not in (Chem.BondStereo.STEREONONE, Chem.BondStereo.STEREOANY)}
+    if not centers and not bonds:
+        # Still require a graph match: callers may audit unrelated molecules.
+        # One match is enough when there is no input-specified stereo to check.
+        graph_matches = observed.HasSubstructMatch(expected, useChirality=False)
+        return {'tetrahedral_stereo_match': graph_matches, 'ez_stereo_match': graph_matches,
+                'joint_stereo_match': graph_matches, 'specified_tetrahedral_centers': 0,
+                'specified_ez_bonds': 0}
     tetrahedral_match, ez_match, joint_match = False, False, False
     for mapping in observed.GetSubstructMatches(expected, useChirality=False,
                                                 uniquify=False, maxMatches=10000):
@@ -215,6 +222,8 @@ def stereo_audit(mol, reference):
         tetrahedral_match |= mapping_tetrahedral_match
         ez_match |= mapping_ez_match
         joint_match |= mapping_tetrahedral_match and mapping_ez_match
+        if joint_match:
+            break
     return {'tetrahedral_stereo_match': tetrahedral_match, 'ez_stereo_match': ez_match,
             'joint_stereo_match': joint_match, 'specified_tetrahedral_centers': len(centers),
             'specified_ez_bonds': len(bonds)}

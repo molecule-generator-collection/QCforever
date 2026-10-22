@@ -667,9 +667,8 @@ class GamessDFTRun:
                 pass
 
             try:
-                if self._conformer_summary and self._conformer_summary['state'] == 'failed':
-                    raise RuntimeError(self._conformer_summary['error'])
-                Mol_atm, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf("./optimized_structures.sdf")
+                from qcforever.conformer_search.conformer_search import read_selected_structure
+                Mol_atom, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_selected_structure(self._conformer_summary)
                 reconf = True
             except Exception as e:
                 print('Conformation search is failed!')

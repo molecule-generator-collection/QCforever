@@ -253,6 +253,39 @@ def optimize_with_pm6(mol, folder, charge, multiplicity, cores, memory, settings
                 os.environ[key] = value
 
 
+def remove_pm6_checkpoints(electronic_directory):
+    """Remove restart files after this run's workers and coordinate reads finish.
+
+    The caller owns a newly created electronic directory. Never pass the parent
+    QC job directory: its DFT checkpoints must be retained. Logs, structures,
+    and numerical relaxation traces are kept, including for failed candidates.
+    """
+    folder = Path(electronic_directory)
+    if folder.is_symlink() or not folder.is_dir():
+        return
+    report = {'removed_files': 0, 'removed_bytes': 0, 'errors': []}
+    # Do not follow directory or file symlinks outside this calculation.
+    for directory, _, filenames in os.walk(folder, followlinks=False):
+        for filename in filenames:
+            path = Path(directory) / filename
+            if path.suffix.lower() not in ('.chk', '.fchk') or path.is_symlink():
+                continue
+            try:
+                size = path.stat().st_size
+                path.unlink()
+                report['removed_files'] += 1
+                report['removed_bytes'] += size
+            except OSError as exc:
+                report['errors'].append({'path': str(path.relative_to(folder)), 'error': str(exc)})
+    if report['errors']:
+        print(f'WARNING: Some PM6 checkpoints could not be removed; see {folder}/checkpoint_cleanup.json')
+    try:
+        write_json(folder / 'checkpoint_cleanup.json', report)
+    except OSError as exc:
+        # Cleanup must not hide a completed calculation or its original error.
+        print(f'WARNING: Could not write PM6 checkpoint cleanup report: {exc}')
+
+
 @contextmanager
 def working_directory(path):
     previous = Path.cwd()

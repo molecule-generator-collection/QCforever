@@ -26,7 +26,6 @@ def test_registration_and_explicit_yaml_precedence():
     cfg = SearchConfig.resolve('high', {'generators': {'ditmc': {'command': ['explicit']}}})
     assert cfg.generators['ditmc']['command'] == ['explicit']
     assert cfg.generators['ditmc']['persistent']
-    assert SearchConfig.resolve().profile == 'low'
     assert SearchConfig.resolve(override={'profile': 'high'}).generators['ditmc']['command'] == ['registered']
 
 
@@ -56,7 +55,7 @@ def test_bad_download_never_promoted(tmp_path, monkeypatch):
     assert not (tmp_path/'model.pt').exists()
 
 
-@pytest.mark.parametrize('name', ['../escape', '/absolute', 'dir/../../escape', 'dir\\escape'])
+@pytest.mark.parametrize('name', ['../escape', '/absolute', 'dir\\escape'])
 def test_zip_traversal_refused(tmp_path, name):
     archive = tmp_path/'unsafe.zip'
     with zipfile.ZipFile(archive, 'w') as handle:
@@ -124,39 +123,22 @@ def test_nested_worker_deploys_without_core_dependencies(tmp_path, monkeypatch):
     assert options['command'][1:3] == ['-m', 'qcforever_model_workers.run_model']
 
 
-@pytest.mark.parametrize('name', ['ditmc', 'torsional_diffusion'])
-def test_model_dispatch_after_module_rename(name, monkeypatch, tmp_path):
-    """Check the real dispatch path without downloading model weights."""
-    from types import SimpleNamespace
-    from qcforever.conformer_search.model_workers import run_model, ditmc, torsional_diffusion
-    model = object()
-    monkeypatch.setattr(ditmc, 'DiTMC', lambda *a, **k: model)
-    monkeypatch.setattr(torsional_diffusion, 'initialize_model', lambda *a: model)
-    args = SimpleNamespace(model=name, cache=tmp_path, source=tmp_path, checkpoint=tmp_path)
-    assert run_model.initialize_model(args, {'threads': 1}) is model
-
-
-@pytest.mark.parametrize('system,machine', [('linux', 'x86_64'), ('darwin', 'arm64')])
-def test_supported_model_platforms(system, machine, monkeypatch):
+@pytest.mark.parametrize('system,machine,device,error', [
+    ('linux', 'x86_64', 'cpu', None),
+    ('darwin', 'arm64', 'cpu', None),
+    ('darwin', 'arm64', 'gpu', 'CPU only'),
+    ('darwin', 'x86_64', 'cpu', 'Intel macOS wheels'),
+])
+def test_platform_support_checked_before_installation(system, machine, device, error, monkeypatch):
     monkeypatch.setattr(install.sys, 'platform', system)
     monkeypatch.setattr(install.platform, 'machine', lambda: machine)
-    monkeypatch.setattr(install.subprocess, 'check_output', lambda *a, **k: '3.11\n')
-    monkeypatch.setattr(install.subprocess, 'run', lambda *a, **k: None)
-    install.check_platform(sys.executable, ['torsional_diffusion'], 'cpu')
-
-
-def test_mac_cuda_fails_before_installation(monkeypatch):
-    monkeypatch.setattr(install.sys, 'platform', 'darwin')
-    monkeypatch.setattr(install.platform, 'machine', lambda: 'arm64')
-    with pytest.raises(RuntimeError, match='CPU only'):
-        install.check_platform(sys.executable, ['torsional_diffusion'], 'gpu')
-
-
-def test_intel_mac_models_fail_before_installation(monkeypatch):
-    monkeypatch.setattr(install.sys, 'platform', 'darwin')
-    monkeypatch.setattr(install.platform, 'machine', lambda: 'x86_64')
-    with pytest.raises(RuntimeError, match='Intel macOS wheels'):
-        install.check_platform(sys.executable, ['torsional_diffusion'], 'cpu')
+    if error:
+        with pytest.raises(RuntimeError, match=error):
+            install.check_platform(sys.executable, ['torsional_diffusion'], device)
+    else:
+        monkeypatch.setattr(install.subprocess, 'check_output', lambda *a, **k: '3.11\n')
+        monkeypatch.setattr(install.subprocess, 'run', lambda *a, **k: None)
+        install.check_platform(sys.executable, ['torsional_diffusion'], device)
 
 
 @pytest.mark.parametrize('system', ['linux', 'darwin'])

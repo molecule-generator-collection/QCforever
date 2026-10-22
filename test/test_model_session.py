@@ -1,7 +1,5 @@
 """Check real subprocess lifetime/IPC without requiring learned model packages."""
-import json
 import sys
-import time
 import pytest
 from rdkit import Chem
 from qcforever.conformer_search.model_workers.model_process import ModelSession
