@@ -6,6 +6,8 @@ Python children. Option syntax is covered separately in test_conformer_search.
 from dataclasses import replace
 import json
 import os
+import signal
+import subprocess
 import sys
 import threading
 import time
@@ -171,6 +173,39 @@ def test_parallel_deadline_terminates_owned_children():
     assert children and all(child.poll() is not None for child in children)
     assert time.monotonic() - started < 5
     assert not any(child in job_timeout._processes for child in children)
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='POSIX process-group signals')
+@pytest.mark.parametrize('child_exited', [True, False])
+def test_termination_ignores_permission_error_only_after_child_exit(monkeypatch, child_exited):
+    class ChildProcess:
+        pid = 12345
+        returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, timeout):
+            assert timeout == 0.1
+            if not child_exited:
+                raise subprocess.TimeoutExpired('test child', timeout)
+            self.returncode = -signal.SIGTERM
+            return self.returncode
+
+    def send_signal(group, sig):
+        if sig == signal.SIGCONT:
+            raise PermissionError('test process group')
+
+    monkeypatch.setattr(os, 'getpgid', lambda pid: pid)
+    monkeypatch.setattr(os, 'killpg', send_signal)
+    child = ChildProcess()
+    if child_exited:
+        job_timeout.terminate_process(child)
+        assert child.returncode == -signal.SIGTERM
+    else:
+        with pytest.raises(PermissionError, match='test process group'):
+            job_timeout.terminate_process(child)
+        assert child.returncode is None
 
 
 def test_executor_error_does_not_kill_unrelated_children():

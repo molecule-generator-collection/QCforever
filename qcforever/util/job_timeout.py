@@ -42,6 +42,13 @@ def terminate_process(process, grace_period=2.0):
         else:
             process.terminate()
         process.wait(timeout=grace_period)
+    except PermissionError as error:
+        # Concurrent termination can remove the group between TERM and CONT.
+        # Accept this race only after reaping; preserve errors on a live child.
+        try:
+            process.wait(timeout=0.1)
+        except subprocess.TimeoutExpired:
+            raise error
     except (ProcessLookupError, subprocess.TimeoutExpired):
         if process.poll() is None:
             try:
