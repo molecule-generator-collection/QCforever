@@ -16,7 +16,7 @@ def isolated_registry(tmp_path, monkeypatch):
     monkeypatch.setenv('QCFOREVER_MODEL_REGISTRY', str(tmp_path/'config/models.json'))
 
 
-def test_registration_and_explicit_yaml_precedence():
+def test_config_overrides_registered_model_settings():
     from qcforever.conformer_search.settings import SearchConfig
     registry.register_models({'ditmc': {'persistent': True, 'command': ['registered']}})
     registry.register_models({'torsional_diffusion': {'persistent': True, 'command': ['td']}})
@@ -97,7 +97,7 @@ def test_partial_failure_preserves_old_registration(tmp_path, monkeypatch):
     assert models['torsional_diffusion']['command'] == ['new-working']
 
 
-def test_nested_worker_deploys_without_core_dependencies(tmp_path, monkeypatch):
+def test_model_worker_imports_without_core_or_ml_dependencies(tmp_path, monkeypatch):
     """Use the real package copy, but do not install/download ML dependencies."""
     site = tmp_path/'model-site'
     def run(argv, log, *, capture=False):

@@ -48,14 +48,14 @@ def test_fixed_denominator_initialization_and_failure_cost(workers):
               'c': [BlockResult(-3, .1, 1), BlockResult(-4, .01, 10, status='converged')],
               'd': [BlockResult(-2, .1, 1), BlockResult(-3, .01, 10, status='converged')]}
     search, _ = replay_blocks(blocks, workers, algorithm='sh', convergence_fraction=.5)
-    assert search.required == 2 and search.done()
+    assert search.required == 2 and search.convergence_target_reached()
     assert search.cost['wall_seconds'] == 5
     assert search.events[-1]['converged_count'] == 1 + workers
     assert search.cost['evaluations'] == 4 + 10 * workers
     assert search.states['a'].status == 'failed'
     assert search.initial_count == 4
     full, _ = replay_blocks(blocks, workers, algorithm='sh', convergence_fraction=1)
-    assert not full.done() and full.stop_reason == 'candidate_pool_exhausted'
+    assert not full.convergence_target_reached() and full.stop_reason == 'candidate_pool_exhausted'
     assert full.events[-1]['converged_count'] == 3
 
 
@@ -64,7 +64,7 @@ def test_quota_charges_dispatched_batches_without_seeing_future(workers):
     blocks = {str(i): [BlockResult(-i, .1, 1, wall_seconds=2, status='converged')] for i in range(10)}
     search, batches = replay_blocks(blocks, workers, algorithm='sh', convergence_fraction=.2)
     completed = 2 if workers == 1 else 4
-    assert search.required == 2 and search.done()
+    assert search.required == 2 and search.convergence_target_reached()
     assert search.cost['evaluations'] == completed
     assert search.cost['wall_seconds'] == 2 * completed
     assert search.states[str(completed)].status == 'pending'
@@ -95,7 +95,7 @@ def test_laqa_force_definition_and_missing_force():
     search = GrayboxSearch({'a': 10}, None, dict(GRAYBOX_DEFAULTS, algorithm='laqa'))
     state = search.states['a']
     state.energy, state.forces = -10, [2]
-    assert search.rank('a', 'laqa') == (-3, 'a')
+    assert search.ranking_key('a', 'laqa') == (-3, 'a')
 
 
 @pytest.mark.parametrize('algorithm', ['sr', 'sh'])
@@ -188,14 +188,14 @@ def test_executor_error_does_not_kill_unrelated_children():
         job_timeout.unregister_process(other)
 
 
-def molecule():
+def make_water_conformer():
     mol = Chem.AddHs(Chem.MolFromSmiles('O'))
     AllChem.EmbedMolecule(mol, randomSeed=42)
     mol.SetProp('candidate_id', 'test:0')
     return mol
 
 
-def gaussian_log(n=1, converged=False, atom_count=3):
+def make_pm6_log(n=1, converged=False, atom_count=3):
     force = ' Forces (Hartrees/Bohr)\n Center Atomic Forces\n Number Number X Y Z\n'
     force += ''.join(f' {i+1} 1 0.010000 0.000000 0.000000\n' for i in range(atom_count)) + ' ----\n'
     record = ' SCF Done: E(RPM6) = -10.000000 A.U. after 3 cycles\n' + force
@@ -204,7 +204,7 @@ def gaussian_log(n=1, converged=False, atom_count=3):
 
 
 def test_log_force_mean_and_scf_failure():
-    text = gaussian_log(atom_count=2).replace('0.010000 0.000000 0.000000', '3.0 4.0 0.0', 1)
+    text = make_pm6_log(atom_count=2).replace('0.010000 0.000000 0.000000', '3.0 4.0 0.0', 1)
     parsed = read_pm6_block(text, 2)
     assert parsed['records'][0]['force_mean_hartree_per_bohr'] == pytest.approx(2.505)
     assert not parsed['native_converged'] and parsed['cycle_limit']
@@ -212,7 +212,7 @@ def test_log_force_mean_and_scf_failure():
 
 
 def test_nonfinite_log_still_counts_evaluation():
-    text = gaussian_log().replace('-10.000000', 'NaN').replace('0.010000', 'NaN')
+    text = make_pm6_log().replace('-10.000000', 'NaN').replace('0.010000', 'NaN')
     parsed = read_pm6_block(text, 3)
     assert len(parsed['records']) == 1
     assert parsed['records'][0]['scf_cycles'] == 3
@@ -223,12 +223,12 @@ def test_nonfinite_log_still_counts_evaluation():
 def test_call_timeout_retains_partial_cost_and_previous_checkpoint(tmp_path, monkeypatch):
     import subprocess
     monkeypatch.setattr('shutil.which', lambda name: '/fake/' + name)
-    runner = PM6Candidate(molecule(), tmp_path, 0, 1, '1GB', dict(GRAYBOX_DEFAULTS, maximum_cycles=100))
+    runner = PM6Candidate(make_water_conformer(), tmp_path, 0, 1, '1GB', dict(GRAYBOX_DEFAULTS, maximum_cycles=100))
     old = tmp_path / 'last_good.chk'
     old.write_text('good checkpoint')
     runner.checkpoint, runner.target = old, 1
     def timeout(command, cwd, **kwargs):
-        (cwd / 'input.log').write_text(gaussian_log(2).replace('Number of steps exceeded', 'interrupted'))
+        (cwd / 'input.log').write_text(make_pm6_log(2).replace('Number of steps exceeded', 'interrupted'))
         raise subprocess.TimeoutExpired(command, 1)
     monkeypatch.setattr('qcforever.conformer_search.run_pm6.job_timeout.run', timeout)
     block = runner.advance()
@@ -239,9 +239,9 @@ def test_call_timeout_retains_partial_cost_and_previous_checkpoint(tmp_path, mon
 
 def test_unexpected_short_block_is_not_accepted(tmp_path, monkeypatch):
     monkeypatch.setattr('shutil.which', lambda name: '/fake/' + name)
-    runner = PM6Candidate(molecule(), tmp_path, 0, 1, '1GB', dict(GRAYBOX_DEFAULTS, first_interval=10))
+    runner = PM6Candidate(make_water_conformer(), tmp_path, 0, 1, '1GB', dict(GRAYBOX_DEFAULTS, first_interval=10))
     def short_call(folder):
-        (folder / 'input.log').write_text(gaussian_log(2))
+        (folder / 'input.log').write_text(make_pm6_log(2))
     monkeypatch.setattr(runner, '_run_call', short_call)
     block = runner.advance()
     assert block.status == 'failed' and block.evaluations == 2
@@ -251,7 +251,7 @@ def test_unexpected_short_block_is_not_accepted(tmp_path, monkeypatch):
 @pytest.mark.parametrize('previous_target,extra,records,printed_maximum', [(0, 1000, 3, 3), (1, 10, 2, 3)])
 def test_gaussian_internal_ceiling_is_limit_not_parse_failure(tmp_path, monkeypatch, previous_target, extra, records, printed_maximum):
     monkeypatch.setattr('shutil.which', lambda name: '/fake/' + name)
-    mol = molecule()
+    mol = make_water_conformer()
     runner = PM6Candidate(mol, tmp_path, 0, 1, '1GB', dict(GRAYBOX_DEFAULTS,
                            first_interval=extra, subsequent_interval=extra, maximum_cycles=1000))
     runner.target = previous_target
@@ -259,7 +259,7 @@ def test_gaussian_internal_ceiling_is_limit_not_parse_failure(tmp_path, monkeypa
         runner.checkpoint = tmp_path / 'previous.chk'
         runner.checkpoint.write_text('previous')
     def native_limit(folder):
-        text = gaussian_log(records) + f'\nStep number {previous_target + records} out of a maximum of {printed_maximum}\n'
+        text = make_pm6_log(records) + f'\nStep number {previous_target + records} out of a maximum of {printed_maximum}\n'
         (folder / 'input.log').write_text(text)
     monkeypatch.setattr(runner, '_run_call', native_limit)
     monkeypatch.setattr(runner, '_read_final_coordinates', lambda folder: mol.GetConformer().GetPositions())
@@ -271,12 +271,12 @@ def test_gaussian_internal_ceiling_is_limit_not_parse_failure(tmp_path, monkeypa
 
 def test_gaussian_step_storage_error_remains_failure(tmp_path, monkeypatch):
     monkeypatch.setattr('shutil.which', lambda name: '/fake/' + name)
-    runner = PM6Candidate(molecule(), tmp_path, 0, 1, '1GB', dict(GRAYBOX_DEFAULTS, maximum_cycles=1000))
+    runner = PM6Candidate(make_water_conformer(), tmp_path, 0, 1, '1GB', dict(GRAYBOX_DEFAULTS, maximum_cycles=1000))
     runner.target = 291
     runner.checkpoint = tmp_path / 'previous.chk'
     runner.checkpoint.write_text('previous')
     def storage_error(folder):
-        text = gaussian_log(4).replace('Number of steps exceeded',
+        text = make_pm6_log(4).replace('Number of steps exceeded',
             'Step requested is out of bounds\nIStep = 295 but MinStp = 1 and MaxStp = 294\nRdWrOT: IStep out of bounds')
         (folder / 'input.log').write_text(text)
     monkeypatch.setattr(runner, '_run_call', storage_error)
@@ -288,7 +288,7 @@ def test_gaussian_step_storage_error_remains_failure(tmp_path, monkeypatch):
 
 def test_native_restart_input_and_precision(tmp_path, monkeypatch):
     monkeypatch.setattr('shutil.which', lambda name: '/fake/' + name)
-    mol = molecule()
+    mol = make_water_conformer()
     commands = []
     def run(command, cwd, **kwargs):
         commands.append(command)
@@ -302,7 +302,7 @@ def test_native_restart_input_and_precision(tmp_path, monkeypatch):
                 assert 'Restart,RFO,Tight,MaxCycles=11' in text
                 assert (cwd / 'state.chk').read_text() == 'checkpoint'
             (cwd / 'state.chk').write_text('checkpoint')
-            (cwd / 'input.log').write_text(gaussian_log(1 if len(commands) == 1 else 3, len(commands) != 1))
+            (cwd / 'input.log').write_text(make_pm6_log(1 if len(commands) == 1 else 3, len(commands) != 1))
         else:
             xyz = ' '.join(str(v / .529177210903) for row in mol.GetConformer().GetPositions() for v in row)
             (cwd / 'state.fchk').write_text('Atomic numbers I N= 3\n8 1 1\nCurrent cartesian coordinates R N= 9\n' + xyz)
@@ -321,7 +321,7 @@ def test_graybox_handoff_only_converged(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cfg = SearchConfig(relaxation=resolve_relaxation(
         {'convergence_fraction': .2, 'parallel_candidates': 1}, 'pm6'))
-    mols = [molecule() for _ in range(10)]
+    mols = [make_water_conformer() for _ in range(10)]
     for i, mol in enumerate(mols):
         mol.SetProp('candidate_id', str(i))
     prepared = SimpleNamespace(status_path=tmp_path / 'status.json', candidates=mols)
@@ -342,7 +342,7 @@ def test_summary_warns_when_quota_is_unreachable(tmp_path, monkeypatch):
     from qcforever.conformer_search.conformer_search import _save_search_summary
     monkeypatch.chdir(tmp_path)
     cfg = SearchConfig(relaxation=resolve_relaxation({'convergence_fraction': 1}, 'pm6'))
-    mols = [molecule(), molecule()]
+    mols = [make_water_conformer(), make_water_conformer()]
     status = tmp_path / 'status.json'
     status.write_text(json.dumps(dict(budget={'maximum_candidates': 2}, mm_state='skipped',
                                      mm_wall_seconds=0, stages=[])))

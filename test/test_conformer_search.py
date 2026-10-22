@@ -25,20 +25,20 @@ def isolated_registry(tmp_path, monkeypatch):
     monkeypatch.setenv('QCFOREVER_MODEL_REGISTRY', str(tmp_path/'models.json'))
 
 
-def molecule():
+def make_butane_conformer():
     mol = Chem.AddHs(Chem.MolFromSmiles('CCCC'))
     assert AllChem.EmbedMolecule(mol, randomSeed=42) == 0
     return mol
 
 
-def settings(profile='high', n=5, **extra):
+def make_test_config(profile='high', n=5, **extra):
     return SearchConfig.resolve(profile, {'budget': {'formula': 'fixed', 'fixed': n},
         'device': 'cpu',  # Synthetic command fixtures intentionally have no GPU probe API.
         'mm_method': 'none', 'workers': 2, 'threads': 1,
         'validation': {'duplicate_rmsd_angstrom': 0}, **extra})
 
 
-def copies(reference, count, *args):
+def copy_reference_conformers(reference, count, *args):
     return [Chem.Mol(reference) for _ in range(count)]
 
 
@@ -58,7 +58,7 @@ def test_default_budget_and_cpu_limits():
     ('optconf=(conf_gen=high, conf_relax=xtb)', 'high', 'optconf=xtb', ['ditmc', 'torsional_diffusion', 'etkdgv3']),
     ('OPTCONF = (CONF_GEN=MEDIUM, CONF_RELAX=PM6, LAQA=50)', 'medium', 'optconf=pm6', ['torsional_diffusion', 'etkdgv3']),
 ])
-def test_search_options_and_default_quota(option, profile, backend_token, generators):
+def test_search_options_use_expected_defaults(option, profile, backend_token, generators):
     cfg = parse_conformer_options(option)
     assert cfg.profile == profile
     assert [name for name, _ in cfg.stages()] == generators
@@ -135,7 +135,7 @@ def test_gamess_handoff_keeps_elements_with_their_coordinates(tmp_path, monkeypa
                 writer.write(selected)
         return {'state': 'failed' if state == 'failed_with_stale_result' else 'succeeded'}
 
-    monkeypatch.setattr(workflow, 'configured_confopt', search)
+    monkeypatch.setattr(workflow, 'run_conformer_search', search)
     monkeypatch.setattr('qcforever.util.check_resource.respec_cores', lambda *a: 1)
     monkeypatch.setattr('qcforever.util.check_resource.respec_memory', lambda **kwargs: '1GB')
     monkeypatch.setattr('qcforever.gamess_run.Exe_Gamess.exe_Gamess', lambda *a: '')
@@ -176,7 +176,7 @@ def test_pm6_cleanup_preserves_other_jobs_and_analysis_files(tmp_path):
     assert report['removed_files'] == 2 and report['removed_bytes'] > 0 and not report['errors']
 
 
-def test_partial_yaml_and_cpu_cap(tmp_path):
+def test_yaml_overrides_respect_allocated_cores(tmp_path):
     path = tmp_path/'conformer.yaml'
     path.write_text('mm_method: uff\nworkers: 8\nthreads: 2\n')
     cfg = parse_conformer_options('optconf=xtb optconf_medium', str(path))
@@ -186,12 +186,12 @@ def test_partial_yaml_and_cpu_cap(tmp_path):
     assert cfg.effective_threads(1) == 1
 
 
-def test_incremental_stops_at_n(tmp_path):
+def test_generation_stops_at_candidate_limit(tmp_path):
     requested = []
     def adapter(reference, count, *args):
         requested.append(count)
-        return copies(reference, min(2, count))
-    out = prepare_candidates(molecule(), tmp_path/'run', settings(), allocated_cores=2,
+        return copy_reference_conformers(reference, min(2, count))
+    out = prepare_candidates(make_butane_conformer(), tmp_path/'run', make_test_config(), allocated_cores=2,
                              generators={'ditmc': adapter})
     assert requested == [5, 2, 1]
     assert len(out.candidates) == 5
@@ -200,45 +200,45 @@ def test_incremental_stops_at_n(tmp_path):
     assert len({m.GetProp('candidate_id') for m in out.candidates}) == 5
 
 
-def test_merge_and_fixed_attempt_caps(tmp_path):
+def test_fallback_keeps_candidates_and_respects_attempt_limit(tmp_path):
     calls = {'ditmc': [], 'torsional_diffusion': []}
-    def d(reference, count, *args):
+    def generate_one_ditmc_candidate(reference, count, *args):
         calls['ditmc'].append(count)
-        return copies(reference, 1) if len(calls['ditmc']) == 1 else []
-    def t(reference, count, *args):
+        return copy_reference_conformers(reference, 1) if len(calls['ditmc']) == 1 else []
+    def generate_torsional_candidates(reference, count, *args):
         calls['torsional_diffusion'].append(count)
-        return copies(reference, count)
-    out = prepare_candidates(molecule(), tmp_path/'run', settings(), allocated_cores=2,
-        generators={'ditmc': d, 'torsional_diffusion': t})
+        return copy_reference_conformers(reference, count)
+    out = prepare_candidates(make_butane_conformer(), tmp_path/'run', make_test_config(), allocated_cores=2,
+        generators={'ditmc': generate_one_ditmc_candidate, 'torsional_diffusion': generate_torsional_candidates})
     assert sum(calls['ditmc']) == 10
     assert calls['torsional_diffusion'] == [4]
     assert out.candidates[0].GetProp('generator') == 'ditmc'
     assert len(out.candidates) == 5
 
 
-def test_unavailable_models_and_mm_skip(tmp_path):
+def test_generation_continues_when_models_or_mm_are_unavailable(tmp_path):
     def skip(*args):
         raise UnsupportedParametersError('unsupported test molecule')
-    out = prepare_candidates(molecule(), tmp_path/'run', settings(mm_method='mmff94s'),
-        allocated_cores=2, generators={'etkdgv3': copies}, mm_optimizer=skip)
+    out = prepare_candidates(make_butane_conformer(), tmp_path/'run', make_test_config(mm_method='mmff94s'),
+        allocated_cores=2, generators={'etkdgv3': copy_reference_conformers}, mm_optimizer=skip)
     state = json.loads(out.status_path.read_text())
     assert [x['state'] for x in state['stages'][:2]] == ['unavailable_dependency']*2
     assert state['mm_state'] == 'skipped' and len(out.candidates) == 5
 
 
-def test_underfilled_and_zero(tmp_path):
+def test_generation_accepts_nonempty_candidate_sets(tmp_path):
     def one(reference, count, seed, directory, *args):
-        return copies(reference, 1) if 'batch_000' in str(directory) else []
-    cfg = settings('low')
-    out = prepare_candidates(molecule(), tmp_path/'one', cfg, generators={'etkdgv3': one})
+        return copy_reference_conformers(reference, 1) if 'batch_000' in str(directory) else []
+    cfg = make_test_config('low')
+    out = prepare_candidates(make_butane_conformer(), tmp_path/'one', cfg, generators={'etkdgv3': one})
     assert len(out.candidates) == 1 and out.initial_sdf is not None
-    failed = prepare_candidates(molecule(), tmp_path/'zero', cfg, generators={'etkdgv3': lambda *a: []})
+    failed = prepare_candidates(make_butane_conformer(), tmp_path/'zero', cfg, generators={'etkdgv3': lambda *a: []})
     assert failed.state == 'generation_failed' and failed.initial_sdf is None
 
 
 @pytest.mark.parametrize('method', ['mmff94s', 'uff', 'none'])
-def test_native_etkdg_mm(tmp_path, method):
-    out = prepare_candidates('CCCC', tmp_path/'run', settings('low', n=3, mm_method=method, threads=4),
+def test_etkdg_generation_with_mm_settings(tmp_path, method):
+    out = prepare_candidates('CCCC', tmp_path/'run', make_test_config('low', n=3, mm_method=method, threads=4),
                              allocated_cores=3)
     assert out.initial_sdf is not None
     assert 1 <= len(out.candidates) <= 3
@@ -285,7 +285,7 @@ def test_wrong_stereo_is_rejected_at_generation_and_not_primary_best():
     for i in range(wrong.GetNumAtoms()):
         point = conf.GetAtomPosition(i)
         conf.SetAtomPosition(i, (-point.x, point.y, point.z))
-    cfg = settings()
+    cfg = make_test_config()
     accepted, generated = filter_candidates([ref, wrong], ref, 2, cfg.validation)
     assert len(accepted) == 1 and generated['rejected'] == {'stereo_mismatch': 1}
     assert generated['candidates'][1]['tetrahedral_stereo_match'] is False
@@ -308,17 +308,17 @@ def test_learned_candidates_never_receive_mm_even_in_mixed_pool(tmp_path):
     def optimizer(records, method, options):
         calls.extend(m.GetProp('generator') for m in records)
         return [Chem.Mol(m) for m in records], [0]*len(records)
-    cfg = settings('high', n=3, mm_method='mmff94s')
+    cfg = make_test_config('high', n=3, mm_method='mmff94s')
     def one_learned(ref, count, seed, folder, *a):
         return [Chem.Mol(ref)] if folder.name == 'batch_000' else []
-    out = prepare_candidates(molecule(), tmp_path/'mixed', cfg,
+    out = prepare_candidates(make_butane_conformer(), tmp_path/'mixed', cfg,
         generators={'ditmc': one_learned,
-                    'torsional_diffusion': lambda *a: [], 'etkdgv3': copies},
+                    'torsional_diffusion': lambda *a: [], 'etkdgv3': copy_reference_conformers},
         mm_optimizer=optimizer)
     # Restrict the learned stage explicitly to its first batch so ETKDG fills.
     # A separate learned-only pool must never call the optimizer at all.
-    only = prepare_candidates(molecule(), tmp_path/'learned', cfg,
-        generators={'ditmc': copies}, mm_optimizer=lambda *a: pytest.fail('MM called on DiTMC'))
+    only = prepare_candidates(make_butane_conformer(), tmp_path/'learned', cfg,
+        generators={'ditmc': copy_reference_conformers}, mm_optimizer=lambda *a: pytest.fail('MM called on DiTMC'))
     assert json.loads(only.status_path.read_text())['mm_state'] == 'not_applicable_to_learned_generators'
     assert calls == ['etkdgv3', 'etkdgv3']
     assert [m.GetProp('generator') for m in out.candidates] == ['ditmc', 'etkdgv3', 'etkdgv3']
@@ -328,8 +328,8 @@ def test_final_stereo_mismatch_returns_structure_with_warning(tmp_path, monkeypa
     monkeypatch.chdir(tmp_path)
     ref = Chem.AddHs(Chem.MolFromSmiles('C[C@H](O)F'))
     assert AllChem.EmbedMolecule(ref, randomSeed=42) == 0
-    cfg = settings('low', n=1, relaxation={'implementation': 'continuous'})
-    prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
+    cfg = make_test_config('low', n=1, relaxation={'implementation': 'continuous'})
+    prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copy_reference_conformers})
     def backend(mol, *a):
         wrong = Chem.Mol(mol)
         conf = wrong.GetConformer()
@@ -354,9 +354,9 @@ def test_xtb_parallel_relaxation_uses_single_core_workers(tmp_path, monkeypatch)
         'Path("interval.json").write_text(json.dumps({"start":start,"end":time.time(),"pid":os.getpid(),"omp":os.environ["OMP_NUM_THREADS"],"blas":os.environ["OPENBLAS_NUM_THREADS"]}))\n'
         'print("CYCLE 1\\nGEOMETRY OPTIMIZATION CONVERGED\\nTOTAL ENERGY -1.0 Eh")\n')
     binary.chmod(0o755)
-    cfg = settings('low', n=2, relaxation={'implementation': 'continuous', 'xtb_executable': str(binary)})
-    ref = molecule()
-    prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copies})
+    cfg = make_test_config('low', n=2, relaxation={'implementation': 'continuous', 'xtb_executable': str(binary)})
+    ref = make_butane_conformer()
+    prepared = prepare_candidates(ref, tmp_path/'run', cfg, generators={'etkdgv3': copy_reference_conformers})
     audit = optimize_candidates(prepared, ref, cfg, 0, 1, 'xtb', 2, '1GB')
     assert audit['parallel_workers'] == 2 and audit['cores_per_calculation'] == 1
     assert audit['scheduling'] == 'parallel_candidates_1_core'
@@ -371,14 +371,14 @@ def test_xtb_parallel_relaxation_uses_single_core_workers(tmp_path, monkeypatch)
 
 
 def test_no_mm_snapshot_keeps_results_without_calling_optimizer(tmp_path):
-    ref, cfg = molecule(), settings('low', n=2, threads=4)
+    ref, cfg = make_butane_conformer(), make_test_config('low', n=2, threads=4)
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, allocated_cores=3,
-        generators={'etkdgv3': copies},
+        generators={'etkdgv3': copy_reference_conformers},
         mm_optimizer=lambda *a: pytest.fail('MM called despite mm_method=none'))
     assert len(prepared.candidates) == 2
     assert json.loads(prepared.status_path.read_text())['post_mm_validation_mode'] == 'reused_generation_no_mm'
     cache = IncrementalCandidateFilter(ref, 2, cfg.validation)
-    accepted, _ = cache.extend(copies(ref, 2))
+    accepted, _ = cache.extend(copy_reference_conformers(ref, 2))
     expected, audit = filter_candidates(accepted, ref, 2, cfg.validation)
     actual, snapshot = cache.snapshot()
     assert snapshot == audit
@@ -392,8 +392,8 @@ def test_mm_outputs_are_rechecked(tmp_path):
         mol = records[0]
         mol.GetConformer().SetAtomPosition(1, mol.GetConformer().GetAtomPosition(0))
         return records, [0]
-    result = prepare_candidates(molecule(), tmp_path/'run', settings('low', n=1, mm_method='uff'),
-        generators={'etkdgv3': copies}, mm_optimizer=collision)
+    result = prepare_candidates(make_butane_conformer(), tmp_path/'run', make_test_config('low', n=1, mm_method='uff'),
+        generators={'etkdgv3': copy_reference_conformers}, mm_optimizer=collision)
     assert result.state == 'no_valid_candidates_after_mm'
     assert json.loads(result.status_path.read_text())['post_mm_audit']['rejected'] == {'collision': 1}
 
@@ -403,8 +403,8 @@ def test_auto_device_controls_model_worker_count(tmp_path, monkeypatch, device, 
     monkeypatch.setattr(pipeline, 'resolve_model_device', lambda *a: {'requested': 'auto', 'effective': device})
     def generate(name, ref, count, seed, folder, options, threads, actual_workers):
         assert options['device'] == device and actual_workers == workers and threads == 4
-        return copies(ref, count)
+        return copy_reference_conformers(ref, count)
     monkeypatch.setattr(pipeline, 'generate_batch', generate)
-    cfg = settings('high', n=2, device='auto', threads=4)
-    result = prepare_candidates(molecule(), tmp_path/'run', cfg, allocated_cores=8)
+    cfg = make_test_config('high', n=2, device='auto', threads=4)
+    result = prepare_candidates(make_butane_conformer(), tmp_path/'run', cfg, allocated_cores=8)
     assert len(result.candidates) == 2

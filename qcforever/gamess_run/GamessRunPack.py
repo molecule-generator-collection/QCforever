@@ -649,8 +649,8 @@ class GamessDFTRun:
                 print('The input is ready for the conformation search...')
                 original_file = str(Path('..') / infilename)
                 try:
-                    from qcforever.conformer_search.conformer_search import configured_confopt
-                    self._conformer_summary = configured_confopt(
+                    from qcforever.conformer_search.conformer_search import run_conformer_search
+                    self._conformer_summary = run_conformer_search(
                         original_file, TotalCharge, SpinMulti, optconfoption, self.nproc, self.mem,
                         config=self._conformer_settings)
                 except job_timeout.QCforeverTimeoutError:

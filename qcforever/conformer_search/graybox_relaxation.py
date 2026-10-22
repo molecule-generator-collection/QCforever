@@ -78,7 +78,7 @@ class GrayboxSearch:
         """Initialize once, allocate more evaluations, then report why we stopped."""
         candidates = list(self.states)
         for start in range(0, len(candidates), self.workers):
-            if self.done():
+            if self.convergence_target_reached():
                 break
             self.advance_candidates(candidates[start:start + self.workers])
         for round_number in range(1, self.settings['maximum_budget_rounds'] + 1):
@@ -86,14 +86,14 @@ class GrayboxSearch:
             self.limit = self.initial_count * (
                 self.settings['initial_steps_per_candidate'] +
                 (round_number - 1) * self.settings['budget_increment_steps_per_candidate'])
-            if self.done() or not self.unfinished():
+            if self.convergence_target_reached() or not self.unfinished():
                 break
             if self.settings['algorithm'] == 'laqa':
                 self.phase = 'LAQA'
                 self.advance_ranked_candidates('laqa')
             else:
                 self.run_elimination_round()
-        self.stop_reason = ('convergence_quota' if self.done() else
+        self.stop_reason = ('convergence_quota' if self.convergence_target_reached() else
                             'candidate_pool_exhausted' if not self.unfinished() else
                             'global_budget_cap')
         return self
@@ -101,11 +101,11 @@ class GrayboxSearch:
     def unfinished(self):
         return [key for key, state in self.states.items() if not state.terminal]
 
-    def done(self):
+    def convergence_target_reached(self):
         return sum(state.status == 'converged' for state in self.states.values()) >= self.required
 
     def can_advance(self):
-        return not self.done() and self.cost['evaluations'] < self.limit
+        return not self.convergence_target_reached() and self.cost['evaluations'] < self.limit
 
     def advance(self, candidate):
         """Advance one candidate (also used by sequential saved-data callers)."""
@@ -115,7 +115,7 @@ class GrayboxSearch:
         """Collect a whole batch in dispatch order, including quota overshoot."""
         if not candidates or len(candidates) > self.workers or len(set(candidates)) != len(candidates):
             raise ValueError('Batch must contain distinct candidates within the worker limit')
-        if self.done() or any(self.states[key].terminal for key in candidates):
+        if self.convergence_target_reached() or any(self.states[key].terminal for key in candidates):
             raise RuntimeError('Cannot advance a finished search or candidate')
         if self.advance_native_batch is None:
             blocks = {key: self.advance_native(key) for key in candidates}
@@ -166,7 +166,7 @@ class GrayboxSearch:
         if self.on_event is not None:
             self.on_event(event)
 
-    def rank(self, candidate, score):
+    def ranking_key(self, candidate, score):
         """Energy or LAQA score, with candidate ID as deterministic tie-breaker."""
         state = self.states[candidate]
         if state.status in ('failed', 'limit') or state.energy is None:
@@ -203,7 +203,7 @@ class GrayboxSearch:
             self.advance_to_stage_target(alive, starts, target)
             if not self.can_advance():
                 return
-            alive.sort(key=lambda key: self.rank(key, 'energy'))
+            alive.sort(key=lambda key: self.ranking_key(key, 'energy'))
             keep = len(alive) - 1 if method == 'SR' else math.ceil(len(alive) / 2)
             alive = alive[:keep]
             phase += 1
@@ -225,5 +225,5 @@ class GrayboxSearch:
     def advance_ranked_candidates(self, score):
         """Shared allocation for LAQA and the SR/SH residual-budget phase."""
         while self.can_advance() and self.unfinished():
-            ranked = sorted(self.unfinished(), key=lambda key: self.rank(key, score))
+            ranked = sorted(self.unfinished(), key=lambda key: self.ranking_key(key, score))
             self.advance_candidates(ranked[:self.workers])

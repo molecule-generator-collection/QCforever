@@ -31,11 +31,11 @@ def test_native_worker_affinity(monkeypatch):
     assert calls == [(0, [8]), (0, [14])]
 
 
-def _copies(reference, count, *args):
+def copy_reference_conformers(reference, count, *args):
     return [Chem.Mol(reference) for _ in range(count)]
 
 
-def _pm6_adapter(mol, folder, charge, multiplicity, cores, memory, settings):
+def optimize_pm6_with_fake_gaussian(mol, folder, charge, multiplicity, cores, memory, settings):
     """Exercise continuous RFO input, parsing, and isolation in spawned workers."""
     before_cwd, before_env = Path.cwd(), dict(os.environ)
     index = int(folder.name.split('_')[-1])
@@ -85,8 +85,8 @@ def test_pm6_parallel_isolation_order_and_failure(tmp_path, monkeypatch, nproc):
         'budget': {'formula': 'fixed', 'fixed': 10}, 'mm_method': 'none', 'threads': 1,
         'validation': {'duplicate_rmsd_angstrom': 0}})
     prepared = prepare_candidates(ref, tmp_path/'run', cfg, allocated_cores=nproc,
-                                  generators={'etkdgv3': _copies})
-    audit = optimize_candidates(prepared, ref, cfg, 0, 1, 'pm6', nproc, '1GB', adapter=_pm6_adapter)
+                                  generators={'etkdgv3': copy_reference_conformers})
+    audit = optimize_candidates(prepared, ref, cfg, 0, 1, 'pm6', nproc, '1GB', adapter=optimize_pm6_with_fake_gaussian)
     workers = min(nproc, 10)
     assert audit['parallel_workers'] == workers
     assert audit['cores_per_calculation'] == 1

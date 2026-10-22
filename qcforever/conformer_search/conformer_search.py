@@ -1,6 +1,6 @@
 """QCforever entry point: prepare candidates, optimize them, and return a summary.
 
-Start with configured_confopt. The detailed generation and optimization records
+Start with run_conformer_search. The detailed generation and optimization records
 remain under conformer_search; optimized_structures.sdf is the QCforever handoff.
 """
 import json
@@ -17,7 +17,7 @@ from .structure_file_io import read_input_structure
 from .calculation_logs import write_json
 
 
-def configured_confopt(infilename, charge, multiplicity, method, nproc, memory, config):
+def run_conformer_search(infilename, charge, multiplicity, method, nproc, memory, config):
     """Called by optconf with resolved defaults and optional YAML overrides.
 
     This adapter uses process-local working directories, like legacy QCforever;
@@ -28,7 +28,7 @@ def configured_confopt(infilename, charge, multiplicity, method, nproc, memory, 
     if method not in ('xtb', 'pm6'):
         raise ValueError('optconf backend must be xtb or pm6')
     if config.profile == 'legacy':
-        return _run_legacy_confopt(infilename, charge, multiplicity, method, nproc, memory)
+        return _run_legacy_conformer_search(infilename, charge, multiplicity, method, nproc, memory)
     config = replace(config, relaxation=resolve_relaxation(config.relaxation, method))
     reference = read_input_structure(infilename, charge)
     root = Path.cwd()/'conformer_search'
@@ -47,7 +47,7 @@ def configured_confopt(infilename, charge, multiplicity, method, nproc, memory, 
             remove_pm6_checkpoints(root / 'electronic')
 
 
-def _run_legacy_confopt(infilename, charge, multiplicity, method, nproc, memory):
+def _run_legacy_conformer_search(infilename, charge, multiplicity, method, nproc, memory):
     """Run the original FAFOOM generation and LAQA relaxation unchanged.
 
     Legacy initialization appends to its SDF, so require a fresh working

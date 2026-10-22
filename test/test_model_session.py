@@ -7,7 +7,7 @@ from qcforever.conformer_search.generate_conformers import GenerationError
 
 
 @pytest.fixture
-def command(tmp_path):
+def model_worker_command(tmp_path):
     worker = tmp_path/'fake_worker.py'
     worker.write_text('''import argparse,json,os,pathlib,time
 from rdkit import Chem
@@ -29,11 +29,11 @@ while not (root/'stop').exists():
     return [sys.executable, str(worker), '--request', '{request}', '--output', '{output}']
 
 
-def test_workers_reused_when_additional_batch_is_smaller(tmp_path, command, monkeypatch):
+def test_workers_reused_when_additional_batch_is_smaller(tmp_path, model_worker_command, monkeypatch):
     monkeypatch.chdir(tmp_path)
     from pathlib import Path
     root = Path('stage'); root.mkdir()
-    session = ModelSession(root, {'command': command, 'timeout_seconds': 10}, 1)
+    session = ModelSession(root, {'command': model_worker_command, 'timeout_seconds': 10}, 1)
     ref = Chem.MolFromSmiles('CCO')
     def batch(n, size):
         folder=root/f'batch_{n}'; folder.mkdir()
@@ -52,9 +52,9 @@ def test_workers_reused_when_additional_batch_is_smaller(tmp_path, command, monk
     assert all(p.poll() is not None for p, _, _ in session.workers.values())
 
 
-def test_worker_crash_not_silently_restarted(tmp_path, command):
+def test_worker_crash_not_silently_restarted(tmp_path, model_worker_command):
     root=tmp_path/'stage'; root.mkdir()
-    session=ModelSession(root, {'command': command, 'timeout_seconds': 10}, 1)
+    session=ModelSession(root, {'command': model_worker_command, 'timeout_seconds': 10}, 1)
     folder=root/'batch'; folder.mkdir()
     try:
         with pytest.raises(GenerationError, match='exited'):

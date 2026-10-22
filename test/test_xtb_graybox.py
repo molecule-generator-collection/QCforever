@@ -23,7 +23,7 @@ pytestmark = pytest.mark.skipif(os.name != 'posix', reason='POSIX retained proce
 
 
 @pytest.fixture
-def setup_native(tmp_path, monkeypatch):
+def fake_xtb_environment(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv('QCFOREVER_MODEL_REGISTRY', str(tmp_path/'models.json'))
     binary = tmp_path/'xtb'
@@ -37,8 +37,8 @@ def setup_native(tmp_path, monkeypatch):
     return mol, cfg
 
 
-def test_same_process_retained_and_native_final(tmp_path, setup_native):
-    mol, cfg = setup_native
+def test_xtb_resumes_same_process(tmp_path, fake_xtb_environment):
+    mol, cfg = fake_xtb_environment
     runner = XTBCandidate(mol, tmp_path, 0, 1, '1GB', cfg.relaxation)
     try:
         first = runner.advance()
@@ -61,8 +61,8 @@ def test_same_process_retained_and_native_final(tmp_path, setup_native):
         runner.close()
 
 
-def test_close_stopped_process_is_fast_and_idempotent(tmp_path, setup_native):
-    mol, cfg = setup_native
+def test_close_stopped_process_is_fast_and_idempotent(tmp_path, fake_xtb_environment):
+    mol, cfg = fake_xtb_environment
     runner = XTBCandidate(mol, tmp_path, 0, 1, '1GB', cfg.relaxation)
     runner.advance()
     started = time.monotonic()
@@ -73,9 +73,9 @@ def test_close_stopped_process_is_fast_and_idempotent(tmp_path, setup_native):
     assert runner.process not in job_timeout._processes
 
 
-def test_native_failure_not_converged(tmp_path, setup_native, monkeypatch):
+def test_native_failure_not_converged(tmp_path, fake_xtb_environment, monkeypatch):
     monkeypatch.setenv('QCFOREVER_FAKE_XTB_MODE', 'fail')
-    mol, cfg = setup_native
+    mol, cfg = fake_xtb_environment
     runner = XTBCandidate(mol, tmp_path, 0, 1, '1GB', cfg.relaxation)
     try:
         blocks = [runner.advance()]
@@ -88,8 +88,8 @@ def test_native_failure_not_converged(tmp_path, setup_native, monkeypatch):
         runner.close()
 
 
-def test_close_handles_permission_error_only_after_exit(tmp_path, setup_native, monkeypatch):
-    mol, cfg = setup_native
+def test_close_handles_permission_error_only_after_exit(tmp_path, fake_xtb_environment, monkeypatch):
+    mol, cfg = fake_xtb_environment
     runner = XTBCandidate(mol, tmp_path, 0, 1, '1GB', cfg.relaxation)
     runner.advance()
     killpg = os.killpg
@@ -105,8 +105,8 @@ def test_close_handles_permission_error_only_after_exit(tmp_path, setup_native, 
     assert runner.process not in job_timeout._processes
 
 
-def test_close_does_not_hide_permission_error_on_live_child(tmp_path, setup_native, monkeypatch):
-    mol, cfg = setup_native
+def test_close_does_not_hide_permission_error_on_live_child(tmp_path, fake_xtb_environment, monkeypatch):
+    mol, cfg = fake_xtb_environment
     runner = XTBCandidate(mol, tmp_path, 0, 1, '1GB', cfg.relaxation)
     runner.advance()
     killpg = os.killpg
@@ -122,9 +122,9 @@ def test_close_does_not_hide_permission_error_on_live_child(tmp_path, setup_nati
         runner.close()
 
 
-def test_active_timeout_and_overall_timeout_cleanup(tmp_path, setup_native, monkeypatch):
+def test_active_timeout_and_overall_timeout_cleanup(tmp_path, fake_xtb_environment, monkeypatch):
     monkeypatch.setenv('QCFOREVER_FAKE_XTB_MODE', 'hang')
-    mol, cfg = setup_native
+    mol, cfg = fake_xtb_environment
     settings = dict(cfg.relaxation, first_interval=10, xtb_active_timeout_seconds=1)
     runner = XTBCandidate(mol, tmp_path, 0, 1, '1GB', settings)
     block = runner.advance()
@@ -140,20 +140,20 @@ def test_active_timeout_and_overall_timeout_cleanup(tmp_path, setup_native, monk
     assert runner.process not in job_timeout._processes
 
 
-def test_force_proxy_explicit_and_not_mixed(setup_native):
-    mol, cfg = setup_native
+def test_laqa_rejects_incompatible_force_definitions(fake_xtb_environment):
+    mol, cfg = fake_xtb_environment
     settings = dict(cfg.relaxation, algorithm='laqa')
     def advance(key):
         return BlockResult(-10, .1, 2, status='converged', force_kind=XTB_FORCE_KIND)
     good = GrayboxSearch({'a': 3}, advance, settings, force_kind=XTB_FORCE_KIND).run()
-    assert good.done()
+    assert good.convergence_target_reached()
     bad = GrayboxSearch({'a': 3}, advance, settings).run()
-    assert not bad.done() and bad.states['a'].status == 'failed'
+    assert not bad.convergence_target_reached() and bad.states['a'].status == 'failed'
 
 
 @pytest.mark.parametrize('memory_failure', [False, True])
-def test_workflow_cleans_entire_pool(tmp_path, setup_native, monkeypatch, memory_failure):
-    mol, cfg = setup_native
+def test_workflow_cleans_entire_pool(tmp_path, fake_xtb_environment, monkeypatch, memory_failure):
+    mol, cfg = fake_xtb_environment
     mols = [Chem.Mol(mol) for _ in range(5)]
     for i,m in enumerate(mols):
         m.SetProp('candidate_id', str(i))
@@ -183,8 +183,8 @@ def test_signal_handler_restored():
     assert signal.getsignal(signal.SIGTERM) == previous
 
 
-def test_cleanup_error_does_not_skip_remaining_candidates(tmp_path, setup_native, monkeypatch):
-    mol, cfg = setup_native
+def test_cleanup_error_does_not_skip_remaining_candidates(tmp_path, fake_xtb_environment, monkeypatch):
+    mol, cfg = fake_xtb_environment
     prepared = SimpleNamespace(status_path=tmp_path/'status.json', candidates=[mol,mol,mol])
     closed = []
     class Candidate:

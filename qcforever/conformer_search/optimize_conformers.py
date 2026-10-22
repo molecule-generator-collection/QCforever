@@ -182,7 +182,7 @@ def optimize_graybox_candidates(prepared, reference, config, charge, multiplicit
         algorithm_variant=('sequential_budget_extension_with_reentry' if workers == 1
                            else 'batched_budget_extension_with_reentry'), energy_unit='hartree',
         convergence_fraction=settings['convergence_fraction'], required_converged=search.required,
-        stop_reason=search.stop_reason, quota_reached=search.done(), cost=search.cost,
+        stop_reason=search.stop_reason, quota_reached=search.convergence_target_reached(), cost=search.cost,
         input_candidates=len(rows), attempted_candidates=sum(row['calls'] > 0 for row in rows),
         converged_candidates=sum(row['state'] == 'converged' for row in rows),
         failed_candidates=sum(row['state'] == 'failed' for row in rows),
