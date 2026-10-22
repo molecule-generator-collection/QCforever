@@ -61,6 +61,7 @@ class GaussianDFTRun:
         self.ref_spectrum_paths = {}
         self.geom_spec = {}
         self.para_functional = []
+        self.functional_parameter_optimization = None
 
     def check_scf_need(self, option):
         all_keys = set(option.keys())
@@ -323,6 +324,9 @@ class GaussianDFTRun:
             Beta_eHOMO = BetaEigenVal[NumBetaElec-1]
             Alpha_eLUMO = AlphaEigenVal[NumAlphaElec] 
             Beta_eLUMO = BetaEigenVal[NumBetaElec]
+            # max(finite, NaN) can hide an invalid spin-channel HOMO.
+            if not np.all(np.isfinite([dSCF_vip, Alpha_eHOMO, Beta_eHOMO])):
+                raise ValueError("The IP and both HOMO energies must be finite")
             Delta_vip = dSCF_vip + Eh2eV*max(Alpha_eHOMO, Beta_eHOMO)
             Delta_vea = dSCF_vea + Eh2eV*min(Alpha_eLUMO, Beta_eLUMO)
             output["satkoopmans"] = [Delta_vip, Delta_vea]
@@ -891,104 +895,112 @@ class GaussianDFTRun:
         return SpinMulti
 
     def LC_para_BOopt(self, JobName, ReadFrom, atm, X, Y, Z, TotalCharge, SpinMulti):
-        
+        """Tune mu using the IP residual (eV), retaining the best valid trial."""
         from bayes_opt import BayesianOptimization
         from bayes_opt import UtilityFunction
 
+        tolerance_ev = 0.01
+        best_valid_parameters = None
+        best_valid_error_ev = float('inf')
+        valid_evaluations = 0
+
         def KTLC_BB(mu):
+            nonlocal best_valid_parameters, best_valid_error_ev, valid_evaluations
             self.para_functional = [mu]
-        
-            option_dict_lcparacheck= {'homolumo': True, 'vip': True, 'vea': True,  'satkoopmans': True}
-            scf_need=True
-            self.chain_job(JobName, scf_need, option_dict_lcparacheck, TotalCharge, SpinMulti, 
-                         0, ReadFrom, 
-                         element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=[])
-            job_state = "normal"
+
+            option_dict_lcparacheck = {
+                'homolumo': True, 'vip': True, 'vea': True, 'satkoopmans': True}
+            self.chain_job(JobName, True, option_dict_lcparacheck, TotalCharge, SpinMulti,
+                           0, ReadFrom, element=atm, atomX=X, atomY=Y, atomZ=Z,
+                           optoption='', TDstate_info=[])
             job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName, self.timexe)
-            gaussian_run.chk2fchk.Get_chklist(0)
-        
+            if job_state != "normal":
+                return -10
+
             try:
-                output_prop = self.Extract_values(JobName, option_dict_lcparacheck, Bondpair1=[], Bondpair2=[])
-            except Exception as e:
-                job_state = "error"
-                square_diff_satkoopmans = -10
-                print(e)
-                pass
+                # Only the neutral checkpoint supplies the HOMO. A failed
+                # conversion must not let a previous trial's fchk be reused.
+                job_timeout.run(['formchk', f'{JobName}.chk'], check=True)
+                output_prop = self.Extract_values(
+                    JobName, option_dict_lcparacheck, Bondpair1=[], Bondpair2=[])
+                error_ev = abs(float(output_prop['satkoopmans'][0]))
+                target = -error_ev**2
+                if not np.isfinite(error_ev) or not np.isfinite(target):
+                    raise ValueError("Non-finite Koopmans residual")
+            except job_timeout.QCforeverTimeoutError:
+                raise
+            except Exception as error:
+                print(f"KTLC evaluation failed at mu={mu}: {error}")
+                return -10
 
-            #print (output_prop)
+            # The BO failure penalty is not a measured error and must never
+            # participate in selection of the parameter used for production.
+            valid_evaluations += 1
+            if error_ev < best_valid_error_ev:
+                best_valid_error_ev = error_ev
+                best_valid_parameters = [mu]
+            return target
 
-            if job_state == "normal":
-                #mu_list.append(i)
-                #satkoopmansIP_list.append(output_prop["satkoopmans"][0])
-                #satkoopmansEA_list.append(output_prop["satkoopmans"][1])
-                square_diff_satkoopmans = -output_prop['satkoopmans'][0]**2
-            else:
-                square_diff_satkoopmans = -10
-                pass
-            
-            return square_diff_satkoopmans
-
-        pbounds = {'mu': (0,1)}
-
-        optimizer = BayesianOptimization( 
-        f=KTLC_BB,
-        pbounds=pbounds,
-        verbose=1, 
-        random_state=1,
+        optimizer = BayesianOptimization(
+            f=KTLC_BB, pbounds={'mu': (0, 1)}, verbose=1, random_state=1,
         )
 
-        #initial mu values 
+        # Preserve the existing initial points and maximum of 52 evaluations.
         init_mu = [0.15, 0.35, 0.65]
-   
-        #initial try...
-        for i in range(len(init_mu)):
-            optimizer.set_bounds(new_bounds={"mu": (init_mu[i],init_mu[i])})
-            optimizer.maximize(
-                init_points=1,
-                n_iter=0,
-            )
+        for mu in init_mu:
+            optimizer.set_bounds(new_bounds={"mu": (mu, mu)})
+            optimizer.maximize(init_points=1, n_iter=0)
+        optimizer.set_bounds(new_bounds={"mu": (0, 1)})
 
-        diff_koopmans = np.sqrt(abs(optimizer.max['target']))
-        optimizer.set_bounds(new_bounds={"mu": (0,1)})
-
-        #Extra try...
-        if diff_koopmans <= 0.01:
-            print("Successful parameter optimization!")
-            pass
-        else:
-            i = 3 
+        if best_valid_error_ev > tolerance_ev:
+            i = 3
             acquisition_function = UtilityFunction(kind="ei", xi=1e-4)
-            while diff_koopmans > 0.01:
+            while best_valid_error_ev > tolerance_ev:
                 optimizer.maximize(
-                    init_points=0,
-                    n_iter=1,
+                    init_points=0, n_iter=1,
                     acquisition_function=acquisition_function,
                 )
                 i += 1
-                diff_koopmans = np.sqrt(abs(optimizer.max['target']))
                 if i > 51:
                     break
 
-        if diff_koopmans > 0.01:
-            print("The prameter optimization failed!")
-            print("The default parameter will be used!")
-            return []
+        if best_valid_parameters is None:
+            selected_parameters = []
+            state = 'default_no_valid'
+            selection_reason = 'no_valid_evaluations'
+            print("WARNING: KTLC has no valid evaluation; the default parameter will be used.")
         else:
-            print("Successful parameter optimization!")
+            selected_parameters = best_valid_parameters
+            if best_valid_error_ev <= tolerance_ev:
+                state = 'converged'
+                selection_reason = 'tolerance_reached'
+                print("Successful parameter optimization!")
+                for i, res in enumerate(optimizer.res):
+                    print(f"Iteration {i}: {res}")
+            else:
+                state = 'best_evaluated'
+                selection_reason = 'evaluation_limit'
+                print("WARNING: KTLC did not converge; using the best valid evaluated mu.")
+            print(f"Selected mu is {selected_parameters[0]} "
+                  f"with Koopmans error {best_valid_error_ev} eV.")
 
-            for i, res in enumerate(optimizer.res):
-                print(f"Iteration {i}: {res}")
-
-            diff_koopmans = np.sqrt(abs(optimizer.max['target']))
-            print(f"Optimized mu is {optimizer.max['params']['mu']} with the difference {diff_koopmans}.")
-
-            return [optimizer.max['params']['mu']]
+        self.para_functional = selected_parameters.copy()
+        self.functional_parameter_optimization = {
+            'state': state,
+            'selected_mu': selected_parameters[0] if selected_parameters else None,
+            'error_ev': best_valid_error_ev if best_valid_parameters is not None else None,
+            'tolerance_ev': tolerance_ev,
+            'valid_evaluations': valid_evaluations,
+            'selection_reason': selection_reason,
+        }
+        return selected_parameters
 
     def run_gaussian(self):
         """Run the complete workflow, enforcing ``timejob`` when configured."""
         from qcforever.conformer_search.settings import parse_conformer_options
         self._conformer_settings = parse_conformer_options(getattr(self, 'value', ''), getattr(self, 'conformer_config', None))
         self._conformer_summary = None
+        self.functional_parameter_optimization = None
         original_directory = os.getcwd()
         self._active_job_directory = None
         try:
@@ -1691,6 +1703,8 @@ class GaussianDFTRun:
         #If functional parameter is not default ones, add them to the output dictionary.
         if self.para_functional != []:
             output_sum['functional_param'] = self.para_functional
+        if self.functional_parameter_optimization is not None:
+            output_sum['functional_parameter_optimization'] = self.functional_parameter_optimization
     
         #Decide the log state        
         keylist = list(output_sum.keys())

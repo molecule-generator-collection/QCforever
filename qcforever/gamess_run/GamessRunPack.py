@@ -57,6 +57,7 @@ class GamessDFTRun:
 #        self.ref_uv_path = ''
         self.ref_spectrum_paths = {}
         self.para_functional = []
+        self.functional_parameter_optimization = None
 
     def conversion_memory(self, mem_byte):
         r = re.compile("([0-9]+)([a-zA-Z]+)")
@@ -365,142 +366,144 @@ class GamessDFTRun:
             ofile.write(line_input)
 
     def LC_para_BOopt(self, jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti):
-        
-        from bayes_opt import BayesianOptimization
-        from bayes_opt import UtilityFunction
+        """Tune mu and retain the best successfully evaluated LC parameters."""
+        tolerance_ev = 0.01
+        best_valid_parameters = None
+        best_valid_error_ev = math.inf
+        valid_evaluations = 0
 
         def KTLC_BB(mu):
+            nonlocal best_valid_parameters, best_valid_error_ev, valid_evaluations
 
             print("mu parameter:", mu)
+            # Zero retains the existing meaning: evaluate the GAMESS default.
             if mu == 0.:
                 self.para_functional = []
             else:
-                self.para_functional = [mu]
+                self.para_functional = [float(mu)]
+            evaluated_parameters = self.para_functional.copy()
 
-            #Calculating the ground state
-            GamInputName = jobname +'.inp'
+            if not math.isfinite(mu):
+                raise ValueError('The trial mu must be finite')
+
+            # Calculate the neutral, cation, and anion at the same geometry.
+            GamInputName = jobname + '.inp'
             run_type = 'ENERGY'
-
             self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, Mol_atom, X, Y, Z, TDDFT=False, datfile=None, solvent=self.solvent)
-            job_state = gamess_run.Exe_Gamess.exe_Gamess(jobname, self.gamessversion, self.nproc)
-            ###########################
-
-            #vip computation
-            run_type = 'ENERGY'
+            gamess_run.Exe_Gamess.exe_Gamess(jobname, self.gamessversion, self.nproc)
 
             GSdatfile = jobname + '.dat'
             vipjobname = jobname + '_VIP'
             GamInputName = vipjobname + '.inp'
-
             IPTotalCharge = TotalCharge + 1
-        
             if SpinMulti == 1:
                 IPSpinMulti = SpinMulti + 1
             else:
                 IPSpinMulti = SpinMulti - 1
-
             self.make_input(run_type, IPTotalCharge, IPSpinMulti, GamInputName, datfile=GSdatfile, solvent=self.solvent)
-            job_state = gamess_run.Exe_Gamess.exe_Gamess(vipjobname, self.gamessversion, self.nproc)
-            ###########################
+            gamess_run.Exe_Gamess.exe_Gamess(vipjobname, self.gamessversion, self.nproc)
 
-            #'vea' computation
-            run_type = 'ENERGY'
-
-            GSdatfile = jobname + '.dat'
             veajobname = jobname + '_VEA'
             GamInputName = veajobname + '.inp'
-
             EATotalCharge = TotalCharge - 1
-        
             if SpinMulti == 1:
                 EASpinMulti = SpinMulti + 1
             else:
                 EASpinMulti = SpinMulti - 1
-
             self.make_input(run_type, EATotalCharge, EASpinMulti, GamInputName, datfile=GSdatfile, solvent=self.solvent)
-            job_state = gamess_run.Exe_Gamess.exe_Gamess(veajobname, self.gamessversion, self.nproc)
-            ###########################
+            gamess_run.Exe_Gamess.exe_Gamess(veajobname, self.gamessversion, self.nproc)
 
-            job_state = "normal"
-            option_dict_lcparacheck= {'energy': True, 'homolumo': True, 'vip': True, 'vea': True}
             try:
+                option_dict_lcparacheck = {'energy': True, 'homolumo': True, 'vip': True, 'vea': True}
                 outdic = self.Extract_values(jobname, option_dict_lcparacheck)
-            except Exception as e: 
-                job_state = "error"
-                print(e)
-                pass
-            ##For debug##########################
-            #outdic = self.Extract_values(jobname, option_dict_lcparacheck)
-            #print(outdic)
-            #####################################
-
-            square_diff_satkoopmans = -10
-            if job_state == "normal":
-                Delta_IP = outdic['vip'][0] + max(outdic['Alpha_MO'][0][-1],outdic['Beta_MO'][0][-1])*Eh2eV
+                vip_ev = float(outdic['vip'][0])
+                alpha_homo = float(outdic['Alpha_MO'][0][-1])
+                beta_homo = float(outdic['Beta_MO'][0][-1])
+                if not all(math.isfinite(value) for value in (vip_ev, alpha_homo, beta_homo)):
+                    raise ValueError('VIP and both HOMO energies must be finite')
+                Delta_IP = vip_ev + max(alpha_homo, beta_homo)*Eh2eV
                 Delta_EA = outdic['vea'][0] + min(outdic['Alpha_MO'][1][0],outdic['Beta_MO'][1][0])*Eh2eV
+                square_diff_satkoopmans = -Delta_IP**2
+                error_ev = abs(float(Delta_IP))
+                if not math.isfinite(error_ev) or not math.isfinite(square_diff_satkoopmans):
+                    raise ValueError('The Koopmans error and objective must be finite')
+            except job_timeout.QCforeverTimeoutError:
+                raise
+            except Exception as exc:
+                print(f'Warning: mu={mu} evaluation failed: {exc}')
+                # Preserve the BO failure score, but never select it as a result.
+                return -10
 
-                square_diff_satkoopmans = -Delta_IP**2 
-            else:
-                square_diff_satkoopmans = -10
-                pass
-            
+            valid_evaluations += 1
+            if error_ev < best_valid_error_ev:
+                best_valid_parameters = evaluated_parameters
+                best_valid_error_ev = error_ev
             return square_diff_satkoopmans
 
-        pbounds = {'mu': (0,1)}
+        from bayes_opt import BayesianOptimization
+        from bayes_opt import UtilityFunction
 
-        optimizer = BayesianOptimization( 
-        f=KTLC_BB,
-        pbounds=pbounds,
-        verbose=1, 
-        random_state=1,
+        optimizer = BayesianOptimization(
+            f=KTLC_BB,
+            pbounds={'mu': (0, 1)},
+            verbose=1,
+            random_state=1,
         )
 
-        #initial mu values 
         init_mu = [0.15, 0.35, 0.65]
-   
-        #initial try...
-        for i in range(len(init_mu)):
-            optimizer.set_bounds(new_bounds={"mu": (init_mu[i],init_mu[i])})
+        for mu in init_mu:
+            optimizer.set_bounds(new_bounds={'mu': (mu, mu)})
             optimizer.maximize(
                 init_points=1,
                 n_iter=0,
             )
+        optimizer.set_bounds(new_bounds={'mu': (0, 1)})
 
-        diff_koopmans = np.sqrt(abs(optimizer.max['target']))
-        optimizer.set_bounds(new_bounds={"mu": (0,1)})
-
-        #Extra try...
-        if diff_koopmans <= 0.01:
-            print("Successful parameter optimization!")
-            pass
-        else:
-            i = 3 
-            acquisition_function = UtilityFunction(kind="ei", xi=1e-4)
-            while diff_koopmans > 0.01:
+        if best_valid_error_ev > tolerance_ev:
+            i = 3
+            acquisition_function = UtilityFunction(kind='ei', xi=1e-4)
+            while best_valid_error_ev > tolerance_ev:
                 optimizer.maximize(
                     init_points=0,
                     n_iter=1,
                     acquisition_function=acquisition_function,
                 )
                 i += 1
-                diff_koopmans = np.sqrt(abs(optimizer.max['target']))
                 if i > 51:
                     break
 
-        if diff_koopmans > 0.01:
-            print("The prameter optimization failed!")
-            print("The default parameter will be used!")
-            return []
+        for i, res in enumerate(optimizer.res):
+            print(f'Iteration {i}: {res}')
+
+        if best_valid_parameters is None:
+            state = 'default_no_valid'
+            selected_parameters = []
+            selected_error_ev = None
+            selection_reason = 'no_valid_evaluations'
+            print('Warning: no valid mu evaluation was obtained; the default parameter will be used.')
         else:
-            print("Successful parameter optimization!")
-
-            for i, res in enumerate(optimizer.res):
-                print(f"Iteration {i}: {res}")
-
-            diff_koopmans = np.sqrt(abs(optimizer.max['target']))
-            print(f"Optimized mu is {optimizer.max['params']['mu']} with the difference {diff_koopmans}.")
-
-            return [optimizer.max['params']['mu']]
+            selected_parameters = best_valid_parameters
+            selected_error_ev = best_valid_error_ev
+            if best_valid_error_ev <= tolerance_ev:
+                state = 'converged'
+                selection_reason = 'tolerance_reached'
+                print('Successful parameter optimization!')
+            else:
+                state = 'best_evaluated'
+                selection_reason = 'evaluation_limit'
+                print('Warning: parameter optimization did not converge; the best valid evaluated parameter will be used.')
+            selected_label = selected_parameters[0] if selected_parameters else 'default (evaluated at mu=0)'
+            print(f'Selected mu is {selected_label} with error {selected_error_ev} eV.')
+        self.para_functional = selected_parameters.copy()
+        self.functional_parameter_optimization = {
+            'state': state,
+            'selected_mu': selected_parameters[0] if selected_parameters else None,
+            'error_ev': selected_error_ev,
+            'tolerance_ev': tolerance_ev,
+            'valid_evaluations': valid_evaluations,
+            'selection_reason': selection_reason,
+        }
+        return selected_parameters
 
 
     def run_gamess(self):
@@ -508,6 +511,7 @@ class GamessDFTRun:
         from qcforever.conformer_search.settings import parse_conformer_options
         self._conformer_settings = parse_conformer_options(getattr(self, 'value', ''), getattr(self, 'conformer_config', None))
         self._conformer_summary = None
+        self.functional_parameter_optimization = None
         original_directory = os.getcwd()
         self._active_job_directory = None
         self._active_job_name = None
@@ -680,11 +684,7 @@ class GamessDFTRun:
         if re.match('KTLC-', self.functional):
             base_functional = self.functional.split('-')
             self.functional = "LC-" + base_functional[1]
-            #self.para_functional = self.LC_para_BOopt(jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti)
-            try:
-                self.para_functional = self.LC_para_BOopt(jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti)
-            except: 
-                self.para_functional = []
+            self.para_functional = self.LC_para_BOopt(jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti)
 
 #setting of run type for the ground state
         if 'opt' in  option_dict:
@@ -801,6 +801,8 @@ class GamessDFTRun:
 
         if self.para_functional != []:
             output_dic['functional_param'] = self.para_functional
+        if self.functional_parameter_optimization is not None:
+            output_dic['functional_parameter_optimization'] = self.functional_parameter_optimization.copy()
 
         if 'optconf' in option_dict:
             output_dic['optconf'] = reconf
