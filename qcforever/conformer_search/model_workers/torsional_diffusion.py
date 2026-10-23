@@ -15,6 +15,14 @@ import types
 
 def initialize_model(args, request):
     """Prepare shared tables, then load each worker's model independently."""
+    import random
+    import numpy as np
+    import torch
+    # Upstream torus estimates score_norm_ randomly on import. Use the same
+    # initialization for every worker; generation is reseeded per request.
+    random.seed(0)
+    np.random.seed(0)
+    torch.manual_seed(0)
     args.cache.mkdir(parents=True, exist_ok=True)
     os.chdir(args.cache)
     sys.path.insert(0, str(args.source.resolve()))

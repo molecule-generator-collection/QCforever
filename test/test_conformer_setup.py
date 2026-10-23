@@ -5,11 +5,38 @@ import shutil
 import subprocess
 import stat
 import sys
+from types import SimpleNamespace
 import zipfile
 
 import pytest
 
 from qcforever.conformer_search.model_workers import install_models as install, installed_models as registry
+
+
+def test_torsional_initialization_is_seeded_before_table_import(tmp_path, monkeypatch):
+    import random
+    import numpy as np
+    from qcforever.conformer_search.model_workers import torsional_diffusion as td
+
+    seeds, samples = [], []
+    monkeypatch.setitem(sys.modules, 'torch', SimpleNamespace(manual_seed=seeds.append))
+    monkeypatch.setattr(sys, 'path', sys.path.copy())
+    monkeypatch.setattr(td.os, 'chdir', lambda path: None)
+    def initialize_tables(cache):
+        samples.append((random.random(), np.random.random()))
+        return {}
+    monkeypatch.setattr(td, '_initialize_torsion_tables', initialize_tables)
+    monkeypatch.setattr(td, '_load_model', lambda args, request: None)
+    args = SimpleNamespace(cache=tmp_path, source=tmp_path)
+    python_state, numpy_state = random.getstate(), np.random.get_state()
+    try:
+        td.initialize_model(args, {'seed': 12})
+        td.initialize_model(args, {'seed': 34})
+    finally:
+        random.setstate(python_state)
+        np.random.set_state(numpy_state)
+    assert samples[0] == samples[1]
+    assert seeds == [0, 0]
 
 
 @pytest.fixture(autouse=True)

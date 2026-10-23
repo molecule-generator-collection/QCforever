@@ -66,6 +66,8 @@ def _compact_candidate(folder, backend):
         step_axis = 'saved native XYZ frame; not assumed to equal optimizer cycle'
         force_definition = 'Cartesian gradient norm from native XYZ header'
         coordinate_precision = 'native xtbopt.log coordinates'
+        if rows and rows[0]['record_type'] == 'initial_structure':
+            coordinate_precision = 'native input.xyz coordinates; optimization never started'
     metadata = dict(record_type='metadata', schema_version=1, backend=backend,
         candidate_id=molecule.GetProp('candidate_id') if molecule.HasProp('candidate_id') else folder.name,
         atomic_numbers=atoms, step_axis=step_axis, energy_unit='hartree',
@@ -74,6 +76,9 @@ def _compact_candidate(folder, backend):
         optimizer_stdout_definition='Original xTB cycle/ANC-gradient/evaluation records, separate from Cartesian XYZ frames',
         structure_file=structures.name, omitted_incomplete_xyz_tail=truncated,
         records=len(rows), structures=len(frames))
+    if rows and rows[0]['record_type'] == 'initial_structure':
+        metadata['failure_reason'] = rows[0]['failure_reason']
+        metadata['optimization_started'] = False
     data = [metadata, *rows, *[dict(row, record_type='optimizer_stdout') for row in optimizer_rows]]
     json_text = ''.join(json.dumps(row, allow_nan=False) + '\n' for row in data)
     symbols = [Chem.GetPeriodicTable().GetElementSymbol(number) for number in atoms]
@@ -124,7 +129,7 @@ def _read_xtb_history(folder, atoms):
     if not path.exists():
         # No optimization data should be discarded merely because XYZ is absent.
         if (folder / 'xtb.out').exists():
-            raise ValueError('xTB output exists without a readable trajectory')
+            return _read_xtb_initial_scc_failure(folder, atoms)
         return rows, frames, False
     with path.open() as stream:
         while True:
@@ -153,3 +158,27 @@ def _read_xtb_history(folder, atoms):
             rows.append(dict(record_type='step', step=len(rows) + 1,
                 energy_hartree=parse_finite_number(match[1]),
                 gradient_norm_hartree_per_bohr=parse_finite_number(match[2])))
+
+
+def _read_xtb_initial_scc_failure(folder, atoms):
+    """Keep the input for a known pre-optimization failure, never invent a step.
+
+    Missing trajectories after optimization started, unknown native failures,
+    or inconsistent status still raise and preserve the original work files.
+    """
+    text = (folder / 'xtb.out').read_text(errors='replace')
+    status = json.loads((folder / 'status.json').read_text())
+    history = folder / 'trajectory.jsonl'
+    if not (status.get('state') == 'failed'
+            and (folder / '.sccnotconverged').is_file()
+            and 'scf: Self consistent charge iterator did not converge' in text
+            and not re.search(r'\bCYCLE\s+\d+', text)
+            and not (history.exists() and history.stat().st_size)):
+        raise ValueError('xTB output exists without a readable trajectory')
+    initial = Chem.MolFromXYZFile(str(folder / 'input.xyz'))
+    if initial is None or [atom.GetAtomicNum() for atom in initial.GetAtoms()] != atoms:
+        raise ValueError('Missing or inconsistent xTB input geometry')
+    row = dict(record_type='initial_structure', step=0, energy_hartree=None,
+        gradient_norm_hartree_per_bohr=None,
+        failure_reason='scc_not_converged_before_optimization')
+    return [row], [initial.GetConformer().GetPositions().tolist()], False

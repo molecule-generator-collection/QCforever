@@ -104,3 +104,35 @@ def test_candidate_symlinks_are_not_followed(tmp_path):
     (folder.parent / 'candidate_00001').symlink_to(other, target_is_directory=True)
     compact_relaxation_outputs(folder.parent, 'pm6')
     assert (other / 'state.chk').read_text() == 'keep'
+
+
+@pytest.mark.parametrize('problem', [None, 'started_optimization', 'unknown_failure', 'wrong_atom_order'])
+def test_xtb_initial_scc_failure_retains_input_without_inventing_results(tmp_path, problem):
+    folder = candidate_folder(tmp_path)
+    status = dict(state='failed', energy_hartree=None, error='native_failure_or_missing_convergence')
+    (folder / 'status.json').write_text(json.dumps(status))
+    (folder / '.sccnotconverged').touch()
+    text = 'scf: Self consistent charge iterator did not converge\nabnormal termination of xtb\n'
+    if problem == 'started_optimization':
+        text = 'CYCLE 1\n' + text
+    elif problem == 'unknown_failure':
+        text = 'unknown native failure\n'
+    (folder / 'xtb.out').write_text(text)
+    symbol = 'H' if problem == 'wrong_atom_order' else 'He'
+    (folder / 'input.xyz').write_text(f'1\ninitial input\n{symbol} 0.123456 0.0 0.0\n')
+    compact_relaxation_outputs(folder.parent, 'xtb')
+    report = json.loads((folder.parent / 'history_cleanup.json').read_text())
+    assert json.loads((folder / 'status.json').read_text()) == status
+    if problem:
+        assert report['errors']
+        assert (folder / 'xtb.out').read_text() == text
+        assert not (folder / 'trajectory.xyz').exists()
+    else:
+        metadata, row = read_history(folder)
+        assert not report['errors']
+        assert metadata['optimization_started'] is False
+        assert metadata['failure_reason'] == 'scc_not_converged_before_optimization'
+        assert row['record_type'] == 'initial_structure' and row['step'] == 0
+        assert row['energy_hartree'] is None and row['gradient_norm_hartree_per_bohr'] is None
+        assert '0.12345600000000' in (folder / 'trajectory.xyz').read_text()
+        assert {p.name for p in folder.iterdir()} == {'trajectory.jsonl', 'trajectory.xyz', 'status.json'}
