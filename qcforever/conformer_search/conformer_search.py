@@ -6,13 +6,12 @@ remain under conformer_search; optimized_structures.sdf is the QCforever handoff
 import json
 import shutil
 from contextlib import chdir
-from dataclasses import replace
 from pathlib import Path
 
-from .settings import SearchConfig, resolve_relaxation
+from .settings import SearchConfig
 from .generate_conformers import prepare_candidates
 from .optimize_conformers import optimize_candidates
-from .run_pm6 import remove_pm6_checkpoints
+from .relaxation_history import compact_relaxation_outputs
 from .structure_file_io import read_input_structure
 from .calculation_logs import write_json
 
@@ -29,7 +28,7 @@ def run_conformer_search(infilename, charge, multiplicity, method, nproc, memory
         raise ValueError('optconf backend must be xtb or pm6')
     if config.profile == 'legacy':
         return _run_legacy_conformer_search(infilename, charge, multiplicity, method, nproc, memory)
-    config = replace(config, relaxation=resolve_relaxation(config.relaxation, method))
+    config = config.for_backend(method)
     reference = read_input_structure(infilename, charge)
     root = Path.cwd()/'conformer_search'
     prepared = prepare_candidates(reference, root, config, allocated_cores=nproc)
@@ -43,8 +42,11 @@ def run_conformer_search(infilename, charge, multiplicity, method, nproc, memory
     finally:
         # Both execution modes have joined their workers before returning or
         # raising. Paused candidates no longer need their restart files here.
-        if method == 'pm6':
-            remove_pm6_checkpoints(root / 'electronic')
+        try:
+            compact_relaxation_outputs(root / 'electronic', method)
+        except Exception as exc:
+            # Storage cleanup must not change a scientific result or hide its error.
+            print(f'WARNING: Relaxation history cleanup did not finish: {exc}')
 
 
 def _run_legacy_conformer_search(infilename, charge, multiplicity, method, nproc, memory):

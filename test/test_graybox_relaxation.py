@@ -283,6 +283,26 @@ def test_unexpected_short_block_is_not_accepted(tmp_path, monkeypatch):
     assert 'Unexpected evaluation count' in block.error
 
 
+@pytest.mark.parametrize('failure', ['missing_checkpoint', 'empty_checkpoint', 'formchk_error'])
+def test_checkpoint_failure_preserves_previous_copy(tmp_path, monkeypatch, failure):
+    monkeypatch.setattr('shutil.which', lambda name: '/fake/' + name)
+    runner = PM6Candidate(make_water_conformer(), tmp_path, 0, 1, '1GB', dict(GRAYBOX_DEFAULTS))
+    previous = tmp_path / 'previous.chk'
+    previous.write_text('last good checkpoint')
+    runner.checkpoint, runner.target = previous, 1
+    def run(folder):
+        (folder / 'input.log').write_text(make_pm6_log(converged=True))
+        if failure != 'missing_checkpoint':
+            (folder / 'state.chk').write_text('' if failure == 'empty_checkpoint' else 'checkpoint')
+    def read_coordinates(folder):
+        raise RuntimeError('formchk failed')
+    monkeypatch.setattr(runner, '_run_call', run)
+    monkeypatch.setattr(runner, '_read_final_coordinates', read_coordinates)
+    assert runner.advance().status == 'failed'
+    assert runner.checkpoint == previous and previous.read_text() == 'last good checkpoint'
+    assert runner.final_molecule is None
+
+
 @pytest.mark.parametrize('previous_target,extra,records,printed_maximum', [(0, 1000, 3, 3), (1, 10, 2, 3)])
 def test_gaussian_internal_ceiling_is_limit_not_parse_failure(tmp_path, monkeypatch, previous_target, extra, records, printed_maximum):
     monkeypatch.setattr('shutil.which', lambda name: '/fake/' + name)
@@ -296,6 +316,7 @@ def test_gaussian_internal_ceiling_is_limit_not_parse_failure(tmp_path, monkeypa
     def native_limit(folder):
         text = make_pm6_log(records) + f'\nStep number {previous_target + records} out of a maximum of {printed_maximum}\n'
         (folder / 'input.log').write_text(text)
+        (folder / 'state.chk').write_text('checkpoint')
     monkeypatch.setattr(runner, '_run_call', native_limit)
     monkeypatch.setattr(runner, '_read_final_coordinates', lambda folder: mol.GetConformer().GetPositions())
     block = runner.advance()
@@ -347,6 +368,9 @@ def test_native_restart_input_and_precision(tmp_path, monkeypatch):
     first, second = runner.advance(), runner.advance()
     assert first.status == 'paused' and second.status == 'converged'
     assert first.evaluations == 1 and second.evaluations == 3
+    assert sum(command[0].endswith('formchk') for command in commands) == 1
+    assert not (tmp_path / 'call_0000/state.chk').exists()
+    assert (tmp_path / 'call_0001/state.chk').is_file()
     assert runner.final_molecule.GetConformer().GetPositions() == pytest.approx(mol.GetConformer().GetPositions())
     with pytest.raises(RuntimeError):
         runner.advance()

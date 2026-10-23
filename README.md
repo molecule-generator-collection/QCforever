@@ -232,9 +232,10 @@ The older syntax (`optconf=xtb optconf_medium laqa=50`) remains supported.
 
 The selected structure is saved as `optimized_structures.sdf`; summaries and
 detailed logs are under `conformer_search/` in the calculation directory.
-After PM6 conformer search finishes, its `.chk`/`.fchk` files are removed;
-structures, logs and numerical relaxation traces are retained. This does not
-remove checkpoints from the subsequent DFT calculation.
+After low/medium/high finishes, generated/final structures and relaxation histories
+(`trajectory.jsonl` and `trajectory.xyz`) are retained; temporary generation and
+xTB/PM6 files are removed after successful export. Failed exports preserve the
+original files. Legacy and subsequent DFT checkpoint handling are unchanged.
 In low/medium/high, if only a structure with geometry/stereo warnings is available, it is used with
 a console warning; the warning is also recorded in the returned summary.
 For advanced settings, set `job.conformer_config = "conformer.yaml"`;

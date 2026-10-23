@@ -62,6 +62,7 @@ def optimize_pm6_with_fake_gaussian(mol, folder, charge, multiplicity, cores, me
                            for i, atom in enumerate(mol.GetAtoms()))
             log += ' ----\nStationary point found\nNormal termination of Gaussian\n'
         (cwd / 'input.log').write_text(log)
+        (cwd / 'state.chk').write_text('checkpoint')
         return subprocess.CompletedProcess(command, 1 if index == 1 else 0)
 
     try:

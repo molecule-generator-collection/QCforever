@@ -18,7 +18,7 @@ STEREO_MATCH_PROPERTIES = ('tetrahedral_stereo_match', 'ez_stereo_match', 'joint
 def filter_candidates(records, reference, maximum, settings):
     """Validate the entire pool, including after coordinates change in MM."""
     reference = Chem.AddHs(Chem.RemoveHs(reference))
-    return _filter_new_candidates(records, reference, maximum, settings, [], [])
+    return _filter_new_candidates(records, reference, maximum, settings, [], [], [])
 
 
 class IncrementalCandidateFilter:
@@ -38,6 +38,7 @@ class IncrementalCandidateFilter:
         self._settings = deepcopy(settings)
         self._accepted = []
         self._accepted_audit = []
+        self._rmsd_molecules = []
 
     def extend(self, records):
         accepted = [Chem.Mol(mol) for mol in self._accepted]
@@ -47,7 +48,8 @@ class IncrementalCandidateFilter:
             mol.SetIntProp('raw_candidate_index', i)
             row['raw_index'] = i
         accepted, summary = _filter_new_candidates(
-            records, self._reference, self._maximum, self._settings, accepted, audit)
+            records, self._reference, self._maximum, self._settings, accepted, audit,
+            self._rmsd_molecules)
         self._accepted = [Chem.Mol(mol) for mol in accepted]
         self._accepted_audit = deepcopy([row for row in summary['candidates'] if row['accepted']])
         return accepted, summary
@@ -109,7 +111,7 @@ def select_optimized_candidate(records, energies_hartree, audit):
     return audit
 
 
-def _filter_new_candidates(records, reference, maximum, settings, accepted, audit):
+def _filter_new_candidates(records, reference, maximum, settings, accepted, audit, rmsd_molecules):
     """Shared checks in the original order; only the trusted prefix is skipped."""
     prefix_size = len(accepted)
     for i, source in enumerate(records, start=prefix_size):
@@ -119,9 +121,13 @@ def _filter_new_candidates(records, reference, maximum, settings, accepted, audi
             stereo = stereo_audit(mol, reference) if mol is not None else {}
             if reason is None and not stereo_matches_policy(stereo, settings):
                 reason = 'stereo_mismatch'
-            if reason is None:
-                if settings.duplicate_rmsd_angstrom > 0 and any(duplicate_rmsd(mol, old, settings) <
-                       settings.duplicate_rmsd_angstrom for old in accepted):
+            comparison = None
+            if reason is None and settings.duplicate_rmsd_angstrom > 0:
+                # Immutable, private comparison copies are reused only within
+                # this geometry stage. MM outputs always start a new filter.
+                comparison = rmsd_comparison_molecule(mol)
+                if any(_prepared_rmsd(comparison, old, settings) <
+                       settings.duplicate_rmsd_angstrom for old in rmsd_molecules):
                     reason = 'duplicate'
             if reason is None and len(accepted) >= maximum:
                 reason = 'maximum_candidates'
@@ -136,6 +142,8 @@ def _filter_new_candidates(records, reference, maximum, settings, accepted, audi
                 mol.SetProp('stereo_check_status', 'evaluated')
                 mol.SetIntProp('raw_candidate_index', i)
                 accepted.append(mol)
+                if comparison is not None:
+                    rmsd_molecules.append(comparison)
         except (ValueError, RuntimeError) as exc:
             row = {'raw_index': i, 'accepted': False, 'reason': 'unreadable_structure',
                    'detail': f'{type(exc).__name__}: {exc}'}
@@ -248,8 +256,12 @@ def duplicate_rmsd(probe, reference, settings):
     equivalent hydrogens cause combinatorial growth. A capped search may miss
     a duplicate (retain an extra candidate), not guarantee the global minimum.
     """
-    return rdMolAlign.GetBestAlignmentTransform(
-        rmsd_comparison_molecule(probe), rmsd_comparison_molecule(reference),
+    return _prepared_rmsd(rmsd_comparison_molecule(probe), rmsd_comparison_molecule(reference), settings)
+
+
+def _prepared_rmsd(probe, reference, settings):
+    """Align prepared copies without modifying either set of coordinates."""
+    return rdMolAlign.GetBestAlignmentTransform(probe, reference,
         maxMatches=settings.duplicate_max_matches,
         reflect=False, numThreads=1)[0]
 

@@ -1,4 +1,6 @@
-"""Read input structures and write SDF records without changing chemical identity."""
+"""Read molecular inputs and save structures or trajectories without changing them."""
+import io
+import os
 from pathlib import Path
 
 from rdkit import Chem
@@ -22,9 +24,25 @@ def read_input_structure(filename, charge):
     raise ValueError('Configured optconf accepts SDF or XYZ')
 
 
-def write_sdf(path, records):
-    """Write available records in input order, keeping hydrogens and properties."""
-    with Chem.SDWriter(str(path)) as writer:
+def write_sdf(path, records, *, verify=False):
+    """Keep record order and properties; verify final pools before scratch removal."""
+    output = io.StringIO() if verify else str(path)
+    with Chem.SDWriter(output) as writer:
         for mol in records:
             if mol is not None:
                 writer.write(mol)
+    if verify:
+        write_verified_text(path, output.getvalue())
+
+
+def write_verified_text(path, text):
+    """Flush and read back a temporary file before replacing its destination."""
+    path = Path(path)
+    temporary = path.with_name(path.name + '.tmp')
+    with temporary.open('x') as stream:
+        stream.write(text)
+        stream.flush()
+        os.fsync(stream.fileno())
+    if temporary.read_text() != text:
+        raise OSError(f'Saved content differs from the intended output: {path}')
+    temporary.replace(path)

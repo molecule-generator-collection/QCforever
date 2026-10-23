@@ -3,7 +3,7 @@
 Each candidate uses one core. Separate processes isolate Gaussian's working
 directory and environment; parallel completion never changes candidate order.
 """
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 import json
 import math
 import multiprocessing
@@ -17,7 +17,6 @@ from qcforever.util import job_timeout
 from qcforever.util.check_resource import native_thread_environment
 from .run_xtb import optimize_with_xtb, XTBCandidate, XTB_FORCE_KIND, pool_memory_mb, cleanup_on_signals
 from .run_pm6 import optimize_with_pm6, PM6Candidate
-from .settings import resolve_relaxation
 from .graybox_relaxation import GrayboxSearch
 from .run_candidate_blocks import CandidateBlockExecutor, resolve_block_workers
 from .structure_file_io import write_sdf
@@ -47,7 +46,7 @@ def optimize_candidates(prepared, reference, config, charge, multiplicity, metho
     """Optimize the requested pool continuously or adaptively, then audit/select."""
     if method not in ('xtb', 'pm6'):
         raise ValueError('optconf method must be xtb or pm6')
-    config = replace(config, relaxation=resolve_relaxation(config.relaxation, method))
+    config = config.for_backend(method)
     if isinstance(cores, bool) or not isinstance(cores, int) or cores < 1:
         raise ValueError('nproc must be a positive integer')
     if config.relaxation['implementation'] == 'graybox':
@@ -57,7 +56,7 @@ def optimize_candidates(prepared, reference, config, charge, multiplicity, metho
     folder = prepared.status_path.parent/'electronic'
     folder.mkdir(exist_ok=False)
     records, energies, rows = [], [], []
-    # Separate processes are essential: the Gaussian adapter changes cwd/env.
+    # Separate processes isolate deadlines and cancellation for native calls.
     # One core per native calculation; use nproc to parallelize candidates.
     # Model-generation threads are configured independently.
     cores_per_candidate = 1
@@ -259,7 +258,6 @@ def _optimize_one_candidate(task, adapter=None):
         out.SetProp('stereo_check_stage', 'after_relaxation')
         out.SetProp('stereo_check_status', 'pending')
         out.SetDoubleProp('energy_hartree', energy)
-        write_sdf(directory/'optimized.sdf', [out])
         candidate_result.update(state='converged', energy_hartree=energy)
         result = out.ToBinary(Chem.PropertyPickleOptions.AllProps)
     except job_timeout.QCforeverTimeoutError as exc:

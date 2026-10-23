@@ -1,5 +1,4 @@
 """Run PM6 with Gaussian, keeping native execution separate from candidate selection."""
-from contextlib import contextmanager
 from dataclasses import asdict
 import math
 import os
@@ -10,9 +9,8 @@ import time
 from rdkit import Chem
 from qcforever.util import job_timeout
 from qcforever.util.check_resource import native_thread_environment
-from .calculation_logs import (write_json, read_pm6_trace, read_pm6_block,
-                               parse_finite_number, diagnose_pm6_failure, PM6CalculationError)
-from .check_structures import copy_with_coordinates
+from .calculation_logs import (write_json, read_pm6_block,
+                               parse_finite_number, PM6CalculationError)
 from .graybox_relaxation import BlockResult
 
 
@@ -76,8 +74,11 @@ class PM6Candidate:
                 result.force = records[-1]['force_mean_hartree_per_bohr']
             if result.error is None:
                 native_short_stop = self._check_call(parsed, extra)
-                positions = self._read_final_coordinates(folder)
+                checkpoint = folder / 'state.chk'
+                if not checkpoint.is_file() or checkpoint.stat().st_size == 0:
+                    raise PM6CalculationError('Missing or empty restart checkpoint')
                 if parsed['native_converged']:
+                    positions = self._read_final_coordinates(folder)
                     self.final_molecule = Chem.Mol(self.mol)
                     for i, position in enumerate(positions):
                         self.final_molecule.GetConformer().SetAtomPosition(i, position)
@@ -86,7 +87,15 @@ class PM6Candidate:
                     result.status, result.error = 'limit', 'native_iteration_limit'
                 else:
                     result.status = 'paused'
-                self.checkpoint = folder / 'state.chk'
+                # Keep the previous checkpoint until its successor has completed
+                # a valid native block. Failed calls leave the last good copy intact.
+                previous_checkpoint = self.checkpoint
+                self.checkpoint = checkpoint
+                if previous_checkpoint is not None:
+                    try:
+                        previous_checkpoint.unlink()
+                    except OSError as exc:
+                        print(f'WARNING: Could not remove superseded checkpoint: {exc}')
         except Exception as exc:
             result.status, result.error = 'failed', f'{type(exc).__name__}: {exc}'
         result.wall_seconds = time.monotonic() - started
@@ -193,104 +202,14 @@ def read_checkpoint_coordinates(path):
 
 
 def optimize_with_pm6(mol, folder, charge, multiplicity, cores, memory, settings):
-    """Use the existing Gaussian adapter, retaining its files in this folder."""
-    if settings.get('pm6_optimizer') == 'rfo':
-        # Matched continuous-RFO reference; not a graybox scheduler.
-        native_settings = dict(settings, first_interval=settings.get('maximum_cycles', 1000),
-                               subsequent_interval=10,
-                               timeout_seconds_per_call=settings.get('timeout_seconds_per_call', 1800))
-        candidate = PM6Candidate(mol, folder, charge, multiplicity, memory, native_settings)
-        block = candidate.advance()
-        if block.status != 'converged':
-            raise PM6CalculationError(block.error or 'Continuous RFO did not converge')
-        return candidate.final_molecule, block.energy
-    from qcforever.laqa_fafoom.pyg16 import g16Object
-    binary = shutil.which('g16')
-    if binary is None:
-        raise FileNotFoundError('Gaussian16 executable not found for PM6')
-    thread_env = native_thread_environment(cores)
-    previous = {key: os.environ.get(key) for key in (*thread_env, 'GAUSS_EXEDIR', 'GAUSS_SCRDIR')}
-    try:
-        os.environ.update(thread_env)
-        write_json(folder/'environment.json', thread_env)
-        with working_directory(folder):
-            gaussian_job = g16Object(Chem.MolToMolBlock(mol), str(Path(binary).parent), str(folder),
-                            cores, memory or '1GB', 'opt', charge, multiplicity, 'pm6',
-                            settings.get('maximum_cycles', 1000))
-            gaussian_job.generate_input()
-            try:
-                gaussian_job.run_g16()
-            except job_timeout.QCforeverTimeoutError:
-                raise
-            except Exception as exc:
-                path = Path('Gau_molecule.log')
-                diagnostic = diagnose_pm6_failure(path.read_text(errors='replace') if path.is_file() else '', exc)
-                write_json(Path('failure.json'), diagnostic)
-                raise PM6CalculationError(
-                    f"PM6: {diagnostic['reason']}; see {folder/'failure.json'} and Gau_molecule.log") from exc
-            finally:
-                path = Path('Gau_molecule.log')
-                log = path.read_text(errors='replace') if path.is_file() else ''
-                trace = read_pm6_trace(log)
-                converged = trace['native_converged']
-                write_json(Path('trace.json'), trace)
-            if not converged:
-                diagnostic = diagnose_pm6_failure(log)
-                write_json(Path('failure.json'), diagnostic)
-                raise PM6CalculationError(f"PM6: {diagnostic['reason']}; see {folder/'failure.json'}")
-            # The Gaussian adapter edits coordinates in an SDF template. Read
-            # positions without chemical sanitization, then retain the input
-            # graph/electronic annotations exactly, as for the xTB backend.
-            out = Chem.MolFromMolBlock(gaussian_job.get_sdf_string_opt(), removeHs=False, sanitize=False)
-            if out is None:
-                raise ValueError('Unreadable PM6 final structure')
-            return copy_with_coordinates(mol, out), gaussian_job.get_energy('hartree')
-    finally:
-        for key, value in previous.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-
-
-def remove_pm6_checkpoints(electronic_directory):
-    """Remove restart files after this run's workers and coordinate reads finish.
-
-    The caller owns a newly created electronic directory. Never pass the parent
-    QC job directory: its DFT checkpoints must be retained. Logs, structures,
-    and numerical relaxation traces are kept, including for failed candidates.
-    """
-    folder = Path(electronic_directory)
-    if folder.is_symlink() or not folder.is_dir():
-        return
-    report = {'removed_files': 0, 'removed_bytes': 0, 'errors': []}
-    # Do not follow directory or file symlinks outside this calculation.
-    for directory, _, filenames in os.walk(folder, followlinks=False):
-        for filename in filenames:
-            path = Path(directory) / filename
-            if path.suffix.lower() not in ('.chk', '.fchk') or path.is_symlink():
-                continue
-            try:
-                size = path.stat().st_size
-                path.unlink()
-                report['removed_files'] += 1
-                report['removed_bytes'] += size
-            except OSError as exc:
-                report['errors'].append({'path': str(path.relative_to(folder)), 'error': str(exc)})
-    if report['errors']:
-        print(f'WARNING: Some PM6 checkpoints could not be removed; see {folder}/checkpoint_cleanup.json')
-    try:
-        write_json(folder / 'checkpoint_cleanup.json', report)
-    except OSError as exc:
-        # Cleanup must not hide a completed calculation or its original error.
-        print(f'WARNING: Could not write PM6 checkpoint cleanup report: {exc}')
-
-
-@contextmanager
-def working_directory(path):
-    previous = Path.cwd()
-    os.chdir(path)
-    try:
-        yield
-    finally:
-        os.chdir(previous)
+    """Continuous RFO reference with the same native settings as graybox PM6."""
+    if settings.get('pm6_optimizer', 'rfo') != 'rfo':
+        raise ValueError('Modern PM6 supports RFO only; use conf_gen=legacy for the old workflow')
+    native_settings = dict(settings, first_interval=settings.get('maximum_cycles', 1000),
+                           subsequent_interval=10,
+                           timeout_seconds_per_call=settings.get('timeout_seconds_per_call', 1800))
+    candidate = PM6Candidate(mol, folder, charge, multiplicity, memory, native_settings)
+    block = candidate.advance()
+    if block.status != 'converged':
+        raise PM6CalculationError(block.error or 'Continuous RFO did not converge')
+    return candidate.final_molecule, block.energy

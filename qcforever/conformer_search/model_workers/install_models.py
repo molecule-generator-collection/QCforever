@@ -176,10 +176,27 @@ def extract_zip(archive, directory, prefixes=None):
 
 def install_environment(model, device, python, root, log):
     recipe = PACKAGE/'requirements'/('ditmc-cpu.txt' if model == 'ditmc' else 'torsional-cpu.txt')
+    dependencies = []
+    if model == 'torsional_diffusion':
+        backend = 'cu124' if device == 'gpu' else 'cpu'
+        # macOS wheels are published on PyPI, not the Linux CPU/CUDA index.
+        torch_index = ([] if sys.platform == 'darwin' else
+                       ['--index-url', f'https://download.pytorch.org/whl/{backend}'])
+        dependencies = [
+            ['torch==2.6.0'] + torch_index,
+            ['torch-scatter==2.1.2', 'torch-cluster==1.6.3', '--only-binary=:all:',
+             '-f', f'https://data.pyg.org/whl/torch-2.6.0+{backend}.html'],
+        ]
+    extra = (['jax-cuda12-plugin[with_cuda]==0.5.1', 'jax-cuda12-pjrt==0.5.1']
+             if model == 'ditmc' and device == 'gpu' else [])
     # A changed adapter gets a new environment. Never overwrite a registered
-    # working installation during an update that may subsequently fail.
+    # working installation during an update that may subsequently fail. Only
+    # this model's runtime/dependencies matter, not installer text or other models.
+    runtime_files = ('__init__.py', 'run_model.py', 'check_installation.py',
+                     'installed_models.py', f'{model}.py')
     content = (f'{sys.platform}-{platform.machine()}'.encode() + recipe.read_bytes()
-               + b''.join(p.read_bytes() for p in sorted(PACKAGE.glob('*.py'))))
+               + json.dumps([dependencies, extra]).encode()
+               + b''.join((PACKAGE / name).read_bytes() for name in runtime_files))
     fingerprint = hashlib.sha256(content).hexdigest()[:12]
     folder = root/'envs'/f'{model}-{device}-{fingerprint}'
     marker = folder/'.qcforever-environment.json'
@@ -196,17 +213,8 @@ def install_environment(model, device, python, root, log):
         run([python, '-m', 'venv', folder], log)
     # Large scientific wheels may stall beyond pip's default 15-second timeout.
     pip = [executable, '-m', 'pip', '--isolated', 'install', '--timeout', '120']
-    if model == 'torsional_diffusion':
-        backend = 'cu124' if device == 'gpu' else 'cpu'
-        # macOS wheels are published on PyPI, not the Linux CPU/CUDA index.
-        torch_index = []
-        if sys.platform != 'darwin':
-            torch_index = ['--index-url', f'https://download.pytorch.org/whl/{backend}']
-        run(pip+['torch==2.6.0']+torch_index, log)
-        run(pip+['torch-scatter==2.1.2', 'torch-cluster==1.6.3', '--only-binary=:all:',
-                 '-f', f'https://data.pyg.org/whl/torch-2.6.0+{backend}.html'], log)
-    extra = (['jax-cuda12-plugin[with_cuda]==0.5.1', 'jax-cuda12-pjrt==0.5.1']
-             if model == 'ditmc' and device == 'gpu' else [])
+    for arguments in dependencies:
+        run(pip + arguments, log)
     run(pip+['-r', recipe]+extra, log)
     # Source lives under conformer_search. In the private model environment,
     # deploy it as a standalone package so importing a worker does not execute

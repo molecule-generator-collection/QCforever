@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import time
 
@@ -55,7 +56,7 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
         raise ValueError('Invalid molecule')
     reference = Chem.AddHs(Chem.RemoveHs(reference), addCoords=True)
     budget = config.budget.resolve(Chem.RemoveHs(reference))
-    maximum, cap = budget['maximum_candidates'], budget['raw_attempt_cap_per_generator']
+    maximum = budget['maximum_candidates']
     threads = config.effective_threads(allocated_cores)
     workers = config.parallelism(allocated_cores)
     root = Path(output_directory).resolve()
@@ -81,14 +82,13 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
             combined = _generate_with_method(
                 name, stage_index, reference, combined, generation_filter,
                 root=root, status=status, config=config, generators=generators)
-        write_sdf(root/'generated_candidates.sdf', combined)
+        write_sdf(root/'generated_candidates.sdf', combined, verify=True)
         if not combined:
             status['state'] = 'generation_failed'
             return PreparationResult(status['state'], [], None, status_path)
         optimized, mm_attempted, mm_details = optimize_etkdg_candidates(
             combined, config, optimizer=mm_optimizer)
         status.update(mm_details)
-        write_sdf(root/'mm_candidates.sdf', optimized)
         validation_started = time.monotonic()
         # Follow the execution route, not a structural-change detector. Even
         # skipped or unchanged MM outputs take the full post-MM validation path.
@@ -105,7 +105,7 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
             status['state'] = 'no_valid_candidates_after_mm'
             return PreparationResult(status['state'], [], None, status_path)
         initial = root/'initial_structures.sdf'
-        write_sdf(initial, filtered)
+        write_sdf(initial, filtered, verify=True)
         status.update(state='ready_for_electronic_optimization', initial_sdf=str(initial),
                       initial_sdf_sha256=hashlib.sha256(initial.read_bytes()).hexdigest())
         return PreparationResult(status['state'], filtered, initial, status_path)
@@ -115,6 +115,32 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
     finally:
         status['total_wall_seconds'] = time.monotonic()-started
         write_json(status_path, status)
+        # Stage workers have exited. Keep the final pools, not batch copies or
+        # model IPC/log files. An unexpected failure preserves diagnostics.
+        if status['state'] != 'failed':
+            try:
+                _remove_generation_work_files(root, status)
+                status['generation_cleanup'] = 'completed'
+            except Exception as exc:
+                status['generation_cleanup'] = f'{type(exc).__name__}: {exc}'
+                print(f'WARNING: Generation cleanup did not finish: {exc}')
+            write_json(status_path, status)
+
+
+def _remove_generation_work_files(root, status):
+    """Remove this run's generation files after verified final SDF writes.
+
+    Settings and the consolidated status retain seeds, counts and failure
+    reasons. The final generated pool precedes MM; initial_structures.sdf is
+    the validated pool handed to electronic optimization.
+    """
+    for index, stage in enumerate(status['stages']):
+        directory = root/f'{index:02d}_{stage["generator"]}'
+        if directory.is_symlink():
+            directory.unlink()
+        elif directory.is_dir():
+            shutil.rmtree(directory)
+    (root/'reference.sdf').unlink(missing_ok=True)
 
 
 def _generate_with_method(name, stage_index, reference, combined, generation_filter,
@@ -166,7 +192,6 @@ def _generate_with_method(name, stage_index, reference, combined, generation_fil
                 stage_status['returned_raw'] += len(raw)
                 batch.update(state='completed', returned_raw=len(raw), merge_audit=audit,
                              accumulated_valid=len(combined))
-                write_sdf(folder/'accepted_pool.sdf', combined)
             except MissingGeneratorDependency as exc:
                 batch.update(state='unavailable_dependency', error=str(exc))
                 stage_status['state'] = batch['state']
@@ -177,12 +202,11 @@ def _generate_with_method(name, stage_index, reference, combined, generation_fil
                 break
             finally:
                 batch['wall_seconds'] = time.monotonic()-batch_started
-                write_json(folder/'status.json', batch)
                 write_json(status_path, status)
         if stage_status['state'] == 'running':
             stage_status['state'] = 'target_reached' if len(combined) >= maximum else 'trial_cap_reached'
         stage_status.update(route_candidate_count=len(combined), wall_seconds=time.monotonic()-stage_started)
-        write_json(directory/'status.json', stage_status)
+        write_json(status_path, status)
 
         return combined
     finally:
@@ -346,10 +370,11 @@ def resolve_model_device(options, requested, directory, threads):
 
 
 def split_conformers(mol):
+    template = Chem.Mol(mol)
+    template.RemoveAllConformers()
     records = []
     for conf in mol.GetConformers():
-        record = Chem.Mol(mol)
-        record.RemoveAllConformers()
+        record = Chem.Mol(template)
         record.AddConformer(Chem.Conformer(conf), assignId=True)
         records.append(record)
     return records

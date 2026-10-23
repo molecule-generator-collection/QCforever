@@ -156,26 +156,6 @@ def test_gamess_handoff_keeps_elements_with_their_coordinates(tmp_path, monkeypa
         assert summary['state'] == result['conformer_search']['state'] == 'failed'
 
 
-def test_pm6_cleanup_preserves_other_jobs_and_analysis_files(tmp_path):
-    from qcforever.conformer_search.run_pm6 import remove_pm6_checkpoints
-
-    electronic = tmp_path/'electronic'
-    call = electronic/'candidate_00000/call_0000'
-    call.mkdir(parents=True)
-    for name in ('state.chk', 'state.fchk', 'input.log', 'trajectory.json', 'final.sdf'):
-        (call/name).write_text('retained analysis or removable restart')
-    other_job = tmp_path/'DFT.chk'
-    other_job.write_text('unrelated checkpoint')
-    (electronic/'linked.chk').symlink_to(other_job)
-    remove_pm6_checkpoints(electronic)
-    assert not (call/'state.chk').exists() and not (call/'state.fchk').exists()
-    assert all((call/name).is_file() for name in ('input.log', 'trajectory.json', 'final.sdf'))
-    assert other_job.read_text() == 'unrelated checkpoint'
-    assert (electronic/'linked.chk').is_symlink()
-    report = json.loads((electronic/'checkpoint_cleanup.json').read_text())
-    assert report['removed_files'] == 2 and report['removed_bytes'] > 0 and not report['errors']
-
-
 def test_yaml_overrides_respect_allocated_cores(tmp_path):
     path = tmp_path/'conformer.yaml'
     path.write_text('mm_method: uff\nworkers: 8\nthreads: 2\n')
@@ -234,6 +214,62 @@ def test_generation_accepts_nonempty_candidate_sets(tmp_path):
     assert len(out.candidates) == 1 and out.initial_sdf is not None
     failed = prepare_candidates(make_butane_conformer(), tmp_path/'zero', cfg, generators={'etkdgv3': lambda *a: []})
     assert failed.state == 'generation_failed' and failed.initial_sdf is None
+    assert {p.name for p in (tmp_path/'zero').iterdir()} == {
+        'generated_candidates.sdf', 'resolved_config.json', 'status.json'}
+
+
+@pytest.mark.parametrize('profile', ['low', 'medium', 'high'])
+def test_generation_cleanup_preserves_results_and_removes_batch_files(tmp_path, monkeypatch, profile):
+    other_job = tmp_path/'DFT'
+    other_job.mkdir()
+    (other_job/'state.chk').write_text('unrelated calculation')
+
+    def generator(reference, count, seed, folder, *args):
+        (folder/'request.json').write_text('{}')
+        (folder/'worker.out').write_text('model output')
+        (folder/'outside').symlink_to(other_job, target_is_directory=True)
+        # Exercise repeated batches and, for medium/high, fallback stages.
+        return [Chem.Mol(reference)] if folder.name == 'batch_000' else []
+
+    cfg = make_test_config(profile, n=3, mm_method='mmff94s')
+    adapters = {name: generator for name, _ in cfg.stages()}
+    result = prepare_candidates(make_butane_conformer(), tmp_path/'clean', cfg, generators=adapters)
+    state = json.loads(result.status_path.read_text())
+    assert state['generation_cleanup'] == 'completed'
+    assert len(state['stages']) == len(cfg.stages())
+    assert len(state['stages'][0]['batches']) > 1
+    assert {p.name for p in (tmp_path/'clean').iterdir()} == {
+        'generated_candidates.sdf', 'initial_structures.sdf', 'resolved_config.json', 'status.json'}
+    assert (other_job/'state.chk').read_text() == 'unrelated calculation'
+    pipeline.write_sdf(tmp_path/'plain.sdf', result.candidates)
+    assert (tmp_path/'plain.sdf').read_bytes() == result.initial_sdf.read_bytes()
+
+    monkeypatch.setattr(pipeline, '_remove_generation_work_files', lambda *a: None)
+    original = prepare_candidates(make_butane_conformer(), tmp_path/'original', cfg, generators=adapters)
+    for name in ('generated_candidates.sdf', 'initial_structures.sdf'):
+        assert (tmp_path/'clean'/name).read_bytes() == (tmp_path/'original'/name).read_bytes()
+    assert not list((tmp_path/'original').rglob('accepted_pool.sdf'))
+    assert not (tmp_path/'original/mm_candidates.sdf').exists()
+    assert list((tmp_path/'original').rglob('status.json')) == [original.status_path]
+    assert len(original.candidates) == len(result.candidates)
+    for before, after in zip(original.candidates, result.candidates):
+        assert before.GetPropsAsDict() == after.GetPropsAsDict()
+        np.testing.assert_array_equal(before.GetConformer().GetPositions(), after.GetConformer().GetPositions())
+
+
+@pytest.mark.parametrize('name', ['generated_candidates', 'initial_structures'])
+def test_generation_cleanup_preserves_work_files_if_sdf_verification_fails(tmp_path, monkeypatch, name):
+    read_text = Path.read_text
+
+    def damaged_readback(path, *args, **kwargs):
+        return 'damaged data' if path.name == f'{name}.sdf.tmp' else read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'read_text', damaged_readback)
+    with pytest.raises(OSError, match='Saved content differs'):
+        prepare_candidates(make_butane_conformer(), tmp_path/'run', make_test_config('low', n=1),
+            generators={'etkdgv3': copy_reference_conformers})
+    assert (tmp_path/'run/00_etkdgv3/batch_000/raw_candidates.sdf').is_file()
+    assert json.loads((tmp_path/'run/status.json').read_text())['state'] == 'failed'
 
 
 @pytest.mark.parametrize('method', ['mmff94s', 'uff', 'none'])
@@ -263,6 +299,55 @@ def test_all_atom_duplicates_preserve_oh_rotamers_and_coordinates():
     assert len(accepted) == 2
     assert audit['rejected'] == {'duplicate': 1}
     assert audit['duplicate_rmsd_atoms'] == 'all_explicit_atoms_except_XH3_hydrogens'
+
+
+def test_incremental_rmsd_cache_matches_full_filter_and_is_private(monkeypatch):
+    from qcforever.conformer_search import check_structures as checks
+    mol = Chem.AddHs(Chem.MolFromSmiles('CCO'))
+    AllChem.EmbedMolecule(mol, randomSeed=42)
+    atoms = mol.GetSubstructMatch(Chem.MolFromSmarts('[C]-[C]-[O]-[H]'))
+    batch = []
+    for angle in (180, 60, -60, 180):
+        candidate = Chem.Mol(mol)
+        rdMolTransforms.SetDihedralDeg(candidate.GetConformer(), *atoms, angle)
+        batch.append(candidate)
+    settings = SearchConfig.resolve().validation
+    expected, audit = filter_candidates(batch, mol, 10, settings)
+    calls = []
+    def prepare(candidate):
+        calls.append(candidate)
+        return rmsd_comparison_molecule(candidate)
+    monkeypatch.setattr(checks, 'rmsd_comparison_molecule', prepare)
+    cache = IncrementalCandidateFilter(mol, 10, settings)
+    returned, _ = cache.extend(batch[:2])
+    returned[0].GetConformer().SetAtomPosition(0, (99, 99, 99))
+    actual, actual_audit = cache.extend(batch[2:])
+    assert len(calls) == len(batch)  # Once per candidate, not twice per pair.
+    assert actual_audit == audit
+    for left, right in zip(actual, expected):
+        assert Chem.MolToMolBlock(left) == Chem.MolToMolBlock(right)
+
+
+def test_split_conformers_preserves_properties_order_and_coordinates():
+    mol = make_butane_conformer()
+    AllChem.EmbedMultipleConfs(mol, numConfs=4, randomSeed=42)
+    mol.SetProp('candidate_source', 'test')
+    records = pipeline.split_conformers(mol)
+    for record, conformer in zip(records, mol.GetConformers()):
+        expected = Chem.Mol(mol)
+        expected.RemoveAllConformers()
+        expected.AddConformer(Chem.Conformer(conformer), assignId=True)
+        assert record.GetPropsAsDict() == expected.GetPropsAsDict()
+        assert Chem.MolToMolBlock(record) == Chem.MolToMolBlock(expected)
+
+
+def test_backend_resolution_reuses_resolved_config_without_mutating_input():
+    config = SearchConfig()
+    original = config.to_mapping()
+    for backend in ('pm6', 'xtb'):
+        resolved = config.for_backend(backend)
+        assert resolved.for_backend(backend) is resolved
+    assert config.to_mapping() == original
 
 
 @pytest.mark.parametrize('smiles,expected', [

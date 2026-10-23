@@ -1,6 +1,7 @@
 """Basic installer safety tests; no packages or weights are downloaded."""
 import hashlib
 import io
+import shutil
 import subprocess
 import stat
 import sys
@@ -100,6 +101,9 @@ def test_partial_failure_preserves_old_registration(tmp_path, monkeypatch):
 def test_model_worker_imports_without_core_or_ml_dependencies(tmp_path, monkeypatch):
     """Use the real package copy, but do not install/download ML dependencies."""
     site = tmp_path/'model-site'
+    package = tmp_path/'package'
+    shutil.copytree(install.PACKAGE, package)
+    monkeypatch.setattr(install, 'PACKAGE', package)
     def run(argv, log, *, capture=False):
         if argv[1:3] == ['-m', 'venv']:
             binary = argv[3]/'bin/python'
@@ -121,6 +125,13 @@ def test_model_worker_imports_without_core_or_ml_dependencies(tmp_path, monkeypa
     subprocess.run([sys.executable, '-S', '-c', script, str(site)], cwd=tmp_path, check=True)
     options = install.worker_options('ditmc', executable, tmp_path, tmp_path, tmp_path)
     assert options['command'][1:3] == ['-m', 'qcforever_model_workers.run_model']
+    for name in ('install_models.py', 'torsional_diffusion.py'):
+        path = package/name
+        path.write_text(path.read_text() + '\n# Unrelated edit.\n')
+    assert install.install_environment('ditmc', 'cpu', sys.executable, tmp_path, None) == executable
+    adapter = package/'ditmc.py'
+    adapter.write_text(adapter.read_text() + '\n# Relevant adapter edit.\n')
+    assert install.install_environment('ditmc', 'cpu', sys.executable, tmp_path, None) != executable
 
 
 @pytest.mark.parametrize('system,machine,device,error', [

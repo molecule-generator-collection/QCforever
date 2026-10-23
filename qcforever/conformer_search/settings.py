@@ -1,26 +1,29 @@
 """Search settings: read options/YAML, validate values, and resolve resource limits."""
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from copy import deepcopy
+from importlib.resources import files
 import json
 import math
 import re
 from pathlib import Path
+import yaml
 
 from rdkit.Chem import rdMolDescriptors
 
 
-GRAYBOX_DEFAULTS = dict(
-    algorithm='sh', convergence_fraction=0.50, first_interval=1,
-    subsequent_interval=10, initial_steps_per_candidate=20,
-    budget_increment_steps_per_candidate=20, maximum_budget_rounds=50,
-    initial_delta_force=1.0, delta_force_floor=1e-6,
-    parallel_candidates='auto', timeout_seconds_per_call=1800,
-)
+# Values live in one user-readable file; backend-specific resolution is below.
+_DEFAULTS = yaml.safe_load(files(__package__).joinpath('defaults.yaml').read_text())
+GRAYBOX_DEFAULTS = {key: _DEFAULTS['relaxation'][key] for key in (
+    'algorithm', 'convergence_fraction', 'first_interval', 'subsequent_interval',
+    'initial_steps_per_candidate', 'budget_increment_steps_per_candidate',
+    'maximum_budget_rounds', 'initial_delta_force', 'delta_force_floor',
+    'parallel_candidates', 'timeout_seconds_per_call',
+)}
 
 
 def resolve_relaxation(settings, method):
     """Resolve backend-dependent defaults before generation or any native run."""
-    result = deepcopy(settings)
+    result = dict(settings)
     implementation = result.get('implementation', 'auto')
     if implementation == 'auto':
         implementation = 'graybox'
@@ -30,10 +33,12 @@ def resolve_relaxation(settings, method):
         result['pm6_optimizer'] = 'rfo'
     if implementation == 'graybox':
         if method == 'xtb':
-            result.setdefault('xtb_pool_memory_mb', 8192)
-            result.setdefault('xtb_active_timeout_seconds', 1800)
+            for key in ('xtb_pool_memory_mb', 'xtb_active_timeout_seconds'):
+                result.setdefault(key, _DEFAULTS['relaxation'][key])
         result.update({key: result.get(key, value) for key, value in GRAYBOX_DEFAULTS.items()})
-    return result
+    # Public entry points accept unresolved settings too. Reusing an already
+    # resolved object avoids reconstructing/validating the whole configuration.
+    return settings if result == settings else result
 
 
 def validate_relaxation(settings):
@@ -71,14 +76,14 @@ def validate_relaxation(settings):
 @dataclass(frozen=True)
 class CandidateBudget:
     """Compute the target count and fixed raw-attempt limit from a molecule."""
-    formula: str = 'exponential_rings'
-    base: float = 10.0
-    growth: float = 1.3
-    ring_weight: float = 5.0
-    maximum: int = 100
+    formula: str = _DEFAULTS['budget']['formula']
+    base: float = float(_DEFAULTS['budget']['base'])
+    growth: float = _DEFAULTS['budget']['growth']
+    ring_weight: float = float(_DEFAULTS['budget']['ring_weight'])
+    maximum: int = _DEFAULTS['budget']['maximum']
     nonaromatic_ring_floor: int = 0
     fixed: int | None = None
-    raw_attempt_multiplier: int = 2
+    raw_attempt_multiplier: int = _DEFAULTS['budget']['raw_attempt_multiplier']
 
     def __post_init__(self):
         if self.formula not in ('exponential_rings', 'fixed'):
@@ -118,12 +123,12 @@ class ValidationSettings:
     """Shared geometry, stereo and duplicate thresholds; distances are in angstrom."""
     absolute_collision_angstrom: float = 0.25
     minimum_nonbonded_covalent_ratio: float = 0.75
-    minimum_bonded_covalent_ratio: float = 0.60
+    minimum_bonded_covalent_ratio: float = _DEFAULTS['validation']['minimum_bonded_covalent_ratio']
     maximum_bonded_covalent_ratio: float = 1.50
-    duplicate_rmsd_angstrom: float = 0.10
-    duplicate_max_matches: int = 10000
-    require_tetrahedral_stereo_for_best: bool = True
-    require_ez_stereo_for_best: bool = True
+    duplicate_rmsd_angstrom: float = _DEFAULTS['validation']['duplicate_rmsd_angstrom']
+    duplicate_max_matches: int = _DEFAULTS['validation']['duplicate_max_matches']
+    require_tetrahedral_stereo_for_best: bool = _DEFAULTS['validation']['require_tetrahedral_stereo_for_best']
+    require_ez_stereo_for_best: bool = _DEFAULTS['validation']['require_ez_stereo_for_best']
 
     def __post_init__(self):
         values = [self.absolute_collision_angstrom, self.minimum_nonbonded_covalent_ratio,
@@ -140,15 +145,16 @@ class ValidationSettings:
 @dataclass(frozen=True)
 class SearchConfig:
     """Resolved search settings; requested and effective CPU counts stay distinct."""
-    profile: str = 'low'
-    candidate_retention: str = 'merge'
-    schema_version: int = 1
-    seed: int = 20261006
-    threads: int = 4
-    workers: int = 8
-    device: str = 'auto'
-    mm_method: str = 'mmff94s'
-    relaxation: dict = field(default_factory=lambda: {'implementation': 'auto', 'maximum_cycles': 1000})
+    profile: str = _DEFAULTS['profile']
+    candidate_retention: str = _DEFAULTS['candidate_retention']
+    schema_version: int = _DEFAULTS['schema_version']
+    seed: int = _DEFAULTS['seed']
+    threads: int = _DEFAULTS['threads']
+    workers: int = _DEFAULTS['workers']
+    device: str = _DEFAULTS['device']
+    mm_method: str = _DEFAULTS['mm_method']
+    relaxation: dict = field(default_factory=lambda: {
+        key: _DEFAULTS['relaxation'][key] for key in ('implementation', 'maximum_cycles')})
     budget: CandidateBudget = field(default_factory=CandidateBudget)
     validation: ValidationSettings = field(default_factory=ValidationSettings)
     generators: dict = field(default_factory=dict)
@@ -184,10 +190,6 @@ class SearchConfig:
         if path.suffix.lower() == '.json':
             value = json.loads(path.read_text())
         else:
-            try:
-                import yaml
-            except ImportError as exc:
-                raise ImportError('YAML settings require PyYAML') from exc
             value = yaml.safe_load(path.read_text())
         if not isinstance(value, dict):
             raise ValueError('Search settings must be a mapping')
@@ -196,12 +198,15 @@ class SearchConfig:
     def to_mapping(self):
         return asdict(self)
 
+    def for_backend(self, method):
+        """Resolve native defaults once; reuse this object on subsequent calls."""
+        relaxation = resolve_relaxation(self.relaxation, method)
+        return self if relaxation is self.relaxation else replace(self, relaxation=relaxation)
+
     @classmethod
     def resolve(cls, profile='low', override=None):
         """Defaults -> registered model commands -> profile -> explicit YAML."""
-        from importlib.resources import files
-        import yaml
-        value = yaml.safe_load(files(__package__).joinpath('defaults.yaml').read_text())
+        value = deepcopy(_DEFAULTS)
         from .model_workers.installed_models import read_registry
         value['generators'].update(read_registry()['generators'])
         value['profile'] = profile
@@ -341,8 +346,7 @@ def parse_conformer_options(option_string, override=None):
             if not math.isfinite(percentage) or not 0 < percentage <= 100:
                 raise ValueError('laqa percentage must be in (0, 100]')
             value['relaxation'].update(implementation='graybox', convergence_fraction=percentage / 100)
-    value['relaxation'] = resolve_relaxation(value['relaxation'], methods[0])
-    return SearchConfig.from_mapping(value)
+    return SearchConfig.from_mapping(value).for_backend(methods[0])
 
 
 def calculation_tokens(option_string):
