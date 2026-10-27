@@ -1,30 +1,15 @@
 import os
-import re
 import sys
-import glob
 import shutil
 import subprocess
+from pathlib import Path
 
 from qcforever.util import job_timeout
+from qcforever.util.gamess_scratch import resolve_scratch_directories
 
 
 def read_rungms(gmspath):
-
-    rungms_line = open(gmspath)
-    lines = rungms_line.readlines()
-    rungms_line.close()
-
-    for ii in range(len(lines)):
-        ll = lines[ii]
-        if(re.match("set SCR",ll)):
-            scr_list = ll.split('=')
-            scrpath = scr_list[-1].replace("\n", "")
-        
-        if(re.match("set USERSCR",ll)):
-            userscr_list = ll.split('=')
-            userscrpath = userscr_list[-1].replace("\n", "")
-
-    return scrpath, userscrpath
+    return tuple(str(path) for path in resolve_scratch_directories(gmspath))
 
 
 def exe_Gamess(jobname, gamessversion, nproc):
@@ -32,28 +17,33 @@ def exe_Gamess(jobname, gamessversion, nproc):
     cwd = os.getcwd()
     print(cwd)
     gmspath = shutil.which('rungms')
+    if gmspath is None:
+        raise FileNotFoundError("GAMESS launcher 'rungms' was not found on PATH")
     scr, userscr = read_rungms(gmspath)
-    job_intfile = scr+'/'+jobname+'*'
-    userjob_intfile = userscr+'/'+jobname+'*'
-    for f in glob.glob(job_intfile):
-        print(f)
-        os.remove(os.path.join(job_intfile, f))
-    for f in glob.glob(userjob_intfile):
-        print(f)
-        os.remove(os.path.join(userjob_intfile, f))
+    for directory in dict.fromkeys((Path(scr), Path(userscr))):
+        directory.mkdir(parents=True, exist_ok=True)
+        for path in directory.iterdir():
+            if path.name.startswith((jobname + '.', jobname + '_')) and path.is_file():
+                print(path)
+                path.unlink()
     infile = jobname + '.inp'
     outfile = jobname +'.log'
     datfile = jobname +'.dat'
 
+    environment = os.environ.copy()
+    environment.update(SCR=scr, USERSCR=userscr)
     GamessRes = job_timeout.run(
-        ['rungms', infile, gamessversion, str(nproc)],
+        [gmspath, infile, gamessversion, str(nproc)],
         stdout=subprocess.PIPE,
+        env=environment,
     )
     with open(outfile, 'w') as f:
         f.write(GamessRes.stdout.decode('utf-8'))
 
     path_datfile = userscr+'/'+datfile
-    shutil.move(path_datfile, os.path.join(cwd, datfile))
+    destination = os.path.join(cwd, datfile)
+    if Path(path_datfile).resolve() != Path(destination).resolve():
+        shutil.move(path_datfile, destination)
 
     return job_state 
 

@@ -83,6 +83,23 @@ For GAMESS
 python gamess_main.py input_file
 ```
 
+GAMESS scratch paths are resolved separately for `SCR` and `USERSCR`: a simple
+assignment in `rungms` takes precedence, followed by the environment inherited
+by Python. For installations whose `rungms` uses environment variables, set
+these before starting QCforever (for example, in `.bashrc`):
+
+```bash
+export SCR=/path/to/scr
+export USERSCR=/path/to/userscr
+```
+
+If either path is unspecified, QCforever uses `.gamess_scratch/scr` or
+`.gamess_scratch/userscr` inside the calculation directory. All selected
+directories are created if necessary and passed to `rungms` in its environment.
+Creation or permission errors are reported rather than changing the selected
+location. Scratch files belonging to the calculation are cleaned at the end,
+after collecting `.dat` restart files.
+
 ### Usage
 
 ```python

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import os
-import re
 import shutil
 from pathlib import Path
+
+from .gamess_scratch import resolve_scratch_directories
 
 
 def _remove_path(path):
@@ -49,27 +49,15 @@ def cleanup_gaussian(job_directory, preserve_pickle=False, preserve_xyz=False, p
     )
 
 
-def _read_gamess_scratch_directories(rungms_path):
-    """Read SCR and USERSCR assignments from a rungms script."""
-    directories = []
+def _read_gamess_scratch_directories(rungms_path, work_directory=None):
+    """Use the same scratch paths as execution, including environment defaults."""
     try:
-        lines = Path(rungms_path).read_text(errors="replace").splitlines()
-    except (OSError, TypeError):
-        return directories
-
-    for variable in ("SCR", "USERSCR"):
-        directory = None
-        pattern = re.compile(
-            rf"^\s*set\s+{variable}\s*=\s*['\"]?([^'\"\s]+)",
-            re.IGNORECASE,
+        directories = resolve_scratch_directories(
+            rungms_path, work_directory=work_directory
         )
-        for line in lines:
-            match = pattern.match(line)
-            if match:
-                directory = Path(os.path.expandvars(match.group(1))).expanduser()
-        if directory is not None and directory not in directories:
-            directories.append(directory)
-    return directories
+    except (OSError, ValueError):
+        return []
+    return list(dict.fromkeys(directories))
 
 
 def cleanup_gamess(
@@ -85,7 +73,9 @@ def cleanup_gamess(
 
     if scratch_directories is None:
         rungms_path = shutil.which("rungms")
-        scratch_directories = _read_gamess_scratch_directories(rungms_path)
+        scratch_directories = _read_gamess_scratch_directories(
+            rungms_path, work_directory=job_directory
+        )
 
     # GAMESS writes restart data to USERSCR (and some installations use SCR).
     # Move it before deleting scratch files so a timed-out job can be resumed.
