@@ -2,6 +2,17 @@ import re
 import sys
 import os
 
+from qcforever.util.quadrupole import (
+    BOHR_TO_ANGSTROM, COMPONENTS, tensor_from_components,
+)
+
+_MOMENT_NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[DdEe][+-]?\d+)?"
+
+
+def _moment_float(value):
+    return float(value.replace("D", "E").replace("d", "e"))
+
+
 
 class parse_log:
 
@@ -306,6 +317,36 @@ class parse_log:
         #    raise Exception("??? data pasing error?"+"\n".join(block));
     
         return ret
+
+    def getQuadrupoleMoment(self, block):
+        """Read a Cartesian Buckingham tensor and its printed reference point.
+
+        Accept one electrostatic block, as returned by getBlock. Values remain
+        in the GAMESS convention; util.quadrupole performs normalization.
+        """
+        values = {}
+        for index, line in enumerate(block):
+            labels = re.findall(r"\bQ(XX|YY|ZZ|XY|XZ|YZ)\b", line)
+            if not labels:
+                continue
+            row = next((row for row in block[index + 1:] if row.strip()), "")
+            numbers = re.findall(_MOMENT_NUMBER, row)
+            if len(numbers) == len(labels) and re.fullmatch(r"[\s\d.+\-DdEe]+", row):
+                values.update(zip(labels, map(_moment_float, numbers)))
+                if set(values) == set(COMPONENTS):
+                    break
+        if set(values) != set(COMPONENTS):
+            raise ValueError("No complete Cartesian Buckingham quadrupole in the final electrostatic block")
+        result = {"tensor": tensor_from_components(values)}
+        # Reference coordinates are printed in bohr, even for Angstrom inputs.
+        for index, line in enumerate(block):
+            if re.match(r"\s*POINT\s+\d+", line) and index + 1 < len(block):
+                numbers = re.findall(_MOMENT_NUMBER, block[index + 1])
+                if len(numbers) >= 3:
+                    result.update(origin_coordinates=[_moment_float(v) * BOHR_TO_ANGSTROM for v in numbers[:3]],
+                                  origin_unit="Angstrom")
+                break
+        return result
 
     def getFreq(self, block):
         ii = 0 

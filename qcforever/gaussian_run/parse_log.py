@@ -1,7 +1,18 @@
 import re
 import sys
 import os
+from pathlib import Path
+
 import numpy as np
+
+from qcforever.util.quadrupole import COMPONENTS, tensor_from_components
+
+_MOMENT_NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[DdEe][+-]?\d+)?"
+
+
+def _moment_float(value):
+    return float(value.replace("D", "E").replace("d", "e"))
+
 
 bohr2cm = 5.2918e-9
 Ac = 6.0221e+23
@@ -11,6 +22,111 @@ class parse_log:
     def __init__(self, outfile):
         with open (outfile) as output_line:
             self.lines = output_line.readlines()
+
+    @staticmethod
+    def _assignments(lines, labels):
+        pattern = r"\b(" + "|".join(labels) + r")\s*=\s*(" + _MOMENT_NUMBER + r")"
+        return {key: _moment_float(value)
+                for key, value in re.findall(pattern, "\n".join(lines))}
+
+    @staticmethod
+    def _last_gaussian_dipole(lines):
+        starts = [i for i, line in enumerate(lines)
+                  if re.match(r"\s*Dipole moment\s*\(", line)]
+        if not starts:
+            raise ValueError("No dipole/quadrupole population-analysis block")
+        return starts[-1]
+
+    def Extract_DipoleMoment(self, lines):
+        """Retain the historical [X, Y, Z, total] result in the native frame."""
+        start = self._last_gaussian_dipole(lines)
+        values = self._assignments(lines[start + 1:start + 2], ("X", "Y", "Z", "Tot"))
+        if set(values) != {"X", "Y", "Z", "Tot"}:
+            raise ValueError("Incomplete dipole in the final population-analysis block")
+        return [values[key] for key in ("X", "Y", "Z", "Tot")]
+
+    @staticmethod
+    def _gaussian_geometry(lines):
+        """Last orientation preceding the selected multipole block; no stale fallback."""
+        starts = [i for i, line in enumerate(lines)
+                  if re.search(r"(?:Standard|Input|Z-Matrix) orientation:", line)]
+        if not starts:
+            raise ValueError("No molecular orientation before the quadrupole output")
+        atoms, coordinates = [], []
+        complete = False
+        for row in lines[starts[-1] + 5:]:
+            if re.fullmatch(r"\s*-+\s*", row):
+                complete = bool(atoms)
+                break
+            match = re.fullmatch(
+                r"\s*\d+\s+(\d+)\s+-?\d+\s+(" + _MOMENT_NUMBER + r")\s+("
+                + _MOMENT_NUMBER + r")\s+(" + _MOMENT_NUMBER + r")\s*", row)
+            if match is None:
+                break
+            atoms.append(int(match[1]))
+            coordinates.append([_moment_float(value) for value in match.groups()[1:]])
+        if not complete:
+            raise ValueError("Incomplete final molecular orientation before the quadrupole output")
+        return atoms, np.array(coordinates)
+
+    @staticmethod
+    def _gaussian_masses(lines, natoms, fchk_path):
+        # AtmWgt preserves explicit isotopes; do not infer masses from element names.
+        masses = []
+        for line in lines:
+            if "AtmWgt=" in line:
+                masses.extend(_moment_float(value) for value in re.findall(_MOMENT_NUMBER, line.split("=", 1)[1]))
+        if len(masses) >= natoms:
+            return np.array(masses[-natoms:])
+        if fchk_path is not None and Path(fchk_path).is_file():
+            # Checkpoints can contain very large orbital arrays; only stream the
+            # early mass array rather than loading the whole file into memory.
+            with Path(fchk_path).open() as fchk_lines:
+                for line in fchk_lines:
+                    if re.match(r"Real atomic weights\s+R\s+N=", line):
+                        count = int(line.split()[-1])
+                        values = []
+                        for row in fchk_lines:
+                            values.extend(_moment_float(value) for value in row.split())
+                            if len(values) >= count:
+                                break
+                        if count == natoms and len(values) == count:
+                            return np.array(values)
+                        break
+        raise ValueError("Atomic masses are unavailable; cannot set the center-of-mass origin")
+
+    def Extract_QuadrupoleMoment(self, lines, fchk_path=None):
+        """Read native-frame Q and the data needed to move its origin to the COM.
+
+        Restrict lines to the requested calculation/state. Numerical origin
+        transformations and scalar properties belong to util.quadrupole.
+        An incomplete final population-analysis block raises ValueError.
+        """
+        start = self._last_gaussian_dipole(lines)
+        section = lines[start:]
+        quadrupoles = [i for i, line in enumerate(section)
+                       if re.match(r"\s*Quadrupole moment\s*\(", line)]
+        if not quadrupoles:
+            raise ValueError("No primitive quadrupole in the last dipole block")
+        index = quadrupoles[0]
+        values = self._assignments(section[index + 1:index + 3], COMPONENTS)
+        if set(values) != set(COMPONENTS):
+            raise ValueError("Incomplete primitive quadrupole in the last dipole block")
+        dipole = self._assignments(section[1:index], ("X", "Y", "Z"))
+        if set(dipole) != {"X", "Y", "Z"}:
+            raise ValueError("Incomplete dipole vector for the origin transformation")
+        charges = re.findall(r"\bCharge\s*=\s*(" + _MOMENT_NUMBER + r")", "\n".join(lines[:start]))
+        if not charges:
+            raise ValueError("No total charge for the origin transformation")
+        atoms, coordinates = self._gaussian_geometry(lines[:start])
+        masses = self._gaussian_masses(lines[:start], len(atoms), fchk_path)
+        return {
+            "primitive": tensor_from_components(values),
+            "dipole": [dipole[key] for key in ("X", "Y", "Z")],
+            "charge": _moment_float(charges[-1]),
+            "coordinates": coordinates,
+            "masses": masses,
+        }
 
     def SplitLinks(self):
         Links = []

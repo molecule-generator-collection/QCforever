@@ -131,6 +131,13 @@ and [KTLC- series](https://doi.org/10.1021/acs.jctc.3c00764) (`KTLC-BLYP-BO`, `K
 - ***input_file*** is a string to specify the input file.
   QCforever accepts a sdf, xyz, Gaussian chk, or a Gaussian fchk file.
 
+- Set `test.SpecTotalCharge` and/or `test.SpecSpinMulti` before running to
+  override the input file's charge and spin multiplicity. An unspecified value
+  retains the input file's value. After `optconf`, the selected SDF supplies
+  geometry and bonds; its formal charge and radical count do not overwrite the
+  electronic state used for the search. This also preserves a multiplicity
+  selected by Gaussian's `optspin` for subsequent parameter optimization.
+
 - ***solvent*** is to include the solvent effect through PCM.
   The default value is `None`, in vacuo. The legacy value `"0"` is also accepted.
 
@@ -159,7 +166,7 @@ Following options are currently available:
 |energy| SCF energy (in Eh) is printed.|:white_check_mark:|:white_check_mark:|
 |cden| charge and spin densities on each atom are computed.|:white_check_mark:|:white_check_mark:|
 |homolumo| HOMO/LUMO gap (Eh) calculation|:white_check_mark:|:white_check_mark:|
-|dipole| dipole moment of a molecule|:white_check_mark:|:white_check_mark:|
+|dipole| Dipole moment and quadrupole properties at the center of mass; see the output definitions below.|:white_check_mark:|:white_check_mark:|
 |polar| Dipole polarizability (in 10**-24 cm**3) of a molecule|:white_check_mark:||
 |deen| decomposition energy (in eV) of a molecule|:white_check_mark:||
 |stable2o2| stability to oxygen molecule|:white_check_mark:||
@@ -240,6 +247,73 @@ In low/medium/high, if only a structure with geometry/stereo warnings is availab
 a console warning; the warning is also recorded in the returned summary.
 For advanced settings, set `job.conformer_config = "conformer.yaml"`;
 see [defaults.yaml](qcforever/conformer_search/defaults.yaml).
+
+### Quadrupole output with `dipole`
+
+The `dipole` option also extracts quadrupole properties. The existing `dipole`
+return value is preserved: Gaussian returns `[X, Y, Z, total]` in Debye in its
+original output frame; GAMESS returns the total dipole in Debye.
+
+Each backend's `parse_log.py` extracts the tensor and its reference data:
+Gaussian uses `Extract_QuadrupoleMoment`, and GAMESS uses `getQuadrupoleMoment`.
+The RunPack passes those numerical values to `util/quadrupole.py`, which performs
+origin/convention transformations and calculates the isotropic and anisotropic
+scalars. The utility does not read logs or checkpoint files.
+
+The additional output keys are:
+
+| Key | Meaning |
+|---|---|
+| `quadrupole` | Primitive Cartesian charge second moment `Q`, as a dictionary with `unit`, `XX`, `YY`, `ZZ`, `XY`, `XZ`, and `YZ`. |
+| `quadrupole_traceless` | `T = Q - trace(Q) I / 3`, in the same dictionary format. |
+| `quadrupole_iso` | `trace(Q) / 3`, including its sign. |
+| `quadrupole_anisotropy` | Nonnegative scalar `sqrt(3/2 * sum_ij(T_ij**2))`; off-diagonal entries are counted twice. |
+| `quadrupole_info` | Units, tensor convention, origin, source program, availability status, and the reason for any unavailable data. |
+
+All quadrupole components and scalars use **Debye Angstrom**. The two scalars
+are invariant under rotations about a fixed origin. For comparison across
+calculations, the new quadrupole results use the **center of mass** as their
+origin; this does not change the legacy `dipole` output.
+
+For Gaussian, the primitive tensor and dipole vector come from the last
+population-analysis block of the requested calculation/state. The origin is
+shifted to the center of mass using that block's preceding orientation, total
+charge, and atomic masses (including specified isotopes). Masses are read from
+`AtmWgt` in the log, or from `Real atomic weights` in the matching `.fchk` file.
+If the tensor or origin-transformation data is missing, the new properties are
+`None` and `quadrupole_info` explains why; the dipole remains available.
+
+For GAMESS, `dipole` adds the following group to generated inputs, including
+inputs regenerated from `.dat` files:
+
+```text
+ $ELMOM IEMOM=2 WHERE=COMASS $END
+```
+
+GAMESS prints a traceless quadrupole in the Buckingham convention, `3 T / 2`.
+QCforever multiplies its six Cartesian components by **2/3** to match the
+Gaussian traceless convention before calculating the anisotropy. The primitive
+trace cannot be recovered from this output: **`quadrupole` and
+`quadrupole_iso` are `None` for GAMESS**, not zero. Available traceless data has
+status `traceless_only`. If the final electrostatic block lacks a complete
+quadrupole, all new properties are `None` with status `unavailable`; an earlier
+step's tensor is not reused. PCM calculations use the final `SYSTEM
+ELECTROSTATIC MOMENTS` block, consistently with the existing dipole extraction.
+
+For example:
+
+```python
+option = "opt energy dipole"
+# ... run the calculation ...
+print(output["quadrupole_traceless"]["XX"])
+print(output["quadrupole_anisotropy"])
+print(output["quadrupole_info"])
+```
+
+Definitions and program conventions:
+[GAMESS $ELMOM](https://www.msg.chem.iastate.edu/GAMESS/GAMESS_Manual/input.pdf),
+[Gaussian output format](https://docs.iochem-bd.org/data/codes/gaussian/multipole-d3e16989.html),
+[NIST quadrupole conventions](https://cccbdb.nist.gov/quadrupolex.asp).
 
 ## License
 

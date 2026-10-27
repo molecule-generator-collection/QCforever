@@ -10,6 +10,7 @@ import numpy as np
 from pathlib import Path
 
 from qcforever import gamess_run
+from qcforever.util.quadrupole import quadrupole_from_buckingham, quadrupole_properties
 from qcforever.util import (
     read_mol_file,
     check_resource,
@@ -125,6 +126,14 @@ class GamessDFTRun:
                 dd = parselog.getBlock("SYSTEM ELECTROSTATIC MOMENTS")    
             dval = parselog.getDipoleMoment(dd[-1])
             output['dipole'] = dval
+            try:
+                moments = parselog.getQuadrupoleMoment(dd[-1])
+                output.update(quadrupole_from_buckingham(
+                    **moments, source="GAMESS", origin="center_of_mass"))
+            except ValueError as error:
+                output.update(quadrupole_properties(
+                    source="GAMESS", origin="center_of_mass", source_convention="Buckingham",
+                    status="unavailable", reason=str(error)))
 
         if is_cden_specified:
             output['cden'] = parselog.getChargeSpin()
@@ -252,6 +261,8 @@ class GamessDFTRun:
         GamInputName, Mol_atom=[], X=[], Y=[], Z=[], 
         TDDFT=False, target=[1, 1], datfile=None, solvent='0'):
         #target[0]=target state index, target[1]=spin multiplicity of the target state
+        from qcforever.conformer_search.settings import calculation_tokens
+        is_dipole = any(token.lower() == 'dipole' for token in calculation_tokens(self.value))
 #setting for memory
         if self.mem == '':
             mem_words = 125000000/10**6 #1 GB on 64 bit PC as the unit of 10**6 words 
@@ -324,6 +335,10 @@ class GamessDFTRun:
                 line_input += f' $END\n'
             # Solvent effect cannot be combined with the analytical vibrational analsysis
             line_input += CPCM # for solvent effect line
+            # Request Cartesian quadrupoles at a molecular origin for all jobs,
+            # including inputs regenerated from a .dat file after optimization.
+            if is_dipole:
+                line_input += ' $ELMOM IEMOM=2 WHERE=COMASS $END\n'
             line_input += ' $SCF damp=.TRUE.'
             if run_type == 'HESSIAN' or run_type == 'RAMAN':
                 line_input += ' DIRSCF=.TRUE. $END\n'
@@ -672,7 +687,9 @@ class GamessDFTRun:
 
             try:
                 from qcforever.conformer_search.conformer_search import read_selected_structure
-                Mol_atom, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_selected_structure(self._conformer_summary)
+                # The SDF supplies geometry/bonds; keep the electronic state
+                # passed to optconf rather than its formal charge/radicals.
+                Mol_atom, X, Y, Z, _, _, Bondpair1, Bondpair2 = read_selected_structure(self._conformer_summary)
                 reconf = True
             except Exception as e:
                 print('Conformation search is failed!')

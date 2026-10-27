@@ -20,6 +20,7 @@ from qcforever.util import (
     job_timeout,
 )
 from qcforever.gaussian_run.solvent import resolve_gaussian_solvent
+from qcforever.util.quadrupole import quadrupole_at_center_of_mass, quadrupole_properties
 
 
 Eh2kJmol = 2625.5
@@ -147,18 +148,14 @@ class GaussianDFTRun:
                 output["Beta_MO"] = [BetaEigenVal[:NumBetaElec], BetaEigenVal[NumBetaElec:]]
         
         if is_dipole:
-            Dipole_X = []
-            Dipole_Y = []
-            Dipole_Z = []
-            Dipole_Total = []
-            for line in GS_lines:
-                if line.find(" X= ") >= 0:
-                    line_StateInfo = line.split()
-                    Dipole_X.append(float(line_StateInfo[1]))
-                    Dipole_Y.append(float(line_StateInfo[3]))
-                    Dipole_Z.append(float(line_StateInfo[5]))
-                    Dipole_Total.append(float(line_StateInfo[7]))
-            output["dipole"] = [Dipole_X[-1], Dipole_Y[-1], Dipole_Z[-1], Dipole_Total[-1]]
+            output["dipole"] = parse_log.Extract_DipoleMoment(GS_lines)
+            try:
+                moments = parse_log.Extract_QuadrupoleMoment(GS_lines, fchkname)
+                output.update(quadrupole_at_center_of_mass(**moments, source="Gaussian"))
+            except ValueError as error:
+                output.update(quadrupole_properties(
+                    source="Gaussian", origin="center_of_mass",
+                    status="unavailable", reason=str(error)))
         
         if is_energy:
             output["Energy"] = parse_log.Extract_SCFEnergy(GS_lines)
@@ -1354,7 +1351,9 @@ class GaussianDFTRun:
 
             try:
                 from qcforever.conformer_search.conformer_search import read_selected_structure
-                atm, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_selected_structure(self._conformer_summary)
+                # The SDF supplies geometry/bonds; keep the electronic state
+                # passed to optconf (including overrides or an optspin result).
+                atm, X, Y, Z, _, _, Bondpair1, Bondpair2 = read_selected_structure(self._conformer_summary)
                 reconf = True
             except Exception as e:
                 print('Conformation search is failed!')
