@@ -536,6 +536,15 @@ class GamessDFTRun:
         except job_timeout.QCforeverTimeoutError as exc:
             print(exc)
             return {"log": "timeout", "error": str(exc)}
+        except gamess_run.Exe_Gamess.GamessExecutionError as exc:
+            print(exc)
+            return {
+                "log": "error",
+                "error": str(exc),
+                "jobname": exc.jobname,
+                "returncode": exc.returncode,
+                "logfile": str(exc.logfile),
+            }
         finally:
             os.chdir(original_directory)
             if self._active_job_directory is not None:

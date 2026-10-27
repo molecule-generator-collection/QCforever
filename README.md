@@ -107,6 +107,13 @@ Creation or permission errors are reported rather than changing the selected
 location. A launcher may override these initial paths. QCforever uses its
 reported `USERSCR` to collect `.dat` restart files and reads all of the job's
 logs to find scratch files for final cleanup, including interrupted launches.
+If the launcher exits unsuccessfully or the required `.dat` file is missing,
+`run_gamess()` returns `log="error"` with the failed job name, launcher exit code,
+log path, and diagnostic log tail. A site wrapper may report exit code zero
+even when its backend failed, so a missing `.dat` is still treated as an error.
+For `limit: stacksize: Can't set limit`, check the soft/hard stack limits in the
+same job environment and the site's launcher settings with the center's
+administrator; changing scratch paths does not fix a stack-limit failure.
 
 ### Usage
 
