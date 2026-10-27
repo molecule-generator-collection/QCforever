@@ -32,15 +32,18 @@ def exe_Gamess(jobname, gamessversion, nproc):
 
     environment = os.environ.copy()
     environment.update(SCR=scr, USERSCR=userscr)
-    GamessRes = job_timeout.run(
-        [gmspath, infile, gamessversion, str(nproc)],
-        stdout=subprocess.PIPE,
-        env=environment,
-    )
-    with open(outfile, 'w') as f:
-        f.write(GamessRes.stdout.decode('utf-8'))
+    # Write directly to disk so both the reported scratch paths and partial
+    # calculation output survive a timeout or other interrupted execution.
+    with open(outfile, 'wb') as log:
+        job_timeout.run(
+            [gmspath, infile, gamessversion, str(nproc)],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            env=environment,
+        )
 
-    path_datfile = userscr+'/'+datfile
+    _, actual_userscr = resolve_scratch_directories(gmspath, log_path=outfile)
+    path_datfile = actual_userscr / datfile
     destination = os.path.join(cwd, datfile)
     if Path(path_datfile).resolve() != Path(destination).resolve():
         shutil.move(path_datfile, destination)

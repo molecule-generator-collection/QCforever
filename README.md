@@ -83,10 +83,17 @@ For GAMESS
 python gamess_main.py input_file
 ```
 
-GAMESS scratch paths are resolved separately for `SCR` and `USERSCR`: a simple
-assignment in `rungms` takes precedence, followed by the environment inherited
-by Python. For installations whose `rungms` uses environment variables, set
-these before starting QCforever (for example, in `.bashrc`):
+GAMESS scratch paths are resolved separately for `SCR` and `USERSCR`. The paths
+reported by `rungms` in its execution log take precedence, including paths chosen
+by a site wrapper, process ID, or batch scheduler. Standard output and standard
+error are saved to the calculation's `.log` file while GAMESS runs, so partial
+output and reported paths remain available after a timeout.
+
+Before launch, QCforever uses simple unconditional assignments in `rungms`,
+followed by the environment inherited by Python. Runtime expressions and shell
+branches are left to the launcher; QCforever does not execute the script to
+guess its settings. For installations whose `rungms` uses environment variables,
+set these before starting QCforever (for example, in `.bashrc`):
 
 ```bash
 export SCR=/path/to/scr
@@ -97,8 +104,9 @@ If either path is unspecified, QCforever uses `.gamess_scratch/scr` or
 `.gamess_scratch/userscr` inside the calculation directory. All selected
 directories are created if necessary and passed to `rungms` in its environment.
 Creation or permission errors are reported rather than changing the selected
-location. Scratch files belonging to the calculation are cleaned at the end,
-after collecting `.dat` restart files.
+location. A launcher may override these initial paths. QCforever uses its
+reported `USERSCR` to collect `.dat` restart files and reads all of the job's
+logs to find scratch files for final cleanup, including interrupted launches.
 
 ### Usage
 

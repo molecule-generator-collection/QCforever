@@ -49,14 +49,16 @@ def cleanup_gaussian(job_directory, preserve_pickle=False, preserve_xyz=False, p
     )
 
 
-def _read_gamess_scratch_directories(rungms_path, work_directory=None):
-    """Use the same scratch paths as execution, including environment defaults."""
-    try:
-        directories = resolve_scratch_directories(
-            rungms_path, work_directory=work_directory
-        )
-    except (OSError, ValueError):
-        return []
+def _read_gamess_scratch_directories(rungms_path, work_directory=None, log_paths=()):
+    """Include the actual paths from every launch, even interrupted ones."""
+    directories = []
+    for log_path in log_paths or (None,):
+        try:
+            directories.extend(resolve_scratch_directories(
+                rungms_path, work_directory=work_directory, log_path=log_path
+            ))
+        except (OSError, ValueError):
+            continue
     return list(dict.fromkeys(directories))
 
 
@@ -74,7 +76,13 @@ def cleanup_gamess(
     if scratch_directories is None:
         rungms_path = shutil.which("rungms")
         scratch_directories = _read_gamess_scratch_directories(
-            rungms_path, work_directory=job_directory
+            rungms_path,
+            work_directory=job_directory,
+            log_paths=[
+                path for path in job_directory.iterdir()
+                if path.suffix == ".log" and path.is_file()
+                and path.name.startswith((f"{jobname}.", f"{jobname}_"))
+            ],
         )
 
     # GAMESS writes restart data to USERSCR (and some installations use SCR).
