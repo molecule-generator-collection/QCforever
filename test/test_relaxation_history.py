@@ -61,6 +61,69 @@ def test_pm6_history_preserves_every_call_and_removes_native_files(tmp_path):
     assert (tmp_path / 'DFT.chk').read_text() == 'unrelated checkpoint'
 
 
+@pytest.mark.parametrize('backend', ['pm6', 'xtb'])
+def test_failed_calculation_keeps_only_bounded_diagnostic_logs(tmp_path, backend):
+    folder = candidate_folder(tmp_path)
+    (folder / 'status.json').write_text(json.dumps(dict(state='failed', error='native failure')))
+    text = 'large prefix\n' * 10000 + 'Error termination: diagnostic reason\n'
+    if backend == 'pm6':
+        for index in range(2):
+            call = folder / f'call_{index:04d}'
+            call.mkdir()
+            (call / 'input.log').write_text(pm6_log(-10 - index, 0) + (text if index else 'old call\n'))
+            (call / 'state.chk').write_bytes(b'large checkpoint')
+        (call / 'launcher.out').write_text('launcher diagnostic\n')
+    else:
+        (folder / 'xtb.out').write_text(text)
+        (folder / 'xtbopt.log').write_text('1\n energy: -10.0 gnorm: 0.005\nHe 0.0 0.0 0.0\n')
+    compact_relaxation_outputs(folder.parent, backend)
+    diagnostic = (folder / 'failure.log').read_text()
+    assert 'native failure' in diagnostic and 'diagnostic reason' in diagnostic
+    assert 'old call' not in diagnostic
+    assert len(diagnostic.encode()) < 66000
+    if backend == 'pm6':
+        assert 'call_0001/input.log' in diagnostic and 'launcher diagnostic' in diagnostic
+    assert {p.name for p in folder.iterdir()} == {'trajectory.jsonl', 'trajectory.xyz', 'status.json', 'failure.log'}
+
+
+@pytest.mark.parametrize('backend', ['pm6', 'xtb'])
+@pytest.mark.parametrize('state', ['converged', 'failed'])
+def test_keep_logs_preserves_full_text_without_changing_history(tmp_path, backend, state):
+    histories = []
+    for keep in (False, True):
+        folder = candidate_folder(tmp_path / str(keep))
+        (folder / 'status.json').write_text(json.dumps(dict(state=state, error=None)))
+        text = 'beginning of native log\n' + 'output\n' * 10000 + 'end of native log\n'
+        if backend == 'pm6':
+            for index in range(2):
+                call = folder / f'call_{index:04d}'
+                (call / 'scratch').mkdir(parents=True)
+                (call / 'input.log').write_text(pm6_log(-10 - index, 0) + text)
+                (call / 'state.chk').write_bytes(b'checkpoint')
+                (call / 'state.fchk').write_bytes(b'formatted checkpoint')
+            (call / 'launcher.out').write_text('launcher message\n')
+            (call / 'formchk.out').write_text('formchk message\n')
+        else:
+            (folder / 'xtb.out').write_text(text)
+            (folder / 'xtbopt.log').write_text('1\n energy: -10.0 gnorm: 0.005\nHe 0.0 0.0 0.0\n')
+            (folder / 'xtbrestart').write_bytes(b'restart state')
+        compact_relaxation_outputs(folder.parent, backend, keep_logs=keep)
+        histories.append(((folder / 'trajectory.jsonl').read_bytes(),
+                          (folder / 'trajectory.xyz').read_bytes()))
+        if keep:
+            saved = (folder / 'native.log').read_text()
+            assert text in saved
+            if backend == 'pm6':
+                assert 'call_0000/input.log' in saved and 'call_0001/input.log' in saved
+                assert 'launcher message' in saved and 'formchk message' in saved
+            assert {p.name for p in folder.iterdir()} == {
+                'trajectory.jsonl', 'trajectory.xyz', 'status.json', 'native.log'}
+        else:
+            assert not (folder / 'native.log').exists()
+            assert (folder / 'failure.log').exists() is (state == 'failed')
+    assert histories[0] == histories[1]
+
+
 @pytest.mark.parametrize('truncated', [False, True])
 def test_xtb_preserves_xyz_and_distinct_anc_records(tmp_path, truncated):
     folder = candidate_folder(tmp_path)
@@ -135,4 +198,5 @@ def test_xtb_initial_scc_failure_retains_input_without_inventing_results(tmp_pat
         assert row['record_type'] == 'initial_structure' and row['step'] == 0
         assert row['energy_hartree'] is None and row['gradient_norm_hartree_per_bohr'] is None
         assert '0.12345600000000' in (folder / 'trajectory.xyz').read_text()
-        assert {p.name for p in folder.iterdir()} == {'trajectory.jsonl', 'trajectory.xyz', 'status.json'}
+        assert (folder / 'failure.log').read_text().endswith(text + '\n')
+        assert {p.name for p in folder.iterdir()} == {'trajectory.jsonl', 'trajectory.xyz', 'status.json', 'failure.log'}

@@ -153,6 +153,7 @@ class SearchConfig:
     workers: int = _DEFAULTS['workers']
     device: str = _DEFAULTS['device']
     mm_method: str = _DEFAULTS['mm_method']
+    keep_logs: bool = _DEFAULTS['keep_logs']
     relaxation: dict = field(default_factory=lambda: {
         key: _DEFAULTS['relaxation'][key] for key in ('implementation', 'maximum_cycles')})
     budget: CandidateBudget = field(default_factory=CandidateBudget)
@@ -165,6 +166,10 @@ class SearchConfig:
             raise ValueError('Unknown schema_version')
         if self.profile not in ('low', 'medium', 'high', 'legacy'):
             raise ValueError('profile must be low, medium, high, or legacy')
+        if type(self.keep_logs) is not bool:
+            raise ValueError('keep_logs must be true or false')
+        if self.profile == 'legacy' and self.keep_logs:
+            raise ValueError('keep_logs is supported for low/medium/high only')
         if self.candidate_retention != 'merge':
             raise ValueError('Candidates from previous stages must be retained (merge)')
         if self.device not in ('auto', 'cpu', 'gpu'):
@@ -268,8 +273,8 @@ def _expand_conformer_options(option_string):
         for item in items:
             key, separator, value = item.strip().partition('=')
             key, value = key.strip().lower(), value.strip().lower()
-            if not separator or not value or key not in ('conf_gen', 'conf_relax', 'laqa'):
-                raise ValueError('Use optconf=(conf_gen=low, conf_relax=pm6, laqa=50)')
+            if not separator or not value or key not in ('conf_gen', 'conf_relax', 'laqa', 'keep_logs'):
+                raise ValueError('Use optconf=(conf_gen=low, conf_relax=pm6, laqa=50, keep_logs=false)')
             if key in fields:
                 raise ValueError(f'Duplicate optconf setting: {key}')
             if any(character.isspace() for character in value):
@@ -284,6 +289,8 @@ def _expand_conformer_options(option_string):
             tokens.append('optconf_' + fields['conf_gen'])
         if 'laqa' in fields:
             tokens.append('laqa=' + fields['laqa'])
+        if 'keep_logs' in fields:
+            tokens.append('keep_logs=' + fields['keep_logs'])
         return ' '.join(tokens)
 
     expanded = re.sub(r'(?<!\S)optconf\s*=\s*\(([^()]*)\)(?=\s|$)',
@@ -305,6 +312,9 @@ def _expand_conformer_options(option_string):
 def parse_conformer_options(option_string, override=None):
     """Read optconf options while leaving other QCforever properties untouched."""
     tokens = _expand_conformer_options(option_string)
+    log_options = [t.lower() for t in tokens if t.lower().startswith('keep_logs=')]
+    if len(log_options) > 1 or any(t not in ('keep_logs=true', 'keep_logs=false') for t in log_options):
+        raise ValueError('Specify keep_logs=true or keep_logs=false at most once')
     graybox_options = [t.lower() for t in tokens if t.lower() == 'laqa' or t.lower().startswith('laqa=')]
     if len(graybox_options) > 1:
         raise ValueError('Specify laqa at most once')
@@ -319,18 +329,20 @@ def parse_conformer_options(option_string, override=None):
     if len(selected) > 1 or len(methods) > 1:
         raise ValueError('Specify one optconf backend and at most one level')
     if not methods:
-        if selected or override is not None or graybox_options:
+        if selected or override is not None or graybox_options or log_options:
             raise ValueError('conformer settings require optconf')
         return None
     if methods[0] not in ('xtb', 'pm6'):
         raise ValueError('optconf supports xtb or pm6')
     if selected == ['legacy']:
-        if graybox_options or override is not None:
+        if graybox_options or override is not None or log_options:
             raise ValueError('conf_gen=legacy uses the old generation and relaxation unchanged; '
-                             'laqa and conformer_config overrides are not supported')
+                             'laqa, keep_logs and conformer_config overrides are not supported')
         return SearchConfig(profile='legacy')
     config = SearchConfig.resolve(selected[0] if selected else 'low', override)
     value = config.to_mapping()
+    if log_options:
+        value['keep_logs'] = log_options[0] == 'keep_logs=true'
     if config.profile == 'legacy':
         raise ValueError('Select legacy through optconf=(conf_gen=legacy), without conformer_config')
     if graybox_options:
@@ -352,4 +364,5 @@ def parse_conformer_options(option_string, override=None):
 def calculation_tokens(option_string):
     """Remove only search-level tokens before the existing property parser runs."""
     return [t for t in _expand_conformer_options(option_string)
-            if t.lower() not in LEVEL_OPTIONS and t.lower() != 'laqa' and not t.lower().startswith('laqa=')]
+            if t.lower() not in LEVEL_OPTIONS and t.lower() != 'laqa'
+            and not t.lower().startswith(('laqa=', 'keep_logs='))]

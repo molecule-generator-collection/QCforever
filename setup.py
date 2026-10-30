@@ -13,6 +13,7 @@ INSTALL_REQUIRES = [
     'rdkit>=2023.3.3',
     'basis-set-exchange>=0.12',
     'bayesian-optimization==1.4.3',
+    'lightgbm>=4.7.0,<5',
     'psutil']
 INSTALL_REQUIRES.append('PyYAML>=6')
 PACKAGES = [                    
@@ -26,7 +27,8 @@ PACKAGES = [
 PACKAGE_DATA = {
     'qcforever.conformer_search.model_workers': ['requirements/*.txt', 'model_sources.json'],
     'qcforever.conformer_search': ['defaults.yaml'],
-    'qcforever': ['gaussian_run/*.json', 'gaussian_run/*.csv'],
+    'qcforever': ['gaussian_run/*.json', 'gaussian_run/*.csv',
+                 'gaussian_run/ktlc_mu_models/*.json', 'gaussian_run/ktlc_mu_models/*.txt'],
 }
 CLASSIFIERS = [           
     'Intended Audience :: Science/Research',

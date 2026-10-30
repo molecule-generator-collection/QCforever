@@ -62,6 +62,7 @@ class GaussianDFTRun:
         self.geom_spec = {}
         self.para_functional = []
         self.functional_parameter_optimization = None
+        self.functional_parameter_prediction = None
 
     def check_scf_need(self, option):
         all_keys = set(option.keys())
@@ -1033,6 +1034,8 @@ class GaussianDFTRun:
         TargetTotalCharge = []
         p = Path(infilename)
         JobName, JobNameSuffix = p.stem, p.suffix
+        if self.functional == 'ktlc-blyp-pred' and JobNameSuffix not in {'.sdf', '.xyz'}:
+            raise ValueError('KTLC-BLYP-Pred requires SDF or XYZ molecular input')
         ReadFrom = None
         # Initialization of molecular coordinate
         atm, X, Y, Z = [], [], [], []
@@ -1063,6 +1066,15 @@ class GaussianDFTRun:
         if np.isnan(self.SpecSpinMulti) != True:
             Is_SpinMultiSpec = True
             SpinMulti = self.SpecSpinMulti
+
+        if self.functional == 'ktlc-blyp-pred':
+            from qcforever.gaussian_run.predict_ktlc_mu import predict_ktlc_mu
+            self.functional_parameter_prediction = predict_ktlc_mu(
+                infilename, TotalCharge, SpinMulti, self.basis, self.solvent)
+            self.para_functional = [gaussian_run.Gen_IOPline_functional.rounding_num(
+                self.functional_parameter_prediction['mu_mean'])]
+            self.functional = 'lc-blyp'
+            print('KTLC-BLYP-Pred:', self.functional_parameter_prediction)
 
         TargetTotalCharge.append(TotalCharge)
         TargetSpinMulti.append(SpinMulti)
@@ -1705,6 +1717,8 @@ class GaussianDFTRun:
             output_sum['functional_param'] = self.para_functional
         if self.functional_parameter_optimization is not None:
             output_sum['functional_parameter_optimization'] = self.functional_parameter_optimization
+        if self.functional_parameter_prediction is not None:
+            output_sum['functional_parameter_prediction'] = self.functional_parameter_prediction
     
         #Decide the log state        
         keylist = list(output_sum.keys())

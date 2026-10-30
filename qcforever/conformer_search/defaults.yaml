@@ -7,6 +7,7 @@ workers: 8
 threads: 4
 device: auto
 mm_method: mmff94s
+keep_logs: false  # Preserve complete xTB/PM6 text logs; scratch is still removed.
 budget:
   formula: exponential_rings
   base: 10
