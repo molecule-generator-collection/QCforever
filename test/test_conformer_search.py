@@ -85,6 +85,24 @@ def test_explicit_convergence_settings_remain_available():
             assert cfg.relaxation['pm6_optimizer'] == 'rfo'
 
 
+def test_native_log_retention_is_optional_and_not_a_property_token():
+    assert parse_conformer_options('optconf').keep_logs is False
+    for backend in ('xtb', 'pm6'):
+        for keep in (True, False):
+            option = f'optconf=(conf_relax={backend}, keep_logs={str(keep).lower()}) energy'
+            cfg = parse_conformer_options(option)
+            assert cfg.keep_logs is keep
+            assert calculation_tokens(option) == [f'optconf={backend}', 'energy']
+    assert parse_conformer_options('optconf', {'keep_logs': True}).keep_logs is True
+    assert parse_conformer_options('optconf=(keep_logs=false)', {'keep_logs': True}).keep_logs is False
+    for option in ('optconf=(keep_logs=yes)', 'optconf keep_logs=true keep_logs=false',
+                   'energy keep_logs=true', 'optconf=(conf_gen=legacy, keep_logs=true)'):
+        with pytest.raises(ValueError):
+            parse_conformer_options(option)
+    with pytest.raises(ValueError, match='keep_logs'):
+        SearchConfig.resolve(override={'keep_logs': 'false'})
+
+
 @pytest.mark.parametrize('option', [
     'optconf_high', 'optconf optconf_high optconf_medium',
     'optconf=(conf_gen=high, conf_gen=low)', 'optconf=(unknown=1)',

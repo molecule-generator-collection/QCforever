@@ -2,8 +2,10 @@
 
 Call only after all native workers have stopped. Each candidate retains
 trajectory.jsonl (units, step/energy/force records), trajectory.xyz (structures),
-and status.json. Search-level settings, selection, cost and final SDF files are
-untouched. A failed export preserves that candidate's original work files.
+and status.json. Failed calculations also retain failure.log with native log
+tails. With keep_logs=True, native.log instead contains complete text logs from
+all calls. Search-level outputs are untouched. A failed export preserves the
+candidate's original work files.
 """
 import json
 from pathlib import Path
@@ -16,14 +18,14 @@ from .calculation_logs import parse_finite_number, read_pm6_block, write_json
 from .structure_file_io import write_verified_text
 
 
-def compact_relaxation_outputs(electronic_directory, backend):
+def compact_relaxation_outputs(electronic_directory, backend, *, keep_logs=False):
     """Compact this run's candidate directories without changing chemistry."""
     root = Path(electronic_directory)
     if root.is_symlink() or not root.is_dir():
         return
     if root.name != 'electronic' or backend not in ('pm6', 'xtb'):
         raise ValueError('Expected an electronic directory and pm6/xtb backend')
-    report = dict(backend=backend, candidates=[], errors=[])
+    report = dict(backend=backend, keep_logs=keep_logs, candidates=[], errors=[])
     # A live xTB process must never lose its output or restart state.
     if (root / 'cleanup_errors.json').exists():
         print('WARNING: Native process cleanup failed; relaxation files were preserved')
@@ -32,7 +34,7 @@ def compact_relaxation_outputs(electronic_directory, backend):
         if not re.fullmatch(r'candidate_\d+', folder.name) or folder.is_symlink() or not folder.is_dir():
             continue
         try:
-            result = _compact_candidate(folder, backend)
+            result = _compact_candidate(folder, backend, keep_logs)
             report['candidates'].append(dict(candidate=folder.name, **result))
         except Exception as exc:
             report['errors'].append(dict(candidate=folder.name, error=f'{type(exc).__name__}: {exc}'))
@@ -41,7 +43,7 @@ def compact_relaxation_outputs(electronic_directory, backend):
         print(f'WARNING: Some relaxation files were preserved; see {root}/history_cleanup.json')
 
 
-def _compact_candidate(folder, backend):
+def _compact_candidate(folder, backend, keep_logs):
     history = folder / 'trajectory.jsonl'
     structures = folder / 'trajectory.xyz'
     # Do not run the conversion twice or silently replace an unrelated export.
@@ -89,14 +91,46 @@ def _compact_candidate(folder, backend):
             xyz_lines.append(symbol + ' ' + ' '.join(f'{value:.14f}' for value in xyz) + '\n')
     write_verified_text(structures, ''.join(xyz_lines))
     write_verified_text(history, json_text)
+    _save_native_logs(folder, backend, keep_logs)
     for path in list(folder.iterdir()):
-        if path.name in ('trajectory.jsonl', 'trajectory.xyz', 'status.json'):
+        if path.name in ('trajectory.jsonl', 'trajectory.xyz', 'status.json', 'failure.log', 'native.log'):
             continue
         if path.is_dir() and not path.is_symlink():
             shutil.rmtree(path)
         else:
             path.unlink()
     return dict(records=len(rows))
+
+
+def _save_native_logs(folder, backend, keep_logs):
+    """Save complete logs on request, otherwise only bounded failure diagnostics."""
+    status_path = folder / 'status.json'
+    status = json.loads(status_path.read_text()) if status_path.exists() else {}
+    if not keep_logs and status.get('state') != 'failed':
+        return
+    logs = [folder / 'xtb.out']
+    if backend == 'pm6':
+        calls = sorted(path for path in folder.iterdir()
+                       if re.fullmatch(r'call_\d+', path.name)
+                       and path.is_dir() and not path.is_symlink())
+        logs = [call / name for call in (calls if keep_logs else calls[-1:])
+                for name in ('input.log', 'launcher.out', 'formchk.out')]
+    output = folder / ('native.log' if keep_logs else 'failure.log')
+    # Stream full logs to avoid holding large Gaussian outputs in memory.
+    # Any write error propagates before native work files are removed.
+    with output.open('wb') as saved:
+        message = status.get('error') or status.get('state', 'Calculation failed')
+        saved.write((str(message) + '\n').encode())
+        for path in logs:
+            if not path.is_file() or path.is_symlink():
+                continue
+            suffix = '' if keep_logs else ' (last 64 KiB)'
+            saved.write(f'\n--- {path.relative_to(folder)}{suffix} ---\n'.encode())
+            with path.open('rb') as stream:
+                if not keep_logs:
+                    stream.seek(max(0, path.stat().st_size - 65536))
+                shutil.copyfileobj(stream, saved)
+            saved.write(b'\n')
 
 
 def _read_pm6_history(folder, atoms):

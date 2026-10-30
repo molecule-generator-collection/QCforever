@@ -43,7 +43,7 @@ def run_conformer_search(infilename, charge, multiplicity, method, nproc, memory
         # Both execution modes have joined their workers before returning or
         # raising. Paused candidates no longer need their restart files here.
         try:
-            compact_relaxation_outputs(root / 'electronic', method)
+            compact_relaxation_outputs(root / 'electronic', method, keep_logs=config.keep_logs)
         except Exception as exc:
             # Storage cleanup must not change a scientific result or hide its error.
             print(f'WARNING: Relaxation history cleanup did not finish: {exc}')

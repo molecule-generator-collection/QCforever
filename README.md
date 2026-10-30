@@ -22,6 +22,7 @@ Grey-box optimisation (LAQA (https://doi.org/10.1021/acs.jctc.1c00301)) can also
 7. [basis-set-exchange](https://pypi.org/project/basis-set-exchange/)>=0.12
 8. NumPy>=1.22.0
 9. PyYAML>=6
+10. LightGBM==4.7.0 (see the [official installation guide](https://github.com/lightgbm-org/LightGBM/blob/main/python-package/README.rst#install-from-pypi) for macOS prerequisites)
 
 ## Optional
 
@@ -128,7 +129,24 @@ outdic = test.run_gaussian()
 
 - ***Functional*** is to specify the functional in the density functional theory (DFT).
 Currently supported functionals are the following: `BLYP`, `B3LYP`, `X3LYP`, `LC-BLYP`, `CAM-B3LYP`, 
-and [KTLC- series](https://doi.org/10.1021/acs.jctc.3c00764) (`KTLC-BLYP-BO`, `KTLC-wPBE-BO`, and so on).
+and [KTLC- series](https://doi.org/10.1021/acs.jctc.3c00764) (`KTLC-BLYP-BO`, `KTLC-wPBE-BO`, `KTLC-BLYP-Pred`, and so on).
+
+<details>
+<summary>KTLC-BLYP-Pred: prediction model and usage details</summary>
+
+`KTLC-BLYP-Pred` (Gaussian, SDF/XYZ input) uses the mean of five bundled
+RDKit 2D + Morgan + LightGBM models as a fixed LC-BLYP mu, without BO or an
+additional geometry optimization. Existing `opt`/`optconf` options still apply.
+The result's `functional_parameter_prediction` contains only `model_version`,
+`mu_mean` and `mu_std` (bohr^-1; population SD across five models, not a confidence
+interval). `functional_param` records the actual mu rounded to four decimal places.
+The original models are used unchanged (60/20/20 train/validation/test per fold).
+Training conditions: neutral closed-shell molecules, MW <= 1000, gas phase,
+LC-BLYP/6-31G*. Prediction does not guarantee Koopmans compliance. Descriptors
+were computed with RDKit 2026.03.6; older versions lacking a required descriptor
+must be updated. No separate model installation is needed.
+
+</details>
 
 - ***basis_set*** is to specify the basis set.
   Current QCforever supports the following basis set:
@@ -275,6 +293,11 @@ After low/medium/high finishes, generated/final structures and relaxation histor
 (`trajectory.jsonl` and `trajectory.xyz`) are retained; temporary generation and
 xTB/PM6 files are removed after successful export. Failed exports preserve the
 original files. Legacy and subsequent DFT checkpoint handling are unchanged.
+Failed calculations retain a short `failure.log`. To keep complete xTB/PM6 text
+logs for every candidate, add `keep_logs=true`, for example
+`optconf=(conf_gen=high, conf_relax=pm6, keep_logs=true)`.
+Logs are collected in each candidate's `native.log`; checkpoints and scratch are
+still removed. The default is `keep_logs=false` (low/medium/high only).
 In low/medium/high, if only a structure with geometry/stereo warnings is available, it is used with
 a console warning; the warning is also recorded in the returned summary.
 For advanced settings, set `job.conformer_config = "conformer.yaml"`;
