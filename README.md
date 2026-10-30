@@ -22,7 +22,7 @@ Grey-box optimisation (LAQA (https://doi.org/10.1021/acs.jctc.1c00301)) can also
 7. [basis-set-exchange](https://pypi.org/project/basis-set-exchange/)>=0.12
 8. NumPy>=1.22.0
 9. PyYAML>=6
-10. LightGBM>=4.7.0,<5 (installed automatically; see the [official installation guide](https://github.com/lightgbm-org/LightGBM/blob/main/python-package/README.rst#install-from-pypi) for macOS prerequisites)
+10. LightGBM>=4.7.0,<5 (installed with QCforever; see the [official installation guide](https://github.com/lightgbm-org/LightGBM/blob/main/python-package/README.rst#install-from-pypi) for macOS prerequisites)
 
 ## Optional
 
@@ -97,7 +97,10 @@ outdic = test.run_gaussian()
 
 - ***Functional*** is to specify the functional in the density functional theory (DFT).
 Currently supported functionals are the following: `BLYP`, `B3LYP`, `X3LYP`, `LC-BLYP`, `CAM-B3LYP`, 
-and [KTLC- series](https://doi.org/10.1021/acs.jctc.3c00764) (`KTLC-BLYP-BO`, `KTLC-wPBE-BO`, and so on).
+and [KTLC- series](https://doi.org/10.1021/acs.jctc.3c00764) (`KTLC-BLYP-BO`, `KTLC-wPBE-BO`, `KTLC-BLYP-Pred`, and so on).
+
+<details>
+<summary>KTLC-BLYP-Pred: prediction model and usage details</summary>
 
 `KTLC-BLYP-Pred` (Gaussian, SDF/XYZ input) uses the mean of five bundled
 RDKit 2D + Morgan + LightGBM models as a fixed LC-BLYP mu, without BO or an
@@ -110,6 +113,8 @@ Training conditions: neutral closed-shell molecules, MW <= 1000, gas phase,
 LC-BLYP/6-31G*. Prediction does not guarantee Koopmans compliance. Descriptors
 were computed with RDKit 2026.03.6; older versions lacking a required descriptor
 must be updated. No separate model installation is needed.
+
+</details>
 
 - ***basis_set*** is to specify the basis set.
   Current QCforever supports the following basis set:
