@@ -22,7 +22,7 @@ Grey-box optimisation (LAQA (https://doi.org/10.1021/acs.jctc.1c00301)) can also
 7. [basis-set-exchange](https://pypi.org/project/basis-set-exchange/)>=0.12
 8. NumPy>=1.22.0
 9. PyYAML>=6
-10. LightGBM>=4.7.0,<5 (installed with QCforever; see the [official installation guide](https://github.com/lightgbm-org/LightGBM/blob/main/python-package/README.rst#install-from-pypi) for macOS prerequisites)
+10. LightGBM==4.7.0 (see the [official installation guide](https://github.com/lightgbm-org/LightGBM/blob/main/python-package/README.rst#install-from-pypi) for macOS prerequisites)
 
 ## Optional
 
