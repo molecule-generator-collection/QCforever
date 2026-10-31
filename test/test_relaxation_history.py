@@ -1,10 +1,13 @@
 """Protect numerical histories and unrelated files when removing native scratch."""
 import json
+import tarfile
 
 import pytest
 from rdkit import Chem
 
-from qcforever.conformer_search.relaxation_history import compact_relaxation_outputs
+from qcforever.conformer_search.relaxation_history import (
+    compact_relaxation_outputs, archive_relaxation_details,
+)
 
 
 def candidate_folder(tmp_path):
@@ -39,6 +42,61 @@ def pm6_log(energy, x):
 
 def read_history(folder):
     return [json.loads(line) for line in (folder / 'trajectory.jsonl').read_text().splitlines()]
+
+
+@pytest.mark.parametrize('backend', ['pm6', 'xtb'])
+@pytest.mark.parametrize('keep_logs', [False, True])
+def test_archive_preserves_histories_logs_and_summary_bytes(tmp_path, backend, keep_logs):
+    folder = candidate_folder(tmp_path)
+    if backend == 'pm6':
+        call = folder / 'call_0000'
+        call.mkdir()
+        (call / 'input.log').write_text(pm6_log(-10, 0))
+    else:
+        (folder / 'xtbopt.log').write_text('1\n energy: -10.0 gnorm: 0.005\nHe 0.0 0.0 0.0\n')
+        (folder / 'xtb.out').write_text('native output')
+    root = folder.parent
+    for name in ('all_converged.sdf', 'audit.json', 'settings.json', 'events.jsonl'):
+        (root / name).write_text(name + '\n')
+    assert not compact_relaxation_outputs(root, backend, keep_logs=keep_logs)['errors']
+    before = {str(path.relative_to(root)): path.read_bytes() for path in root.rglob('*') if path.is_file()}
+    archive_relaxation_details(root)
+    retained = {'all_converged.sdf', 'audit.json', 'settings.json'}
+    assert {path.name for path in root.iterdir()} == retained | {'details.tar.gz'}
+    with tarfile.open(root / 'details.tar.gz', 'r:gz') as archive:
+        archived = {member.name: archive.extractfile(member).read() for member in archive if member.isfile()}
+    assert archived == {name: data for name, data in before.items() if name not in retained}
+    for name in retained:
+        assert (root / name).read_bytes() == before[name]
+    assert (tmp_path / 'DFT.chk').read_text() == 'unrelated checkpoint'
+    original_archive = (root / 'details.tar.gz').read_bytes()
+    with pytest.raises(FileExistsError):
+        archive_relaxation_details(root)
+    assert (root / 'details.tar.gz').read_bytes() == original_archive
+
+
+def test_archive_write_failure_keeps_sources(tmp_path, monkeypatch):
+    folder = candidate_folder(tmp_path)
+    before = {path: path.read_bytes() for path in folder.iterdir()}
+    def fail_write(*args, **kwargs):
+        raise OSError('write failed')
+    monkeypatch.setattr(tarfile.TarFile, 'add', fail_write)
+    with pytest.raises(OSError, match='write failed'):
+        archive_relaxation_details(folder.parent)
+    assert {path: path.read_bytes() for path in folder.iterdir()} == before
+    assert not (folder.parent / 'details.tar.gz').exists()
+    assert not (folder.parent / 'details.tar.gz.tmp').exists()
+
+
+def test_archive_preserves_symlinks_without_touching_target(tmp_path):
+    folder = candidate_folder(tmp_path)
+    target = tmp_path / 'DFT.chk'
+    (folder / 'linked.chk').symlink_to(target)
+    archive_relaxation_details(folder.parent)
+    assert target.read_text() == 'unrelated checkpoint'
+    with tarfile.open(folder.parent / 'details.tar.gz') as archive:
+        assert archive.getmember('candidate_00000/linked.chk').issym()
+    assert not folder.exists()
 
 
 def test_pm6_history_preserves_every_call_and_removes_native_files(tmp_path):

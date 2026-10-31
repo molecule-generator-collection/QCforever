@@ -11,7 +11,7 @@ from pathlib import Path
 from .settings import SearchConfig
 from .generate_conformers import prepare_candidates
 from .optimize_conformers import optimize_candidates
-from .relaxation_history import compact_relaxation_outputs
+from .relaxation_history import compact_relaxation_outputs, archive_relaxation_details
 from .structure_file_io import read_input_structure
 from .calculation_logs import write_json
 
@@ -43,7 +43,9 @@ def run_conformer_search(infilename, charge, multiplicity, method, nproc, memory
         # Both execution modes have joined their workers before returning or
         # raising. Paused candidates no longer need their restart files here.
         try:
-            compact_relaxation_outputs(root / 'electronic', method, keep_logs=config.keep_logs)
+            report = compact_relaxation_outputs(root / 'electronic', method, keep_logs=config.keep_logs)
+            if report is not None and not report['errors']:
+                archive_relaxation_details(root / 'electronic')
         except Exception as exc:
             # Storage cleanup must not change a scientific result or hide its error.
             print(f'WARNING: Relaxation history cleanup did not finish: {exc}')

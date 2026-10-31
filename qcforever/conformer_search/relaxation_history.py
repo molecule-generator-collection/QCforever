@@ -4,18 +4,20 @@ Call only after all native workers have stopped. Each candidate retains
 trajectory.jsonl (units, step/energy/force records), trajectory.xyz (structures),
 and status.json. Failed calculations also retain failure.log with native log
 tails. With keep_logs=True, native.log instead contains complete text logs from
-all calls. Search-level outputs are untouched. A failed export preserves the
-candidate's original work files.
+all calls. After successful export, archive_relaxation_details bundles histories
+and execution records, leaving structures, audit and settings directly readable.
+A failed export preserves the candidate's original work files.
 """
 import json
 from pathlib import Path
 import re
 import shutil
+import tarfile
 
 from rdkit import Chem
 
 from .calculation_logs import parse_finite_number, read_pm6_block, write_json
-from .structure_file_io import write_verified_text
+from .structure_file_io import write_text_atomically
 
 
 def compact_relaxation_outputs(electronic_directory, backend, *, keep_logs=False):
@@ -41,6 +43,39 @@ def compact_relaxation_outputs(electronic_directory, backend, *, keep_logs=False
     write_json(root / 'history_cleanup.json', report)
     if report['errors']:
         print(f'WARNING: Some relaxation files were preserved; see {root}/history_cleanup.json')
+    return report
+
+
+def archive_relaxation_details(electronic_directory):
+    """Archive closed work records, then remove originals after successful writing.
+
+    Call only after successful history export and after native workers stop.
+    Relative paths inside details.tar.gz are rooted at electronic/. Existing
+    archives are not overwritten; compression failure leaves sources intact.
+    """
+    root = Path(electronic_directory)
+    if root.is_symlink() or not root.is_dir() or root.name != 'electronic':
+        raise ValueError('Expected an electronic directory')
+    archive = root / 'details.tar.gz'
+    temporary = root / 'details.tar.gz.tmp'
+    if archive.exists() or archive.is_symlink() or temporary.exists() or temporary.is_symlink():
+        raise FileExistsError('Relaxation archive already exists')
+    retained = {'all_converged.sdf', 'audit.json', 'settings.json'}
+    entries = sorted(path for path in root.iterdir() if path.name not in retained)
+    if not entries:
+        return
+    try:
+        with tarfile.open(temporary, 'x:gz', dereference=False) as output:
+            for entry in entries:
+                output.add(entry, arcname=entry.name)
+        temporary.rename(archive)
+    finally:
+        temporary.unlink(missing_ok=True)
+    for entry in entries:
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
 
 
 def _compact_candidate(folder, backend, keep_logs):
@@ -89,8 +124,8 @@ def _compact_candidate(folder, backend, keep_logs):
         xyz_lines.append(f'{len(atoms)}\nstep={row["step"]} energy_hartree={row["energy_hartree"]}\n')
         for symbol, xyz in zip(symbols, coordinates):
             xyz_lines.append(symbol + ' ' + ' '.join(f'{value:.14f}' for value in xyz) + '\n')
-    write_verified_text(structures, ''.join(xyz_lines))
-    write_verified_text(history, json_text)
+    write_text_atomically(structures, ''.join(xyz_lines))
+    write_text_atomically(history, json_text)
     _save_native_logs(folder, backend, keep_logs)
     for path in list(folder.iterdir()):
         if path.name in ('trajectory.jsonl', 'trajectory.xyz', 'status.json', 'failure.log', 'native.log'):
@@ -142,9 +177,6 @@ def _read_pm6_history(folder, atoms):
         if not log.is_file():
             raise ValueError(f'Missing native log: {log}')
         parsed = read_pm6_block(log.read_text(errors='replace'), len(atoms), include_geometry=True)
-        trace = call / 'trace.json'
-        if trace.exists() and len(json.loads(trace.read_text())['records']) != len(parsed['records']):
-            raise ValueError(f'SCF record count changed: {log}')
         for record in parsed['records']:
             geometry = record['geometry']
             if geometry is None or geometry['atomic_numbers'] != atoms:

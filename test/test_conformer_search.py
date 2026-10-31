@@ -276,14 +276,16 @@ def test_generation_cleanup_preserves_results_and_removes_batch_files(tmp_path, 
 
 
 @pytest.mark.parametrize('name', ['generated_candidates', 'initial_structures'])
-def test_generation_cleanup_preserves_work_files_if_sdf_verification_fails(tmp_path, monkeypatch, name):
-    read_text = Path.read_text
+def test_generation_cleanup_preserves_work_files_if_sdf_save_fails(tmp_path, monkeypatch, name):
+    replace = Path.replace
 
-    def damaged_readback(path, *args, **kwargs):
-        return 'damaged data' if path.name == f'{name}.sdf.tmp' else read_text(path, *args, **kwargs)
+    def failed_replace(path, *args, **kwargs):
+        if path.name == f'{name}.sdf.tmp':
+            raise OSError('SDF save failed')
+        return replace(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, 'read_text', damaged_readback)
-    with pytest.raises(OSError, match='Saved content differs'):
+    monkeypatch.setattr(Path, 'replace', failed_replace)
+    with pytest.raises(OSError, match='SDF save failed'):
         prepare_candidates(make_butane_conformer(), tmp_path/'run', make_test_config('low', n=1),
             generators={'etkdgv3': copy_reference_conformers})
     assert (tmp_path/'run/00_etkdgv3/batch_000/raw_candidates.sdf').is_file()

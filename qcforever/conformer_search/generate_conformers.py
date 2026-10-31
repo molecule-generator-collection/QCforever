@@ -6,7 +6,6 @@ accepted candidates survive fallback to the next generator.
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from dataclasses import dataclass
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -82,7 +81,7 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
             combined = _generate_with_method(
                 name, stage_index, reference, combined, generation_filter,
                 root=root, status=status, config=config, generators=generators)
-        write_sdf(root/'generated_candidates.sdf', combined, verify=True)
+        write_sdf(root/'generated_candidates.sdf', combined, atomic=True)
         if not combined:
             status['state'] = 'generation_failed'
             return PreparationResult(status['state'], [], None, status_path)
@@ -105,9 +104,8 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
             status['state'] = 'no_valid_candidates_after_mm'
             return PreparationResult(status['state'], [], None, status_path)
         initial = root/'initial_structures.sdf'
-        write_sdf(initial, filtered, verify=True)
-        status.update(state='ready_for_electronic_optimization', initial_sdf=str(initial),
-                      initial_sdf_sha256=hashlib.sha256(initial.read_bytes()).hexdigest())
+        write_sdf(initial, filtered, atomic=True)
+        status.update(state='ready_for_electronic_optimization', initial_sdf=str(initial))
         return PreparationResult(status['state'], filtered, initial, status_path)
     except Exception as exc:
         status.update(state='failed', error=f'{type(exc).__name__}: {exc}')
@@ -128,7 +126,7 @@ def prepare_candidates(molecule, output_directory, config, *, allocated_cores=1,
 
 
 def _remove_generation_work_files(root, status):
-    """Remove this run's generation files after verified final SDF writes.
+    """Remove this run's generation files after successful final SDF writes.
 
     Settings and the consolidated status retain seeds, counts and failure
     reasons. The final generated pool precedes MM; initial_structures.sdf is

@@ -293,10 +293,14 @@ After low/medium/high finishes, generated/final structures and relaxation histor
 (`trajectory.jsonl` and `trajectory.xyz`) are retained; temporary generation and
 xTB/PM6 files are removed after successful export. Failed exports preserve the
 original files. Legacy and subsequent DFT checkpoint handling are unchanged.
+In `electronic/`, `all_converged.sdf`, `audit.json` and `settings.json` remain
+directly accessible; candidate histories and other execution records are bundled
+in `details.tar.gz`. Original records are removed after successful compression.
+Failed exports or archives leave the unarchived records available.
 Failed calculations retain a short `failure.log`. To keep complete xTB/PM6 text
 logs for every candidate, add `keep_logs=true`, for example
 `optconf=(conf_gen=high, conf_relax=pm6, keep_logs=true)`.
-Logs are collected in each candidate's `native.log`; checkpoints and scratch are
+Logs are collected in each candidate's `native.log` inside the archive; checkpoints and scratch are
 still removed. The default is `keep_logs=false` (low/medium/high only).
 In low/medium/high, if only a structure with geometry/stereo warnings is available, it is used with
 a console warning; the warning is also recorded in the returned summary.

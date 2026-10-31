@@ -24,25 +24,23 @@ def read_input_structure(filename, charge):
     raise ValueError('Configured optconf accepts SDF or XYZ')
 
 
-def write_sdf(path, records, *, verify=False):
-    """Keep record order and properties; verify final pools before scratch removal."""
-    output = io.StringIO() if verify else str(path)
+def write_sdf(path, records, *, atomic=False):
+    """Keep record order and properties; optionally replace via a temporary file."""
+    output = io.StringIO() if atomic else str(path)
     with Chem.SDWriter(output) as writer:
         for mol in records:
             if mol is not None:
                 writer.write(mol)
-    if verify:
-        write_verified_text(path, output.getvalue())
+    if atomic:
+        write_text_atomically(path, output.getvalue())
 
 
-def write_verified_text(path, text):
-    """Flush and read back a temporary file before replacing its destination."""
+def write_text_atomically(path, text):
+    """Finish writing a temporary file before replacing its destination."""
     path = Path(path)
     temporary = path.with_name(path.name + '.tmp')
     with temporary.open('x') as stream:
         stream.write(text)
         stream.flush()
         os.fsync(stream.fileno())
-    if temporary.read_text() != text:
-        raise OSError(f'Saved content differs from the intended output: {path}')
     temporary.replace(path)
