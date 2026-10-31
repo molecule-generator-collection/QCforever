@@ -45,13 +45,13 @@ def getMolBlock(lines, label):
     while(ii < len(lines)):
         ll = lines[ii]
         
-        if(flag == 1 and (re.search("^[\s]*---",ll))):
+        if(flag == 1 and (re.search(r"^[\s]*---",ll))):
             flag = 0
             ret.append(currentlist)
             currentlist = []
             
        # if(re.search("^[\s]*"+label,ll)):
-        if(re.search("^[\s]"+label,ll)):
+        if(re.search(r"^[\s]"+label,ll)):
             flag = 1
             ii += 3
             continue
@@ -74,12 +74,12 @@ def get_dataBlock(lines, label):
     while(ii < len(lines)):
         ll = lines[ii]
 
-        if(flag == 1 and (re.search("\$END", ll))):
+        if(flag == 1 and (re.search(r"\$END", ll))):
             flag = 0
             ret.append(currentlist)
             currentlist = []
 
-        if(re.search("^[\s]*"+"\$"+label, ll)):
+        if(re.search(r"^[\s]*\$"+label, ll)):
             flag = 1    
             ii += 1
             continue
