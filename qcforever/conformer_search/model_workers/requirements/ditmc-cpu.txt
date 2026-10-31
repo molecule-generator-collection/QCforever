@@ -14,7 +14,7 @@ tensorflow==2.18.0; sys_platform == "darwin"
 tensorflow-datasets==4.9.8
 tensorstore==0.1.74
 Cython==3.0.11
-hydra-core==1.3.7
+hydra-core==1.3.8
 cloudpickle==2.2.1
 rdkit==2024.3.5
 datamol==0.12.5

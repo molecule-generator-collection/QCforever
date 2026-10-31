@@ -13,16 +13,15 @@ Grey-box optimisation (LAQA (https://doi.org/10.1021/acs.jctc.1c00301)) can also
 
 ## Requirements
 
-1. [Gaussian](https://gaussian.com)==16
-2. [GAMESS(sockets)](https://www.msg.chem.iastate.edu/gamess/)==30 SEP 2022 (R2)
-3. [Python](https://www.anaconda.com/download/)==3.11
-4. [RDKit](https://pypi.org/project/rdkit/)>=2023.3.3
-5. [bayesian-optimization](https://github.com/bayesian-optimization/BayesianOptimization)==1.4.3
-6. [psutil](https://github.com/giampaolo/psutil)
-7. [basis-set-exchange](https://pypi.org/project/basis-set-exchange/)>=0.12
-8. NumPy>=1.22.0
-9. PyYAML>=6
-10. LightGBM==4.7.0 (see the [official installation guide](https://github.com/lightgbm-org/LightGBM/blob/main/python-package/README.rst#install-from-pypi) for macOS prerequisites)
+1. Quantum chemistry software: [Gaussian](https://gaussian.com/) 16 or [GAMESS (sockets)](https://www.msg.chem.iastate.edu/gamess/) 30 SEP 2022 (R2)
+2. [Python](https://www.anaconda.com/download/)==3.11
+3. [RDKit](https://pypi.org/project/rdkit/)>=2023.3.3
+4. [bayesian-optimization](https://github.com/bayesian-optimization/BayesianOptimization)==1.4.3
+5. [psutil](https://github.com/giampaolo/psutil)
+6. [basis-set-exchange](https://pypi.org/project/basis-set-exchange/)>=0.12
+7. NumPy>=1.22.0
+8. PyYAML>=6
+9. LightGBM==4.7.0 (see the [official installation guide](https://github.com/lightgbm-org/LightGBM/blob/main/python-package/README.rst#install-from-pypi) for macOS prerequisites)
 
 ## Optional
 
