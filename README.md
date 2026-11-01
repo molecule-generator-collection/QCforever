@@ -2,7 +2,7 @@
 
 ![Robot2+PC](https://user-images.githubusercontent.com/46772738/188896764-65ab12c1-3cc9-421d-8d87-ed33c932380a.png)
 
-QCforever (https://doi.org/10.1021/acs.jcim.2c00812, https://doi.org/10.1002/jcc.70017) is a wrapper of Gaussian (https://gaussian.com) or GAMESS (https://www.msg.chem.iastate.edu/gamess/). 
+QCforever (https://doi.org/10.1021/acs.jcim.2c00812, https://doi.org/10.1002/jcc.70017) is a wrapper of Gaussian (https://gaussian.com), GAMESS (https://www.msg.chem.iastate.edu/gamess/), or ORCA (https://www.faccts.de/orca/).
 To compute obsevable properties of a molecule through quantum chemical computation (QC),
 multi step computation is demanded. 
 QCforever automates this process and calculates multiple physical properties of molecules simultaneously.
@@ -13,7 +13,7 @@ Grey-box optimisation (LAQA (https://doi.org/10.1021/acs.jctc.1c00301)) can also
 
 ## Requirements
 
-1. Quantum chemistry software: [Gaussian](https://gaussian.com/)==16 or [GAMESS (sockets)](https://www.msg.chem.iastate.edu/gamess/)==30 SEP 2022 (R2)
+1. Quantum chemistry software: [Gaussian](https://gaussian.com/)==16, [GAMESS (sockets)](https://www.msg.chem.iastate.edu/gamess/)==30 SEP 2022 (R2), or [ORCA](https://www.faccts.de/orca/)>=6.1 (validated with 6.1.1)
 2. [Python](https://www.anaconda.com/download/)==3.11
 3. [RDKit](https://pypi.org/project/rdkit/)>=2023.3.3
 4. [bayesian-optimization](https://github.com/bayesian-optimization/BayesianOptimization)==1.4.3
@@ -72,7 +72,7 @@ See `install-conformer-models --help` for other installation options.
 
 ### Example
 
-Example codes for QCforever (gaussian_main.py and gamess_main.py) are prepared.
+Example codes for QCforever (gaussian_main.py, gamess_main.py, and orca_main.py) are prepared.
 
 For Gaussian
 ```bash
@@ -82,6 +82,123 @@ For GAMESS
 ```bash
 python gamess_main.py input_file
 ```
+For ORCA
+```bash
+python orca_main.py molecule.sdf "opt energy homolumo dipole" --nproc 4 --memory 4GB
+```
+
+### ORCA
+
+Install ORCA separately and put its `orca` executable on `PATH`, or set
+`job.executable` to its full path. For parallel runs, install the MPI runtime
+required by your ORCA distribution. QCforever invokes the ORCA driver directly
+using its absolute path; `%pal` controls the workers.
+
+```python
+from qcforever.orca_run import OrcaRunPack
+
+job = OrcaRunPack.OrcaDFTRun(
+    'B3LYP', 'def2-SVP', 4,
+    'optconf=(conf_gen=low, conf_relax=xtb) opt energy homolumo dipole uv',
+    'molecule.sdf', solvent='water',
+)
+job.mem = '4GB'             # Total budget, shared by all ORCA processes
+job.timexe = 60 * 60        # Limit for each ORCA invocation (seconds)
+job.timejob = 24 * 60 * 60  # Limit for the complete workflow, including xTB
+output = job.run_orca()
+```
+
+Supported options are `opt` (`opt=loose/tight/verytight` also accepted), `energy`,
+`homolumo`, `dipole`, `cden`, `polar`, `vip`, `vea`, `aip`, `aea`, `uv`,
+`fluor`/`fluor=N`, `freq`, `nmr`, and `optconf`. Unsupported options, KTLC,
+and `para_functional` overrides return `log="error"` before launching ORCA.
+ORCA accepts SDF and XYZ structures; XYZ comments can specify `charge multiplicity`
+(otherwise neutral singlet). `SpecTotalCharge` and `SpecSpinMulti` override them.
+Use ORCA functional/basis keywords. `B3LYP` selects the Gaussian-compatible
+`B3LYP/G` convention. B3LYP/G, BLYP, LC-BLYP and CAM-B3LYP use their equivalent
+`LibXC(...)` forms throughout the workflow to support excited-state derivatives.
+Other native ORCA keywords, including explicit `LibXC(...)`, pass through.
+Results from different programs still depend on grids, approximations, and
+convergence settings and need not be numerically identical.
+
+`solvent` selects ORCA CPCM; `None`, `"0"` and `"none"` select gas phase.
+Use solvent names supported by ORCA. `mem` is a total budget; QCforever assigns
+75% divided by `nproc` to `%maxcore` (MB per process). The remaining 25% provides
+headroom; ORCA memory use is not a strict operating-system limit.
+
+ORCA `optconf` supports **xTB only**, including `conf_gen=legacy` with xTB.
+Bare `optconf` and groups without `conf_relax` default to xTB for this backend.
+Explicit PM6 requests fail before any calculation. Install the separate `xtb`
+executable for conformer searches. The existing generation, LAQA settings,
+selected structure, and retained histories are reused. A failed search returns
+an error; it does not silently continue with the original geometry.
+
+Output conventions:
+
+- `energy` and its alias `Energy` are `[energy in Eh, <S²>-S(S+1)]`.
+  `homolumo` is in **eV**, a scalar for restricted calculations or two spin
+  gaps for unrestricted calculations. `MO`, `Alpha_MO`, and `Beta_MO` contain
+  occupied/virtual orbital energies in Eh.
+- `dipole` is `[X, Y, Z, total]` in Debye, at the center of mass in ORCA's
+  Cartesian frame. The quadrupole keys use the existing primitive/traceless
+  conventions and Debye Angstrom units, also at the center of mass.
+  `polar_tens`, `polar_iso`, and `polar_aniso` are in 10^-24 cm³ (Angstrom³).
+- `vip`, `vea`, `aip`, and `aea` are `[energy difference in eV, ion spin
+  contamination]`. Adiabatic requests also return the corresponding vertical
+  result. The ion is a doublet for a singlet input, otherwise its multiplicity
+  is reduced by one. Override individual states with
+  `job.ion_multiplicities = {'vip': 3, 'aip': 3}`, for example.
+  Adiabatic calculations optimize the ion; use `opt` to optimize the reference
+  molecule as well.
+- `uv` and `fluor` are `[wavelengths in nm, oscillator strengths]`. `fluor`
+  contains the vertical transition spectrum at the relaxed excited-state
+  geometry; `fluor_state` identifies the followed state's root, wavelength and
+  oscillator strength. Full TDDFT (`TDA false`) is used, with `job.nstates=20`
+  by default; the requested fluorescence root can increase this count.
+- `freq` uses **NumFreq** plus polarizabilities to obtain both IR (km/mol) and
+  Raman activities (Angstrom⁴/amu), including for B88-based functionals.
+  This costs more than an analytic Hessian. The arrays include all 3N modes,
+  with zero intensities for omitted translations/rotations. `freqmode` is
+  `[X, Y, Z]`, each a mode-by-atom array. `Ezp`, `Et`, `E_enth`, and `E_free`
+  are total energies in Eh; `Ei` is the total thermal correction including ZPE
+  in kcal/mol and `Si` is entropy in cal/(mol K). ORCA's default QRRHO entropy
+  treatment is retained. Heat capacities are not returned.
+- `nmr_shielding` contains absolute shieldings in ppm. `nmr` uses TMS chemical
+  shifts for H/C/Si and absolute shieldings for other elements. If needed,
+  an additional ORCA calculation optimizes TMS and computes its shieldings
+  with the same functional, basis and solvent. This can be costly. Supply
+  compatible reference shieldings with `job.nmr_reference = {'H': 31.5,
+  'C': 185.0, 'Si': 330.0}` to avoid the reference calculation; these numbers
+  are illustrative, not universal reference values. Actual references are
+  returned in `nmr_reference`.
+
+`uv=reference.dat`, `nmr=reference.dat`, and
+`freq=IR.dat,Raman.dat[,NMR.dat]` compare against two-column reference spectra.
+IR/Raman/NMR use the shared `Spectrum_similarity` output; UV uses the existing
+`Similarity/Dissimilarity` and `Wasserstein_distance` keys. Relative reference
+paths are resolved before entering the calculation directory.
+
+Each run creates a new directory named after the input stem in the current
+directory. An existing directory is reported as an error and is preserved;
+run in a fresh parent directory for another calculation with the same stem.
+Inputs, logs, XYZ geometries, `.hess` frequency data, property text and citations
+are retained. `restart=True` (default) also retains `.gbw` orbitals;
+`restart=False` retains geometry instead. This flag controls retention, not
+automatic resumption; use the retained XYZ as a new input. `pklsave=True`
+preserves the result pickle. Errors and timeouts return `log="error"` or
+`log="timeout"`, partial results, and the failed/active job's diagnostic log.
+Independent molecules should run in separate Python processes.
+
+ORCA references:
+[LibXC functional mappings](https://www.faccts.de/docs/orca/6.1/manual/contents/modelchemistries/DensityFunctionalTheory.html#libxc-functional-library),
+[electric properties](https://www.faccts.de/docs/orca/6.1/manual/contents/spectroscopyproperties/electric.html),
+[TDDFT and excited-state optimization](https://www.faccts.de/docs/orca/6.1/manual/contents/spectroscopyproperties/tddft.html),
+[Raman spectroscopy](https://www.faccts.de/docs/orca/6.1/manual/contents/spectroscopyproperties/vibrations.html#raman-spectra).
+
+To run the optional installed-ORCA regression test:
+`QCFOREVER_TEST_ORCA=1 python -m pytest -q test/test_orca.py`.
+
+### GAMESS scratch handling
 
 GAMESS scratch paths are resolved separately for `SCR` and `USERSCR`. The paths
 reported by `rungms` in its execution log take precedence, including paths chosen
@@ -205,32 +322,32 @@ seperated with more than one space:
 
 Following options are currently available:
 
-| Option name | Description | Gaussian | Gamess |
-|---|---|---|---|
-|symm| just specify symmetry of a molecule.|:white_check_mark:||
-|volume| Compute the volume (in cm**3/mol) of a molecule.|:white_check_mark:||
-|opt| just perform geometry optimization of a molecule.|:white_check_mark:|:white_check_mark:|
-|nmr| NMR chemical shift (ppm to TMS) of each atom is computed. `nmr=/absolute/path/to/nmr.dat` also compares it with a two-column `position intensity` reference spectrum.|:white_check_mark:||
-|uv| absorption wavelengths (nm) (for spin allowed states) are computed. If you add an absolute path of text file that specify peak positions and their peak like (uv=/ab/path2uv.dat), it is possible to the similarity and dissimilarity between the target and reference. |:white_check_mark:|:white_check_mark:|
-|energy| SCF energy (in Eh) is printed.|:white_check_mark:|:white_check_mark:|
-|cden| charge and spin densities on each atom are computed.|:white_check_mark:|:white_check_mark:|
-|homolumo| HOMO/LUMO gap (Eh) calculation|:white_check_mark:|:white_check_mark:|
-|dipole| Dipole moment and quadrupole properties at the center of mass; see the output definitions below.|:white_check_mark:|:white_check_mark:|
-|polar| Dipole polarizability (in 10**-24 cm**3) of a molecule|:white_check_mark:||
-|deen| decomposition energy (in eV) of a molecule|:white_check_mark:||
-|stable2o2| stability to oxygen molecule|:white_check_mark:||
-|vip| vertical ionization potential energy (in eV)|:white_check_mark:|:white_check_mark:|
-|vea| vertical electronic affinity (in eV)|:white_check_mark:|:white_check_mark:|
-|aip| adiabatic ionization energy (in eV)|:white_check_mark:|:white_check_mark:|
-|aea| adiabatic electronic affinity (in eV)|:white_check_mark:|:white_check_mark:|
-|fluor| wavelength (in nm) of fluorescence are computed. if you want to specify the state that emits fluorescence, you can specify the index of state like “fluor=#” (# is an integer, default is “fluor=1”)|:white_check_mark:|:white_check_mark:|
-|nac| Max and rms values of non adiabatic coupling vector (use with fluor option) |:white_check_mark:||
-|tadf| Compute the energy gap (in Eh) between minimum in the spin allowed state and the spin forbidden state.|:white_check_mark:||
-|freq| Compute the variable related to the vibrational analysis of a molecule. `freq=IR.dat,Raman.dat` compares the calculated IR and Raman spectra with two-column `position intensity` reference files. For Gaussian, an optional third NMR file (`freq=IR.dat,Raman.dat,NMR.dat`) also enables NMR and compares all three spectra. Before comparison, peaks within 1.0 cm-1 (IR/Raman) or 0.01 ppm (NMR) are merged; intensities are summed and positions are averaged.|:white_check_mark:|:white_check_mark:|
-|pka| Compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species. The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydrogen.|:white_check_mark:||
-|stable| try to find a stable structure when the negative frequency is detected.|:white_check_mark:||
-|optspin| try to find a suitable spin multiplicity.|:white_check_mark:||
-|optconf| Search for a stable conformer (default: PM6). See [Conformer search](#conformer-search-optconf) below.|:white_check_mark:|:white_check_mark:|
+| Option name | Description | Gaussian | Gamess | ORCA |
+|---|---|---|---|---|
+|symm| just specify symmetry of a molecule.|:white_check_mark:|||
+|volume| Compute the volume (in cm**3/mol) of a molecule.|:white_check_mark:|||
+|opt| just perform geometry optimization of a molecule.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|nmr| NMR chemical shift (ppm to TMS) of each atom is computed. `nmr=/absolute/path/to/nmr.dat` also compares it with a two-column `position intensity` reference spectrum.|:white_check_mark:||:white_check_mark:|
+|uv| absorption wavelengths (nm) (for spin allowed states) are computed. If you add an absolute path of text file that specify peak positions and their peak like (uv=/ab/path2uv.dat), it is possible to the similarity and dissimilarity between the target and reference. |:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|energy| SCF energy (in Eh) is printed.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|cden| charge and spin densities on each atom are computed.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|homolumo| HOMO/LUMO gap (Eh) calculation|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|dipole| Dipole moment and quadrupole properties at the center of mass; see the output definitions below.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|polar| Dipole polarizability (in 10**-24 cm**3) of a molecule|:white_check_mark:||:white_check_mark:|
+|deen| decomposition energy (in eV) of a molecule|:white_check_mark:|||
+|stable2o2| stability to oxygen molecule|:white_check_mark:|||
+|vip| vertical ionization potential energy (in eV)|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|vea| vertical electronic affinity (in eV)|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|aip| adiabatic ionization energy (in eV)|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|aea| adiabatic electronic affinity (in eV)|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|fluor| wavelength (in nm) of fluorescence are computed. if you want to specify the state that emits fluorescence, you can specify the index of state like “fluor=#” (# is an integer, default is “fluor=1”)|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|nac| Max and rms values of non adiabatic coupling vector (use with fluor option) |:white_check_mark:|||
+|tadf| Compute the energy gap (in Eh) between minimum in the spin allowed state and the spin forbidden state.|:white_check_mark:|||
+|freq| Compute the variable related to the vibrational analysis of a molecule. `freq=IR.dat,Raman.dat` compares the calculated IR and Raman spectra with two-column `position intensity` reference files. For Gaussian and ORCA, an optional third NMR file (`freq=IR.dat,Raman.dat,NMR.dat`) also enables NMR and compares all three spectra. Before comparison, peaks within 1.0 cm-1 (IR/Raman) or 0.01 ppm (NMR) are merged; intensities are summed and positions are averaged.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|pka| Compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species. The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydrogen.|:white_check_mark:|||
+|stable| try to find a stable structure when the negative frequency is detected.|:white_check_mark:|||
+|optspin| try to find a suitable spin multiplicity.|:white_check_mark:|||
+|optconf| Search for a stable conformer (default: PM6 for Gaussian/GAMESS, xTB for ORCA). See [Conformer search](#conformer-search-optconf) below.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
 
 ### Conformer search (`optconf`)
 

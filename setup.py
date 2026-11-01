@@ -20,6 +20,7 @@ PACKAGES = [
     'qcforever',
     'qcforever.gaussian_run',
     'qcforever.gamess_run',
+    'qcforever.orca_run',
     'qcforever.util',
     'qcforever.laqa_fafoom',
     'qcforever.conformer_search',

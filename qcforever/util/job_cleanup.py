@@ -49,6 +49,14 @@ def cleanup_gaussian(job_directory, preserve_pickle=False, preserve_xyz=False, p
     )
 
 
+def cleanup_orca(job_directory, preserve_pickle=False, preserve_restart=True, preserve_conformers=False):
+    """Keep ORCA inputs, logs, geometries, frequency data and optional orbitals."""
+    suffixes = {'.inp', '.log', '.out', '.xyz', '.hess', '.txt', '.bibtex'}
+    if preserve_restart:
+        suffixes.add('.gbw')
+    _clean_job_directory(job_directory, suffixes, preserve_pickle, preserve_conformers)
+
+
 def _read_gamess_scratch_directories(rungms_path, work_directory=None, log_paths=()):
     """Include the actual paths from every launch, even interrupted ones."""
     directories = []
