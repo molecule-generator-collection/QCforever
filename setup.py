@@ -10,7 +10,7 @@ from setuptools import setup
 DOCLINES = (__doc__ or '').split('\n')
 INSTALL_REQUIRES = [                      
     'numpy>=1.22.0',    
-    'rdkit>=2023.3.3',
+    'rdkit>=2026.3.6',
     'basis-set-exchange>=0.12',
     'bayesian-optimization==1.4.3',
     'lightgbm>=4.7.0,<5',

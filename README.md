@@ -15,7 +15,7 @@ Grey-box optimisation (LAQA (https://doi.org/10.1021/acs.jctc.1c00301)) can also
 
 1. Quantum chemistry software: [Gaussian](https://gaussian.com/)==16, [GAMESS (sockets)](https://www.msg.chem.iastate.edu/gamess/)==30 SEP 2022 (R2), or [ORCA](https://www.faccts.de/orca/)>=6.1 (validated with 6.1.1)
 2. [Python](https://www.anaconda.com/download/)==3.11
-3. [RDKit](https://pypi.org/project/rdkit/)>=2023.3.3
+3. [RDKit](https://pypi.org/project/rdkit/)>=2026.3.6 (matches the bundled KTLC prediction models' training version)
 4. [bayesian-optimization](https://github.com/bayesian-optimization/BayesianOptimization)==1.4.3
 5. [psutil](https://github.com/giampaolo/psutil)
 6. [basis-set-exchange](https://pypi.org/project/basis-set-exchange/)>=0.12
