@@ -12,7 +12,7 @@ from pathlib import Path
 
 from qcforever import gaussian_run
 from qcforever.util import calculation_cache
-from qcforever.util.calculation_options import excited_options
+from qcforever.util.calculation_options import excited_options, requires_hessian
 from qcforever.util import (
     read_mol_file,
     check_resource,
@@ -1255,6 +1255,8 @@ class GaussianDFTRun:
             total_charge=TotalCharge,
             nproc=self.nproc,
             options=option_dict.keys(),
+            calculate_hessian=requires_hessian(
+                optoption, *(spec['fc'] for spec in excited_specs.values())),
         )
 
         # Make work directory and move to the directory

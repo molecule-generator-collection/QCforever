@@ -11,7 +11,7 @@ from pathlib import Path
 
 from qcforever import gamess_run
 from qcforever.util import calculation_cache
-from qcforever.util.calculation_options import excited_options, ground_optimization
+from qcforever.util.calculation_options import excited_options, ground_optimization, requires_hessian
 from qcforever.util.quadrupole import quadrupole_from_buckingham, quadrupole_properties
 from qcforever.util import (
     read_mol_file,
@@ -694,6 +694,8 @@ class GamessDFTRun:
             total_charge=TotalCharge,
             nproc=self.nproc,
             options=option_dict.keys(),
+            calculate_hessian=requires_hessian(
+                ground_fc, *(spec['fc'] for spec in excited_specs.values())),
         )
 
         output_dic = {}

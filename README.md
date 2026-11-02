@@ -275,8 +275,13 @@ must be updated. No separate model installation is needed.
 
 - Memory is estimated from the molecular basis functions, number of electrons,
   calculation options, and available system memory. The estimate is written to
-  the Gaussian or GAMESS input automatically. To override it, set a value such
-  as `test.mem = "4GB"` before calling `run_gaussian()` or `run_gamess()`.
+  the Gaussian, GAMESS or ORCA input automatically. `CalcFC`, `CalcAll` and
+  `RecalcFC=N` in ground- or excited-state optimization apply the same 1.5x
+  memory allowance as `freq`. This allowance is applied once even if both
+  optimizations request Hessians or `freq` is also requested. `ReadFC`/`RCFC`
+  do not request this extra allowance. Whole-unit rounding and the available
+  RAM limit still apply. To override automatic memory, set a value such as
+  `test.mem = "4GB"` before calling `run_gaussian()`, `run_gamess()` or `run_orca()`.
 
 - The total QCforever wall-clock time can be limited in seconds with
   `test.timejob = 24 * 60 * 60`.  When this limit is reached, QCforever stops

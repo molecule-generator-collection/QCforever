@@ -3,6 +3,12 @@
 import re
 
 
+def requires_hessian(*fc_controls):
+    """Does any optimization explicitly compute, rather than read, a Hessian?"""
+    return any(re.search(r'\b(?:calcfc|calcall|recalcfc)\b', str(control), re.I)
+               for control in fc_controls)
+
+
 def split_options(text):
     """Keep recognized parenthesized option groups together, including spaces.
 

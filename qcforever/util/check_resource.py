@@ -122,6 +122,7 @@ def estimate_memory_bytes(
     total_charge=0,
     nproc=1,
     options=None,
+    calculate_hessian=False,
 ):
     """Return a conservative, approximate peak memory requirement.
 
@@ -156,7 +157,9 @@ def estimate_memory_bytes(
         memory_bytes += 8 * n_occupied * n_virtual * 40
     if option_names & td_options:
         memory_bytes *= 1.25
-    if 'freq' in option_names:
+    # Initial/repeated optimization Hessians need the same allowance as freq.
+    # This estimates peak memory, so multiple Hessian requests are not additive.
+    if 'freq' in option_names or calculate_hessian:
         memory_bytes *= 1.50
 
     # Covers Cartesian-vs-spherical differences, integral buffers and
@@ -182,6 +185,7 @@ def recommend_memory(
     nproc=1,
     options=None,
     available_memory_bytes=None,
+    calculate_hessian=False,
 ):
     """Recommend input memory, limited to 80% of currently available RAM."""
     estimated_bytes, information = estimate_memory_bytes(
@@ -190,6 +194,7 @@ def recommend_memory(
         total_charge=total_charge,
         nproc=nproc,
         options=options,
+        calculate_hessian=calculate_hessian,
     )
 
     if available_memory_bytes is None:
@@ -234,6 +239,7 @@ def respec_memory(
     nproc=1,
     options=None,
     available_memory_bytes=None,
+    calculate_hessian=False,
 ):
     """Keep user-specified memory or provide an automatic recommendation."""
     if spec_memory is not None and str(spec_memory).strip():
@@ -246,6 +252,7 @@ def respec_memory(
         nproc=nproc,
         options=options,
         available_memory_bytes=available_memory_bytes,
+        calculate_hessian=calculate_hessian,
     )
 
 

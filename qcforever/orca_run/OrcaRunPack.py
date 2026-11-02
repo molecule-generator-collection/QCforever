@@ -21,7 +21,7 @@ from . import Exe_Orca
 from .parse_log import EH_TO_EV, parse_log
 from qcforever.util import calculation_cache
 from qcforever.util import read_mol_file
-from qcforever.util.calculation_options import parse_excited_optimization, ground_optimization
+from qcforever.util.calculation_options import parse_excited_optimization, ground_optimization, requires_hessian
 
 
 def _token(value, label):
@@ -312,9 +312,16 @@ class OrcaDFTRun:
     def _run_orca(self, options, output):
         atoms, xyz, charge, mult = self._read_structure()
         self._atoms = atoms
-        self.mem = check_resource.respec_memory(self.mem, atoms, self.basis,
-                                                total_charge=charge, nproc=self.nproc,
-                                                options=options)
+        self.mem = check_resource.respec_memory(
+            spec_memory=self.mem,
+            atoms=atoms,
+            basis=self.basis,
+            total_charge=charge,
+            nproc=self.nproc,
+            options=options,
+            calculate_hessian=requires_hessian(options.get('opt_fc', ''),
+                                                options.get('fluor_fc', '')),
+        )
         memory_per_core(self.mem, self.nproc)
         jobname = Path(self.in_file).stem
         self._jobname = jobname
