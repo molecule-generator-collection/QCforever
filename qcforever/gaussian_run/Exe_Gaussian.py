@@ -3,11 +3,12 @@ import os
 import gc
 import sys
 import time
+import re
 
 from pathlib import Path
 
 from qcforever import gaussian_run
-from qcforever.util import ConvergenceJudge, job_timeout
+from qcforever.util import ConvergenceJudge, job_timeout, calculation_cache
 
 
 def get_pid(jobname):
@@ -61,6 +62,44 @@ def job_termination(proc):
 
 
 def exe_Gaussian(jobname, exe_time, error=0):
+    """Execute Link1 stages separately so completed prefixes can be reused."""
+    path = Path(jobname + '.com')
+    original = path.read_text()
+    session = calculation_cache._active.get()
+    if session is None or session.backend != 'gaussian' or session.directory != Path.cwd():
+        return _exe_Gaussian(jobname, exe_time, error)
+    parts = re.split(r'(?im)^\s*--link1--\s*$', original)
+    logs = []
+    started = time.monotonic()
+    status = 'normal'
+    try:
+        for part in parts:
+            part = part.lstrip('\n')
+            if not part.strip():
+                continue
+            remaining = int(exe_time - (time.monotonic() - started))
+            if remaining <= 0:
+                status = 'timeout'
+                break
+            path.write_text(part)
+            try:
+                status = calculation_cache.execute(
+                    'gaussian', jobname, part,
+                    lambda: _exe_Gaussian(jobname, remaining, error))
+            finally:
+                logfile = Path(jobname + '.log')
+                if logfile.exists():
+                    logs.append(logfile.read_text(errors='replace'))
+            if status != 'normal':
+                break
+        return status
+    finally:
+        path.write_text(original)
+        if logs:
+            Path(jobname + '.log').write_text('\n'.join(logs))
+
+
+def _exe_Gaussian(jobname, exe_time, error=0):
     job_state = ""
     print(f"Time for Gaussian: {exe_time}")
     Njob = count_Njob(jobname)

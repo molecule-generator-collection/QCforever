@@ -58,7 +58,12 @@ def terminate_process(process, grace_period=2.0):
                     process.kill()
                 process.wait(timeout=grace_period)
             except ProcessLookupError:
-                pass
+                # The group can disappear between TERM/CONT/KILL while the
+                # direct child has not yet been reaped by Popen.
+                try:
+                    process.wait(timeout=grace_period)
+                except subprocess.TimeoutExpired:
+                    pass
             except subprocess.TimeoutExpired:
                 # The OS will reap it asynchronously; SIGKILL cannot be ignored.
                 pass

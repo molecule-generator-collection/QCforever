@@ -295,7 +295,8 @@ def _expand_conformer_options(option_string):
 
     expanded = re.sub(r'(?<!\S)optconf\s*=\s*\(([^()]*)\)(?=\s|$)',
                       expand_group, option_string, flags=re.IGNORECASE)
-    tokens = expanded.split()
+    from qcforever.util.calculation_options import split_options
+    tokens = split_options(expanded)
     for index, token in enumerate(tokens):
         lower = token.lower()
         if lower.startswith(('conf_gen', 'conf_relax')):

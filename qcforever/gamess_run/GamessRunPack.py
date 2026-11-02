@@ -10,6 +10,8 @@ import numpy as np
 from pathlib import Path
 
 from qcforever import gamess_run
+from qcforever.util import calculation_cache
+from qcforever.util.calculation_options import excited_options, ground_optimization
 from qcforever.util.quadrupole import quadrupole_from_buckingham, quadrupole_properties
 from qcforever.util import (
     read_mol_file,
@@ -38,7 +40,7 @@ class GamessDFTRun:
                 error=0, 
                 pklsave=False):
         #self.in_file = os.path.basename(in_file)
-        self.in_file = Path(in_file).name
+        self.in_file = str(Path(in_file).expanduser().absolute())
         self.functional = functional
         self.basis = basis
         self.nproc = check_resource.respec_cores(nproc)
@@ -59,6 +61,7 @@ class GamessDFTRun:
         self.ref_spectrum_paths = {}
         self.para_functional = []
         self.functional_parameter_optimization = None
+        self.reuse = True
 
     def conversion_memory(self, mem_byte):
         r = re.compile("([0-9]+)([a-zA-Z]+)")
@@ -120,14 +123,18 @@ class GamessDFTRun:
             output['Beta_MO'] = [beta_values[:num_occu_beta],alpha_values[num_occu_beta:]]
 
         if is_dipole_specified:
+            moment_parser = parselog
+            moment_job = getattr(self, '_moment_jobname', None)
+            if moment_job:
+                moment_parser = gamess_run.parse_log.parse_log(f'{moment_job}.log')
             if self.solvent == '0':
-                dd = parselog.getBlock("ELECTROSTATIC MOMENTS")    
+                dd = moment_parser.getBlock("ELECTROSTATIC MOMENTS")
             else:
-                dd = parselog.getBlock("SYSTEM ELECTROSTATIC MOMENTS")    
-            dval = parselog.getDipoleMoment(dd[-1])
+                dd = moment_parser.getBlock("SYSTEM ELECTROSTATIC MOMENTS")
+            dval = moment_parser.getDipoleMoment(dd[-1])
             output['dipole'] = dval
             try:
-                moments = parselog.getQuadrupoleMoment(dd[-1])
+                moments = moment_parser.getQuadrupoleMoment(dd[-1])
                 output.update(quadrupole_from_buckingham(
                     **moments, source="GAMESS", origin="center_of_mass"))
             except ValueError as error:
@@ -259,10 +266,15 @@ class GamessDFTRun:
         self, run_type, 
         TotalCharge, SpinMulti, 
         GamInputName, Mol_atom=[], X=[], Y=[], Z=[], 
-        TDDFT=False, target=[1, 1], datfile=None, solvent='0'):
+        TDDFT=False, target=[1, 1], datfile=None, solvent='0', moments=None, fc=''):
+        if fc and run_type != 'OPTIMIZE':
+            raise ValueError('FC requires an optimization')
+        if TDDFT and fc and (SpinMulti != 1 or target[1] != 1):
+            raise ValueError('GAMESS conventional TDDFT Hessians require singlet excited-state gradients')
         #target[0]=target state index, target[1]=spin multiplicity of the target state
         from qcforever.conformer_search.settings import calculation_tokens
-        is_dipole = any(token.lower() == 'dipole' for token in calculation_tokens(self.value))
+        is_dipole = (any(token.lower() == 'dipole' for token in calculation_tokens(self.value))
+                     and not getattr(self, '_separate_moments', False)) if moments is None else moments
 #setting for memory
         if self.mem == '':
             mem_words = 125000000/10**6 #1 GB on 64 bit PC as the unit of 10**6 words 
@@ -347,7 +359,22 @@ class GamessDFTRun:
             time_limit = self.timeexe/60
             line_input += f' $SYSTEM TIMLIM={time_limit} MWORDS={mem_words} $END\n'
             if run_type == 'OPTIMIZE':
-                line_input += ' $STATPT OPTTOL=1.0E-5 NSTEP=100 $END\n'
+                line_input += ' $STATPT OPTTOL=1.0E-5 NSTEP=100'
+                if fc == 'ReadFC':
+                    line_input += ' HESS=READ IHREP=0'
+                elif fc:
+                    if fc == 'CalcFC':
+                        interval = 0
+                    elif fc == 'CalcAll':
+                        interval = 1
+                    elif re.fullmatch(r'RecalcFC=[1-9]\d*', fc):
+                        interval = int(fc.split('=')[1])
+                    else:
+                        raise ValueError(f'Unsupported GAMESS FC option: {fc}')
+                    line_input += f' HESS=CALC IHREP={interval}'
+                line_input += ' $END\n'
+                if fc and fc != 'ReadFC':
+                    line_input += ' $FORCE METHOD=SEMINUM NVIB=2 $END\n'
             if run_type == 'HESSIAN' or run_type == 'RAMAN':
                 line_input +=' $FORCE METHOD=ANALYTIC $END\n' 
             line_input += f' $BASIS GBASIS={GBASIS} NGAUSS={NGAUSS} NDFUNC={NDFUNC} $END\n'
@@ -378,6 +405,10 @@ class GamessDFTRun:
                         line_input += hess_bb[i]
                     line_input += ' $END\n'
 
+            if fc == 'ReadFC':
+                from qcforever.util.optimization_hessian import gamess_block
+                source = calculation_cache.previous_hessian('gamess', Path(GamInputName).stem, line_input)
+                line_input += ' $HESS\n' + gamess_block(source.read_text()) + ' $END\n'
             ofile.write(line_input)
 
     def LC_para_BOopt(self, jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti):
@@ -521,6 +552,7 @@ class GamessDFTRun:
         return selected_parameters
 
 
+    @calculation_cache.workflow('gamess')
     def run_gamess(self):
         """Run the complete workflow, enforcing ``timejob`` when configured."""
         from qcforever.conformer_search.settings import parse_conformer_options
@@ -530,6 +562,8 @@ class GamessDFTRun:
         original_directory = os.getcwd()
         self._active_job_directory = None
         self._active_job_name = None
+        self._moment_jobname = None
+        self._separate_moments = True
         try:
             with job_timeout.overall_timeout(self.timejob):
                 return self._run_gamess()
@@ -556,13 +590,18 @@ class GamessDFTRun:
                 )
             self._active_job_directory = None
             self._active_job_name = None
+            self._separate_moments = False
 
     def _run_gamess(self):
         infilename = self.in_file
         option_line = self.value    
         from qcforever.conformer_search.settings import calculation_tokens
         options = calculation_tokens(option_line)
+        options, excited_specs = excited_options(options, 'gamess')
+        if 'tadf' in excited_specs:
+            raise ValueError('The GAMESS backend does not support tadf')
         option_dict = {}
+        ground_fc = ''
         #option_dict_Ex = np.zeros(19)  # not used
         #option_dict_pka = np.zeros(19) # not used
         targetstate = 1
@@ -571,17 +610,20 @@ class GamessDFTRun:
         GamInputName = jobname +'.inp'    
         # File type of input?
         ReadFrom = '' 
-        if jobnameSuffix == ".sdf":
+        if jobnameSuffix.lower() == ".sdf":
             ReadFrom = "sdf" 
             Mol_atom, X, Y, Z, TotalCharge, SpinMulti, Bondpair1, Bondpair2 = read_mol_file.read_sdf(infilename)
-        elif jobnameSuffix == ".xyz":
+        elif jobnameSuffix.lower() == ".xyz":
             ReadFrom = "xyz" 
             Mol_atom, X, Y, Z, TotalCharge, SpinMulti = read_mol_file.read_xyz(infilename)
             Bondpair1 = []
             Bondpair2 = []
+        elif jobnameSuffix.lower() in ('.fchk', '.fch'):
+            ReadFrom = 'fchk'
+            Mol_atom, X, Y, Z, TotalCharge, SpinMulti = read_mol_file.read_fchk(infilename)
+            Bondpair1, Bondpair2 = [], []
         else:
-            print("Invalid input file")
-            exit()
+            raise ValueError('GAMESS accepts SDF, XYZ or Gaussian FCHK/FCH input')
 
         # Setting electronic structure
         if np.isnan(self.SpecTotalCharge) !=  True:
@@ -592,8 +634,9 @@ class GamessDFTRun:
         # Setting options
         for i in range(len(options)):
             option = options[i]
-            if option.lower() == 'opt':
+            if re.match(r'^opt(?:=|$)', option.lower()):
                 option_dict['opt'] = True
+                _, ground_fc = ground_optimization(option.partition('=')[2], 'gamess')
             elif 'optconf' in option.lower():
                 option_dict['optconf'] = True
                 if '=' in option:
@@ -611,12 +654,10 @@ class GamessDFTRun:
                 option_dict['cden'] = True
             elif option.lower() == 'uv':
                 option_dict['uv'] = True
-            elif option.lower() == 'fluor':
+            elif re.match(r'^fluor(?:=|$)', option.lower()):
                 option_dict['uv'] = True
                 option_dict['fluor'] = True
-                if '=' in option:
-                    in_target = option.split('=')
-                    targetstate = int(in_target[-1])
+                targetstate = excited_specs['fluor']['state']
             elif option.lower() == 'vip':
                 option_dict['energy'] = True
                 option_dict['vip'] = True
@@ -661,10 +702,7 @@ class GamessDFTRun:
         print(pwd)
 
         job_dir = Path(jobname)
-        if job_dir.is_dir():
-            shutil.rmtree(job_dir)
-
-        job_dir.mkdir()
+        calculation_cache.prepare_directory(job_dir, infilename)
         self._active_job_directory = Path(pwd) / job_dir
         self._active_job_name = jobname
         os.chdir(job_dir)
@@ -673,10 +711,13 @@ class GamessDFTRun:
         #Conformation search
         if 'optconf' in option_dict:
             print('Try to find stable conformation...')
-            if ReadFrom == 'sdf' or ReadFrom == 'xyz':
+            if ReadFrom in ('sdf', 'xyz', 'fchk'):
                 print('The input is ready for the conformation search...')
                 original_file = str(Path('..') / infilename)
                 try:
+                    if ReadFrom == 'fchk':
+                        original_file = str(Path('fchk_geometry.xyz').resolve())
+                        read_mol_file.write_xyz(original_file, Mol_atom, X, Y, Z, TotalCharge, SpinMulti)
                     from qcforever.conformer_search.conformer_search import run_conformer_search
                     self._conformer_summary = run_conformer_search(
                         original_file, TotalCharge, SpinMulti, optconfoption, self.nproc, self.mem,
@@ -718,8 +759,15 @@ class GamessDFTRun:
         else:
             run_type = 'ENERGY'
 
-        self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, Mol_atom, X, Y, Z, TDDFT=False, datfile=None, solvent=self.solvent)
+        self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, Mol_atom, X, Y, Z, TDDFT=False, datfile=None, solvent=self.solvent, fc=ground_fc)
         job_state = gamess_run.Exe_Gamess.exe_Gamess(jobname, self.gamessversion, self.nproc)
+
+        if 'dipole' in option_dict:
+            self._moment_jobname = jobname + '_properties'
+            self.make_input('ENERGY', TotalCharge, SpinMulti, self._moment_jobname + '.inp',
+                            datfile=jobname + '.dat', solvent=self.solvent, moments=True)
+            job_state = gamess_run.Exe_Gamess.exe_Gamess(
+                self._moment_jobname, self.gamessversion, self.nproc)
 
 #for uv computation
         if 'uv' in  option_dict:
@@ -739,7 +787,7 @@ class GamessDFTRun:
             exoptjobname = jobname + '_TDopt'
             GamInputName = exoptjobname +'.inp'    
 
-            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, TDDFT=True, target=[targetstate, SpinMulti], datfile=GSdatfile, solvent=self.solvent)
+            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, TDDFT=True, target=[targetstate, SpinMulti], datfile=GSdatfile, solvent=self.solvent, fc=excited_specs['fluor']['fc'])
             job_state = gamess_run.Exe_Gamess.exe_Gamess(exoptjobname, self.gamessversion, self.nproc)
 
         if 'vip' in option_dict:

@@ -1,0 +1,341 @@
+# Excerpts from an ORCA 6.1.1 B3LYP/G STO-3G water calculation.
+
+CARTESIAN COORDINATES (ANGSTROEM)
+---------------------------------
+  O     -0.052317    0.000000   -0.036198
+  H      0.016304    0.000000    0.988770
+  H      0.956013    0.000000   -0.232572
+
+----------------------------
+
+
+ORBITAL ENERGIES
+----------------
+
+  NO   OCC          E(Eh)            E(eV)
+   0   2.0000     -18.853183      -513.0212
+   1   2.0000      -0.912150       -24.8209
+   2   2.0000      -0.404447       -11.0056
+   3   2.0000      -0.255010        -6.9392
+   4   2.0000      -0.146308        -3.9812
+   5   0.0000       0.304396         8.2830
+   6   0.0000       0.386779        10.5248
+*Only the first 10 virtual orbitals were printed.
+
+                    ********************************
+                    *
+
+MULLIKEN ATOMIC CHARGES
+-----------------------
+   0 O :   -0.297755
+   1 H :    0.148885
+   2 H :    0.148870
+Sum of atomic charges:   -0.0000000
+
+--------------------------------
+
+
+DIPOLE MOMENT
+-------------
+
+Method             : SCF
+Type of density    : Electron Density
+Multiplicity       :   1
+Irrep              :   0
+Energy             :   -75.3235537996938689 Eh
+Basis              : AO
+                                X                 Y                 Z
+Electronic contribution:     -0.399741810       0.000000000      -0.307496290
+Nuclear contribution   :      0.896411110       0.000000000       0.689688368
+                        -----------------------------------------
+Total Dipole Moment    :      0.496669300       0.000000000       0.382192078
+                        -----------------------------------------
+Magnitude (a.u.)       :      0.626698634
+Magnitude (Debye)      :      1.592941334
+
+
+
+--------------------
+
+
+QUADRUPOLE MOMENT
+-----------------
+
+Method             : SCF
+Type of density    : Electron Density
+Multiplicity       :   1
+Irrep              :   0
+Energy             :   -75.3235537996938689 Eh
+Basis              : AO
+
+                XX              YY              ZZ              XY              XZ              YZ
+  NUC        3.313796709     0.000000000     3.691711586     0.000000000    -0.712781172     0.000000000
+  EL        -6.961474041    -4.582189203    -7.242162096     0.000000000     0.529511528     0.000000000
+  TOT       -3.647677332    -4.582189203    -3.550450511     0.000000000    -0.183269644     0.000000000 (a.u.)
+            -4.906250761    -6.163201189    -4.775477362     0.000000000    -0.246503939     0.000000000 (Buckingham)
+
+diagonalized tensor:
+            -4.582189203    -3.788671479    -3.409456363 (a.u.)
+            -6.163201189    -5.095892712    -4.585835412 (Buckingham)
+            -2.644674255     0.557251178     2.087423077 (traceless form in Buckingham)
+
+             0.000000000    -0.792587416    -0.609758303
+            -1.000000000    -0.000000000     0.000000000
+             0.000000000    -0.609758303     0.792587416
+
+Isotropic quadrupole :    -3.926772349
+
+
+
+STATIC POLARIZABILITY TENSOR (Dipole/Dipole)
+---------------------------------------------------
+
+Method             : SCF
+Type of density    : Electron Density
+Type of derivative : Electric Field (Direction=X)
+Multiplicity       :   1
+Irrep              :   0
+Basis              : AO
+
+The raw cartesian tensor (atomic units):
+       4.017105655         0.000000001        -1.255788426
+       0.000000001         0.032640502         0.000000000
+      -1.255788426         0.000000000         4.682190199
+diagonalized tensor:
+       0.032640502         3.050575591         5.648720263
+
+Orientation:
+      -0.000000000        -0.792459594        -0.609924415
+       1.000000000        -0.000000000        -0.000000000
+      -0.000000000        -0.609924415         0.792459594
+
+Isotropic polarizability :   2.91065
+
+
+
+
+CHEMICAL SHIELDING SUMMARY (ppm)
+--------------------------------
+
+
+  Nucleus  Element    Isotropic     Anisotropy
+  -------  -------  ------------   ------------
+      0       O          289.983         45.647
+      1       H           32.099          9.628
+      2       H           32.100          9.628
+
+
+
+
+VIBRATIONAL FREQUENCIES
+-----------------------
+
+Scaling factor for frequencies =  1.000000000  (already applied!)
+
+     0:       0.00 cm**-1
+     1:       0.00 cm**-1
+     2:       0.00 cm**-1
+     3:       0.00 cm**-1
+     4:       0.00 cm**-1
+     5:       0.00 cm**-1
+     6:    2016.09 cm**-1
+     7:    3609.91 cm**-1
+     8:    3834.45 cm**-1
+
+
+------------
+
+
+NORMAL MODES
+------------
+
+These modes are the Cartesian displacements weighted by the diagonal matrix
+M(i,i)=1/sqrt(m[i]) where m[i] is the mass of the displaced atom
+Thus, these vectors are normalized but *not* orthogonal
+
+                  0          1          2          3          4          5
+      0       0.000000   0.000000   0.000000   0.000000   0.000000   0.000000
+      1       0.000000   0.000000   0.000000   0.000000   0.000000   0.000000
+      2       0.000000   0.000000   0.000000   0.000000   0.000000   0.000000
+      3       0.000000   0.000000   0.000000   0.000000   0.000000   0.000000
+      4       0.000000   0.000000   0.000000   0.000000   0.000000   0.000000
+      5       0.000000   0.000000   0.000000   0.000000   0.000000   0.000000
+      6       0.000000   0.000000   0.000000   0.000000   0.000000   0.000000
+      7       0.000000   0.000000   0.000000   0.000000   0.000000   0.000000
+      8       0.000000   0.000000   0.000000   0.000000   0.000000   0.000000
+                  6          7          8
+      0      -0.053852   0.042295   0.040647
+      1       0.000000   0.000000  -0.000000
+      2      -0.041432   0.032515  -0.052861
+      3       0.704762   0.009050   0.047140
+      4       0.000000  -0.000000   0.000000
+      5      -0.031740  -0.705818   0.704186
+      6       0.149977  -0.680363  -0.692298
+      7       0.000000  -0.000000   0.000000
+      8       0.689343   0.189734   0.134822
+
+
+-----------
+
+
+IR SPECTRUM
+-----------
+
+ Mode   freq       eps      Int      T**2         TX        TY        TZ
+       cm**-1   L/(mol*cm) km/mol    a.u.
+----------------------------------------------------------------------------
+  6:   2016.09   0.000541    2.73  0.000084  ( 0.007249  0.000000  0.005583)
+  7:   3609.91   0.013734   69.41  0.001187  ( 0.027295 -0.000000  0.021030)
+  8:   3834.45   0.010584   53.48  0.000861  ( 0.017892 -0.000000 -0.023264)
+
+
+
+RAMAN SPECTRUM
+--------------
+
+ Mode    freq (cm**-1)   Activity   Depolarization
+-------------------------------------------------------------------
+   6:      2016.09      9.732553      0.741853
+   7:      3609.91     38.934224      0.166803
+   8:      3834.45     19.478787      0.750000
+
+
+
+THERMOCHEMISTRY AT 298.15K
+--------------------------
+
+Temperature         ...   298.15 K
+Pressure            ...     1.00 atm
+Total Mass          ...    18.02 AMU
+Quasi RRHO          ...     True
+Cut-Off Frequency   ...     1.00 cm^-1
+
+Throughout the following assumptions are being made:
+  (1) The electronic state is orbitally nondegenerate
+  (2) There are no thermally accessible electronically excited states
+  (3) Hindered rotations indicated by low frequency modes are not
+      treated as such but are treated as vibrations and this may
+      cause some error
+  (4) All equations used are the standard statistical mechanics
+      equations for an ideal gas
+  (5) All vibrations are strictly harmonic
+
+freq.    2016.09  E(vib)   ...       0.00
+freq.    3609.91  E(vib)   ...       0.00
+freq.    3834.45  E(vib)   ...       0.00
+
+------------
+INNER ENERGY
+------------
+
+The inner energy is: U= E(el) + E(ZPE) + E(vib) + E(rot) + E(trans)
+    E(el)   - is the total energy from the electronic structure calculation
+              = E(kin-el) + E(nuc-el) + E(el-el) + E(nuc-nuc)
+    E(ZPE)  - the the zero temperature vibrational energy from the frequency calculation
+    E(vib)  - the the finite temperature correction to E(ZPE) due to population
+              of excited vibrational states
+    E(rot)  - is the rotational thermal energy
+    E(trans)- is the translational thermal energy
+
+Summary of contributions to the inner energy U:
+Electronic energy                ...    -75.32355446 Eh
+Zero point energy                ...      0.02155250 Eh      13.52 kcal/mol
+Thermal vibrational correction   ...      0.00000055 Eh       0.00 kcal/mol
+Thermal rotational correction    ...      0.00141627 Eh       0.89 kcal/mol
+Thermal translational correction ...      0.00141627 Eh       0.89 kcal/mol
+-----------------------------------------------------------------------
+Total thermal energy                    -75.29916887 Eh
+
+
+Summary of corrections to the electronic energy:
+(perhaps to be used in another calculation)
+Total thermal correction                  0.00283309 Eh       1.78 kcal/mol
+Non-thermal (ZPE) correction              0.02155250 Eh      13.52 kcal/mol
+-----------------------------------------------------------------------
+Total correction                          0.02438559 Eh      15.30 kcal/mol
+
+
+--------
+ENTHALPY
+--------
+
+The enthalpy is H = U + kB*T
+                kB is Boltzmann's constant
+Total thermal energy              ...    -75.29916887 Eh
+Thermal Enthalpy correction       ...      0.00094421 Eh       0.59 kcal/mol
+-----------------------------------------------------------------------
+Total Enthalpy                    ...    -75.29822466 Eh
+
+
+Note: Rotational entropy computed according to Herzberg
+Infrared and Raman Spectra, Chapter V,1, Van Nostrand Reinhold, 1945
+Point Group:  C2v, Symmetry Number:   2
+Rotational constants in cm-1:    20.397861    14.084851     8.331735
+
+Vibrational entropy computed according to the QRRHO of S. Grimme
+Chem.Eur.J. 2012 18 9955 using a reference frequency of 100.0 cm-1
+
+
+-------
+ENTROPY
+-------
+
+The entropy contributions are T*S = T*(S(el)+S(vib)+S(rot)+S(trans))
+     S(el)   - electronic entropy
+     S(vib)  - vibrational entropy
+     S(rot)  - rotational entropy
+     S(trans)- translational entropy
+The entropies will be listed as multiplied by the temperature to get
+units of energy
+
+Electronic entropy                ...      0.00000000 Eh      0.00 kcal/mol
+Vibrational entropy               ...      0.00000060 Eh      0.00 kcal/mol
+Rotational entropy                ...      0.00518321 Eh      3.25 kcal/mol
+Translational entropy             ...      0.01644380 Eh     10.32 kcal/mol
+-----------------------------------------------------------------------
+Final entropy term                ...      0.02162761 Eh     13.57 kcal/mol
+
+In case the symmetry of your molecule has not been determined correctly
+or in case you have a reason to use a different symmetry number we print
+out the resulting rotational entropy values for sn=1,12:
+
+ non-linear molecules -----------------------------------
+|  sn= 1 | S(rot)=       0.00583766 Eh      3.66 kcal/mol|
+|  sn= 2 | S(rot)=       0.00518321 Eh      3.25 kcal/mol|
+|  sn= 3 | S(rot)=       0.00480037 Eh      3.01 kcal/mol|
+|  sn= 4 | S(rot)=       0.00452875 Eh      2.84 kcal/mol|
+|  sn= 5 | S(rot)=       0.00431806 Eh      2.71 kcal/mol|
+|  sn= 6 | S(rot)=       0.00414592 Eh      2.60 kcal/mol|
+|  sn= 7 | S(rot)=       0.00400037 Eh      2.51 kcal/mol|
+|  sn= 8 | S(rot)=       0.00387429 Eh      2.43 kcal/mol|
+|  sn= 9 | S(rot)=       0.00376308 Eh      2.36 kcal/mol|
+|  sn=10 | S(rot)=       0.00366361 Eh      2.30 kcal/mol|
+|  sn=11 | S(rot)=       0.00357362 Eh      2.24 kcal/mol|
+|  sn=12 | S(rot)=       0.00349146 Eh      2.19 kcal/mol|
+ linear molecules ---------------------------------------
+|  Dinfh | S(rot)=       0.00332408 Eh      2.09 kcal/mol|
+|  Cinfv | S(rot)=       0.00397853 Eh      2.50 kcal/mol|
+ --------------------------------------------------------
+
+
+-------------------
+GIBBS FREE ENERGY
+-------------------
+
+The Gibbs free energy is G = H - T*S
+
+Total enthalpy                    ...    -75.29822466 Eh
+Total entropy correction          ...     -0.02162761 Eh    -13.57 kcal/mol
+-----------------------------------------------------------------------
+Final Gibbs free energy         ...    -75.31985227 Eh
+
+For completeness - the Gibbs free energy minus the electronic energy
+G-E(el)                           ...      0.00370218 Eh      2.32 kcal/mol
+
+
+
+--------------------------------
+
+FINAL SINGLE POINT ENERGY -75.323553799694
+THE OPTIMIZATION HAS CONVERGED
+****ORCA TERMINATED NORMALLY****

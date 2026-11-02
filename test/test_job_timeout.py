@@ -34,6 +34,24 @@ def test_timeout_terminates_subprocess_group():
     assert time.monotonic() - started < 2
 
 
+def test_termination_reaps_child_when_process_group_has_already_disappeared(monkeypatch):
+    class Process:
+        pid = 123
+        returncode = None
+        def poll(self):
+            return self.returncode
+        def wait(self, timeout=None):
+            self.returncode = 0
+            return 0
+    def gone(*args):
+        raise ProcessLookupError()
+    monkeypatch.setattr(job_timeout.os, 'getpgid', lambda pid: pid)
+    monkeypatch.setattr(job_timeout.os, 'killpg', gone)
+    process = Process()
+    job_timeout.terminate_process(process)
+    assert process.returncode == 0
+
+
 def test_nonpositive_limit_is_unlimited():
     with job_timeout.overall_timeout(0):
         time.sleep(0.01)

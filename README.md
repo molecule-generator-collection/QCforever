@@ -2,7 +2,7 @@
 
 ![Robot2+PC](https://user-images.githubusercontent.com/46772738/188896764-65ab12c1-3cc9-421d-8d87-ed33c932380a.png)
 
-QCforever (https://doi.org/10.1021/acs.jcim.2c00812, https://doi.org/10.1002/jcc.70017) is a wrapper of Gaussian (https://gaussian.com) or GAMESS (https://www.msg.chem.iastate.edu/gamess/). 
+QCforever (https://doi.org/10.1021/acs.jcim.2c00812, https://doi.org/10.1002/jcc.70017) is a wrapper of Gaussian (https://gaussian.com), GAMESS (https://www.msg.chem.iastate.edu/gamess/), or ORCA (https://www.faccts.de/orca/).
 To compute obsevable properties of a molecule through quantum chemical computation (QC),
 multi step computation is demanded. 
 QCforever automates this process and calculates multiple physical properties of molecules simultaneously.
@@ -13,7 +13,7 @@ Grey-box optimisation (LAQA (https://doi.org/10.1021/acs.jctc.1c00301)) can also
 
 ## Requirements
 
-1. Quantum chemistry software: [Gaussian](https://gaussian.com/)==16 or [GAMESS (sockets)](https://www.msg.chem.iastate.edu/gamess/)==30 SEP 2022 (R2)
+1. Quantum chemistry software: [Gaussian](https://gaussian.com/)==16, [GAMESS (sockets)](https://www.msg.chem.iastate.edu/gamess/)==30 SEP 2022 (R2), or [ORCA](https://www.faccts.de/orca/)>=6.1 (validated with 6.1.1)
 2. [Python](https://www.anaconda.com/download/)==3.11
 3. [RDKit](https://pypi.org/project/rdkit/)>=2023.3.3
 4. [bayesian-optimization](https://github.com/bayesian-optimization/BayesianOptimization)==1.4.3
@@ -72,7 +72,7 @@ See `install-conformer-models --help` for other installation options.
 
 ### Example
 
-Example codes for QCforever (gaussian_main.py and gamess_main.py) are prepared.
+Example codes for QCforever (gaussian_main.py, gamess_main.py, and orca_main.py) are prepared.
 
 For Gaussian
 ```bash
@@ -82,6 +82,125 @@ For GAMESS
 ```bash
 python gamess_main.py input_file
 ```
+For ORCA
+```bash
+python orca_main.py molecule.sdf "opt energy homolumo dipole" --nproc 4 --memory 4GB
+```
+
+### ORCA
+
+Install ORCA separately and put its `orca` executable on `PATH`, or set
+`job.executable` to its full path. For parallel runs, install the MPI runtime
+required by your ORCA distribution. QCforever invokes the ORCA driver directly
+using its absolute path; `%pal` controls the workers.
+
+```python
+from qcforever.orca_run import OrcaRunPack
+
+job = OrcaRunPack.OrcaDFTRun(
+    'B3LYP', 'def2-SVP', 4,
+    'optconf=(conf_gen=low, conf_relax=xtb) opt energy homolumo dipole uv',
+    'molecule.sdf', solvent='water',
+)
+job.mem = '4GB'             # Total budget, shared by all ORCA processes
+job.timexe = 60 * 60        # Limit for each ORCA invocation (seconds)
+job.timejob = 24 * 60 * 60  # Limit for the complete workflow, including xTB
+output = job.run_orca()
+```
+
+Supported options are `opt` (`opt=loose/tight/verytight` also accepted), `energy`,
+`homolumo`, `dipole`, `cden`, `polar`, `vip`, `vea`, `aip`, `aea`, `uv`,
+`fluor`/`fluor=N`, `freq`, `nmr`, and `optconf`. Unsupported options, KTLC,
+and `para_functional` overrides return `log="error"` before launching ORCA.
+ORCA accepts SDF, XYZ, and Gaussian formatted checkpoints (`.fchk`/`.fch`);
+see [FCHK input](#gaussian-fchk-input-for-gamess-and-orca). XYZ comments can specify `charge multiplicity`
+(otherwise neutral singlet). `SpecTotalCharge` and `SpecSpinMulti` override them.
+Use ORCA functional/basis keywords. `B3LYP` selects the Gaussian-compatible
+`B3LYP/G` convention. B3LYP/G, BLYP, LC-BLYP and CAM-B3LYP use their equivalent
+`LibXC(...)` forms throughout the workflow to support excited-state derivatives.
+Other native ORCA keywords, including explicit `LibXC(...)`, pass through.
+Results from different programs still depend on grids, approximations, and
+convergence settings and need not be numerically identical.
+
+`solvent` selects ORCA CPCM; `None`, `"0"` and `"none"` select gas phase.
+Use solvent names supported by ORCA. `mem` is a total budget; QCforever assigns
+75% divided by `nproc` to `%maxcore` (MB per process). The remaining 25% provides
+headroom; ORCA memory use is not a strict operating-system limit.
+
+ORCA `optconf` supports **xTB only**, including `conf_gen=legacy` with xTB.
+Bare `optconf` and groups without `conf_relax` default to xTB for this backend.
+Explicit PM6 requests fail before any calculation. Install the separate `xtb`
+executable for conformer searches. The existing generation, LAQA settings,
+selected structure, and retained histories are reused. A failed search returns
+an error; it does not silently continue with the original geometry.
+
+Output conventions:
+
+- `energy` and its alias `Energy` are `[energy in Eh, <S²>-S(S+1)]`.
+  `homolumo` is in **eV**, a scalar for restricted calculations or two spin
+  gaps for unrestricted calculations. `MO`, `Alpha_MO`, and `Beta_MO` contain
+  occupied/virtual orbital energies in Eh.
+- `dipole` is `[X, Y, Z, total]` in Debye, at the center of mass in ORCA's
+  Cartesian frame. The quadrupole keys use the existing primitive/traceless
+  conventions and Debye Angstrom units, also at the center of mass.
+  `polar_tens`, `polar_iso`, and `polar_aniso` are in 10^-24 cm³ (Angstrom³).
+- `vip`, `vea`, `aip`, and `aea` are `[energy difference in eV, ion spin
+  contamination]`. Adiabatic requests also return the corresponding vertical
+  result. The ion is a doublet for a singlet input, otherwise its multiplicity
+  is reduced by one. Override individual states with
+  `job.ion_multiplicities = {'vip': 3, 'aip': 3}`, for example.
+  Adiabatic calculations optimize the ion; use `opt` to optimize the reference
+  molecule as well.
+- `uv` and `fluor` are `[wavelengths in nm, oscillator strengths]`. `fluor`
+  contains the vertical transition spectrum at the relaxed excited-state
+  geometry; `fluor_state` identifies the followed state's root, wavelength and
+  oscillator strength. Full TDDFT (`TDA false`) is used, with `job.nstates=20`
+  by default; the requested fluorescence root can increase this count.
+- `freq` uses **NumFreq** plus polarizabilities to obtain both IR (km/mol) and
+  Raman activities (Angstrom⁴/amu), including for B88-based functionals.
+  This costs more than an analytic Hessian. The arrays include all 3N modes,
+  with zero intensities for omitted translations/rotations. `freqmode` is
+  `[X, Y, Z]`, each a mode-by-atom array. `Ezp`, `Et`, `E_enth`, and `E_free`
+  are total energies in Eh; `Ei` is the total thermal correction including ZPE
+  in kcal/mol and `Si` is entropy in cal/(mol K). ORCA's default QRRHO entropy
+  treatment is retained. Heat capacities are not returned.
+- `nmr_shielding` contains absolute shieldings in ppm. `nmr` uses TMS chemical
+  shifts for H/C/Si and absolute shieldings for other elements. If needed,
+  an additional ORCA calculation optimizes TMS and computes its shieldings
+  with the same functional, basis and solvent. This can be costly. Supply
+  compatible reference shieldings with `job.nmr_reference = {'H': 31.5,
+  'C': 185.0, 'Si': 330.0}` to avoid the reference calculation; these numbers
+  are illustrative, not universal reference values. Actual references are
+  returned in `nmr_reference`.
+
+`uv=reference.dat`, `nmr=reference.dat`, and
+`freq=IR.dat,Raman.dat[,NMR.dat]` compare against two-column reference spectra.
+IR/Raman/NMR use the shared `Spectrum_similarity` output; UV uses the existing
+`Similarity/Dissimilarity` and `Wasserstein_distance` keys. Relative reference
+paths are resolved before entering the calculation directory.
+
+Each run uses a directory named after the input stem in the current directory.
+Existing results are inspected and verified stages are reused as described in
+[Calculation reuse](#calculation-reuse-gaussian-gamess-and-orca).
+Inputs, logs, XYZ geometries, `.hess` frequency data, property text and citations
+are retained. `restart=True` (default) also retains `.gbw` orbitals;
+`restart=False` retains geometry instead. This flag controls retention, not
+optimizer resumption. The separate reuse cache retains restart data needed to
+reconstruct completed stages even when `restart=False`. `pklsave=True`
+preserves the result pickle. Errors and timeouts return `log="error"` or
+`log="timeout"`, partial results, and the failed/active job's diagnostic log.
+Independent molecules should run in separate Python processes.
+
+ORCA references:
+[LibXC functional mappings](https://www.faccts.de/docs/orca/6.1/manual/contents/modelchemistries/DensityFunctionalTheory.html#libxc-functional-library),
+[electric properties](https://www.faccts.de/docs/orca/6.1/manual/contents/spectroscopyproperties/electric.html),
+[TDDFT and excited-state optimization](https://www.faccts.de/docs/orca/6.1/manual/contents/spectroscopyproperties/tddft.html),
+[Raman spectroscopy](https://www.faccts.de/docs/orca/6.1/manual/contents/spectroscopyproperties/vibrations.html#raman-spectra).
+
+To run the optional installed-ORCA regression test:
+`QCFOREVER_TEST_ORCA=1 python -m pytest -q test/test_orca.py`.
+
+### GAMESS scratch handling
 
 GAMESS scratch paths are resolved separately for `SCR` and `USERSCR`. The paths
 reported by `rungms` in its execution log take precedence, including paths chosen
@@ -179,6 +298,8 @@ must be updated. No separate model installation is needed.
 
 - ***input_file*** is a string to specify the input file.
   QCforever accepts a sdf, xyz, Gaussian chk, or a Gaussian fchk file.
+  Gaussian binary `.chk` input is supported only by the Gaussian backend;
+  GAMESS and ORCA accept Gaussian `.fchk`/`.fch` as geometry/state input.
 
 - Set `test.SpecTotalCharge` and/or `test.SpecSpinMulti` before running to
   override the input file's charge and spin multiplicity. An unspecified value
@@ -196,6 +317,107 @@ must be updated. No separate model installation is needed.
 
 In this examples, obtained results are saved as python dictionary style.
 
+### Gaussian FCHK input for GAMESS and ORCA
+
+GAMESS and ORCA accept Gaussian formatted checkpoints (`.fchk` or `.fch`,
+case-insensitive) directly, without running Gaussian, `formchk` or `unfchk`.
+The imported data are the element identities from `Atomic numbers`,
+`Current cartesian coordinates` converted from Bohr to Angstrom, `Charge`, and
+`Multiplicity`. Element identities are not inferred from ECP-reduced
+`Nuclear charges`. Invalid/missing structural fields and unsupported ghost/dummy
+centers produce an error before launching the target engine.
+
+```python
+from qcforever.gamess_run import GamessRunPack
+from qcforever.orca_run import OrcaRunPack
+
+gamess = GamessRunPack.GamessDFTRun(
+    'B3LYP', 'STO-3G', 1, 'opt energy', '/path/to/molecule.fchk',
+)
+gamess_result = gamess.run_gamess()
+
+orca = OrcaRunPack.OrcaDFTRun(
+    'B3LYP', 'def2-SVP', 1, 'opt energy homolumo', '/path/to/molecule.fchk',
+)
+orca_result = orca.run_orca()
+```
+
+The destination calculation uses the functional, basis/ECP, solvent and options
+specified on the GAMESS/ORCA job. The Gaussian method, basis/ECP, solvent,
+isotope masses, constraints, energies, density and molecular orbitals are not
+transferred. The target engine starts a new electronic calculation at the
+imported geometry. Add `opt` to optimize it at the new level; without `opt`,
+the supplied geometry is kept for a single-point calculation. The source fchk
+is left unchanged and no sibling `.chk` is created. Binary `.chk` files must
+first be converted to formatted text using Gaussian's `formchk` separately.
+
+`SpecTotalCharge` and `SpecSpinMulti` override the imported electronic state in
+the usual way. With `optconf`, the resolved geometry, charge and multiplicity
+are exported to `fchk_geometry.xyz` inside the calculation directory and passed
+to the existing search. Bonds are reconstructed as for any XYZ input; the SDF
+bond graph and stereochemical annotations are not present in FCHK. ORCA still
+supports only `conf_relax=xtb`. Cross-program input imports geometry/state;
+Gaussian numerical results are not substituted for GAMESS/ORCA results by reuse.
+
+### Calculation reuse (Gaussian, GAMESS and ORCA)
+
+All three backends enable `job.reuse = True` by default. When the calculation
+directory already exists, QCforever preserves its previous contents under
+`.qcforever/history/` and plans the requested workflow again. At each stage it
+compares the generated input and any external restart dependencies with recorded
+calculations. Only a completed, converged calculation with verified required
+outputs is reused. Failed or interrupted stages are rerun; their completed
+predecessors can still be reused. Incomplete optimizer checkpoints are not
+automatically resumed within a stage.
+
+The comparison retains the geometry and atom order, charge, multiplicity,
+functional and its parameters, basis/ECP, solvent, excited-state settings,
+constraints, and numerical convergence controls present in the input. Core
+counts, memory allocation and execution time limits are excluded. The selected
+GAMESS launcher version and the available executable's path/size/modification
+time are also checked. Checkpoint/geometry dependencies and saved outputs use
+SHA-256 checksums. A changed or missing required output causes that stage to be
+computed again. Changed upstream checkpoints can conservatively invalidate
+downstream stages even when they represent similar numerical results.
+
+Gaussian Link1 calculations are run and recorded one link at a time, then their
+logs are combined for the existing property parser. Adding a frequency, NMR or
+other link can reuse an unchanged completed prefix rather than rerunning its
+optimization. The existing per-invocation `timexe` budget covers the entire
+sequence of links. GAMESS reuses separate ground-state, electric-moment, TDDFT, ion and vibrational
+jobs. ORCA records the optimization/energy, electronic properties, polarizability,
+NMR, TDDFT, excited-state optimization, ion and vibrational stages separately.
+Completed conformer searches can also be reused when the source structure,
+electronic state, generation/relaxation settings and relaxation executable match.
+Their selected structure and retained histories are restored together.
+
+For example, running `"opt energy uv"` after `"opt energy"` can reuse the
+optimization and add UV. Running the same request again can reuse all completed
+stages. Reference spectrum comparisons are recalculated from the raw properties,
+so changing only a reference spectrum does not require a new quantum calculation.
+To request fresh calculations, set `job.reuse = False` before running; previous
+files are still retained in history.
+
+The returned `reuse_report` lists each stage's `job`, `action` (`reused`,
+`executed` or `failed`) and reason, with counts for each action. The report is also
+saved to `.qcforever/reuse-report.json`; `.qcforever/index.json` records the input
+and output provenance. The cache holds wavefunctions/restart files needed for
+later stages, independently of the public restart-file retention setting. These
+records and histories consume additional disk space and are retained by cleanup.
+
+Results produced before this feature lack this execution record. An old ORCA or
+GAMESS result is imported only if its complete executed input can be recovered
+from the log and matches the requested stage, normal completion is verified,
+and required outputs remain available. Gaussian legacy jobs and logs without
+enough evidence are recomputed once to establish provenance. A saved input file
+alone, a successful launcher exit code, or a matching molecule filename is not
+sufficient. Records are specific to a backend; Gaussian results are never used
+as ORCA/GAMESS numerical results.
+
+Independent jobs must not write to the same molecule directory concurrently.
+`.qcforever/running.lock` records the active process. After an unclean process
+termination, check that process before removing a stale lock and retrying.
+
 ### Options
 
 By specifying the molecular properties you want as an option variable string,
@@ -205,32 +427,110 @@ seperated with more than one space:
 
 Following options are currently available:
 
-| Option name | Description | Gaussian | Gamess |
+| Option name | Description | Gaussian | Gamess | ORCA |
+|---|---|---|---|---|
+|symm| just specify symmetry of a molecule.|:white_check_mark:|||
+|volume| Compute the volume (in cm**3/mol) of a molecule.|:white_check_mark:|||
+|opt| just perform geometry optimization of a molecule.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|nmr| NMR chemical shift (ppm to TMS) of each atom is computed. `nmr=/absolute/path/to/nmr.dat` also compares it with a two-column `position intensity` reference spectrum.|:white_check_mark:||:white_check_mark:|
+|uv| absorption wavelengths (nm) (for spin allowed states) are computed. If you add an absolute path of text file that specify peak positions and their peak like (uv=/ab/path2uv.dat), it is possible to the similarity and dissimilarity between the target and reference. |:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|energy| SCF energy (in Eh) is printed.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|cden| charge and spin densities on each atom are computed.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|homolumo| HOMO/LUMO gap (Eh) calculation|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|dipole| Dipole moment and quadrupole properties at the center of mass; see the output definitions below.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|polar| Dipole polarizability (in 10**-24 cm**3) of a molecule|:white_check_mark:||:white_check_mark:|
+|deen| decomposition energy (in eV) of a molecule|:white_check_mark:|||
+|stable2o2| stability to oxygen molecule|:white_check_mark:|||
+|vip| vertical ionization potential energy (in eV)|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|vea| vertical electronic affinity (in eV)|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|aip| adiabatic ionization energy (in eV)|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|aea| adiabatic electronic affinity (in eV)|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|fluor| Fluorescence wavelengths (nm). Select a state with `fluor=N` or `fluor=(state=N)`. Gaussian also accepts independent force-constant controls, e.g. `fluor=(FC=CalcFC, state=2)`; see below.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|nac| Max and rms values of non adiabatic coupling vector (use with fluor option) |:white_check_mark:|||
+|tadf| Compute the energy gap (in Eh) between minima in the spin-allowed and spin-forbidden states. Gaussian accepts `tadf=(FC=CalcFC, state=1)` independently of `fluor`.|:white_check_mark:|||
+|freq| Compute the variable related to the vibrational analysis of a molecule. `freq=IR.dat,Raman.dat` compares the calculated IR and Raman spectra with two-column `position intensity` reference files. For Gaussian and ORCA, an optional third NMR file (`freq=IR.dat,Raman.dat,NMR.dat`) also enables NMR and compares all three spectra. Before comparison, peaks within 1.0 cm-1 (IR/Raman) or 0.01 ppm (NMR) are merged; intensities are summed and positions are averaged.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|pka| Compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species. The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydrogen.|:white_check_mark:|||
+|stable| try to find a stable structure when the negative frequency is detected.|:white_check_mark:|||
+|optspin| try to find a suitable spin multiplicity.|:white_check_mark:|||
+|optconf| Search for a stable conformer (default: PM6 for Gaussian/GAMESS, xTB for ORCA). See [Conformer search](#conformer-search-optconf) below.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+
+### Ground- and excited-state optimization options
+
+Gaussian's `opt=...` controls **only the ground-state optimization**. It is not
+inherited by `fluor`, `tadf`, or deprotonated-species optimizations. For example,
+`"opt=calcall energy fluor=2"` uses `Opt=(CalcAll,MaxCycles=100)` for the ground
+state and the default optimization controls for the second excited state.
+
+Use a group to specify the excited-state root and force-constant strategy:
+
+```python
+option = "opt=calcall energy fluor=(FC=CalcFC, state=2)"
+
+# Independent S1 and T1 controls for Gaussian TADF calculations:
+option = "opt=calcall energy fluor=(FC=CalcFC, state=1) tadf=(FC=CalcAll, state=1)"
+```
+
+`fluor` applies its `FC` setting only to the spin-allowed excited-state
+optimization. `tadf` applies its setting only to the spin-forbidden optimization
+(normally a triplet for singlet input). Bare `tadf`, or `tadf=(...)` without an
+explicit `fluor`, also requests an S1 optimization with default force-constant
+controls. Use an explicit `fluor=(...)` to control that S1 separately. Explicit
+`fluor` and `tadf` can occur in either order; they are scheduled in S/T order.
+
+Supported fields are `state` and `FC`; names and FC keywords are case-insensitive,
+and spaces or field order inside the group do not matter. `state` defaults to 1.
+`fluor`, `fluor=2`, and `fluor=(state=2)` remain valid. Gaussian's legacy
+`fluor=-1` or `fluor=(state=-1)` selects the brightest computed vertical state
+and automatically requests the UV calculation. This can be combined with FC,
+for example `fluor=(FC=CalcFC,state=-1)`. ORCA/GAMESS and `tadf` require a positive root.
+`FC` defaults to no explicit Hessian keyword. Gaussian accepts `CalcFC`,
+`CalcAll`, `ReadFC`, `RCFC`, `RecalcFC=N` (positive integer), `default`, and `none`.
+For example, `fluor=(FC=RecalcFC=5, state=1)` passes `RecalcFC=5` to its `Opt`
+keyword. `ReadFC`/`RCFC` require suitable force constants in the input checkpoint;
+specifying them does not create missing Hessian data. Availability of Hessian
+calculations still depends on Gaussian's method/state support.
+
+GAMESS and ORCA accept `FC=CalcFC`, `CalcAll`, `ReadFC`, and `RecalcFC=N`
+for `fluor`, and the same controls for the ground state via `opt=CalcFC`,
+`opt=CalcAll`, `opt=ReadFC`, or `opt=RecalcFC=N`. The controls are independent:
+
+```python
+option = "opt=CalcFC energy fluor=(FC=CalcAll, state=1)"
+# ORCA convergence and Hessian controls can be combined:
+option = "opt=(tight, FC=CalcFC) fluor=(FC=RecalcFC=5, state=2)"
+```
+
+| FC | Meaning | ORCA `%geom` | GAMESS `$STATPT` |
 |---|---|---|---|
-|symm| just specify symmetry of a molecule.|:white_check_mark:||
-|volume| Compute the volume (in cm**3/mol) of a molecule.|:white_check_mark:||
-|opt| just perform geometry optimization of a molecule.|:white_check_mark:|:white_check_mark:|
-|nmr| NMR chemical shift (ppm to TMS) of each atom is computed. `nmr=/absolute/path/to/nmr.dat` also compares it with a two-column `position intensity` reference spectrum.|:white_check_mark:||
-|uv| absorption wavelengths (nm) (for spin allowed states) are computed. If you add an absolute path of text file that specify peak positions and their peak like (uv=/ab/path2uv.dat), it is possible to the similarity and dissimilarity between the target and reference. |:white_check_mark:|:white_check_mark:|
-|energy| SCF energy (in Eh) is printed.|:white_check_mark:|:white_check_mark:|
-|cden| charge and spin densities on each atom are computed.|:white_check_mark:|:white_check_mark:|
-|homolumo| HOMO/LUMO gap (Eh) calculation|:white_check_mark:|:white_check_mark:|
-|dipole| Dipole moment and quadrupole properties at the center of mass; see the output definitions below.|:white_check_mark:|:white_check_mark:|
-|polar| Dipole polarizability (in 10**-24 cm**3) of a molecule|:white_check_mark:||
-|deen| decomposition energy (in eV) of a molecule|:white_check_mark:||
-|stable2o2| stability to oxygen molecule|:white_check_mark:||
-|vip| vertical ionization potential energy (in eV)|:white_check_mark:|:white_check_mark:|
-|vea| vertical electronic affinity (in eV)|:white_check_mark:|:white_check_mark:|
-|aip| adiabatic ionization energy (in eV)|:white_check_mark:|:white_check_mark:|
-|aea| adiabatic electronic affinity (in eV)|:white_check_mark:|:white_check_mark:|
-|fluor| wavelength (in nm) of fluorescence are computed. if you want to specify the state that emits fluorescence, you can specify the index of state like “fluor=#” (# is an integer, default is “fluor=1”)|:white_check_mark:|:white_check_mark:|
-|nac| Max and rms values of non adiabatic coupling vector (use with fluor option) |:white_check_mark:||
-|tadf| Compute the energy gap (in Eh) between minimum in the spin allowed state and the spin forbidden state.|:white_check_mark:||
-|freq| Compute the variable related to the vibrational analysis of a molecule. `freq=IR.dat,Raman.dat` compares the calculated IR and Raman spectra with two-column `position intensity` reference files. For Gaussian, an optional third NMR file (`freq=IR.dat,Raman.dat,NMR.dat`) also enables NMR and compares all three spectra. Before comparison, peaks within 1.0 cm-1 (IR/Raman) or 0.01 ppm (NMR) are merged; intensities are summed and positions are averaged.|:white_check_mark:|:white_check_mark:|
-|pka| Compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species. The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydrogen.|:white_check_mark:||
-|stable| try to find a stable structure when the negative frequency is detected.|:white_check_mark:||
-|optspin| try to find a suitable spin multiplicity.|:white_check_mark:||
-|optconf| Search for a stable conformer (default: PM6). See [Conformer search](#conformer-search-optconf) below.|:white_check_mark:|:white_check_mark:|
+| `CalcFC` | Compute initial Hessian once; update it afterwards | `Calc_Hess true` | `HESS=CALC IHREP=0` |
+| `CalcAll` | Recompute at every optimization step | `Calc_Hess true Recalc_Hess 1` | `HESS=CALC IHREP=1` |
+| `RecalcFC=N` | Compute initially and every N steps | `Calc_Hess true Recalc_Hess N` | `HESS=CALC IHREP=N` |
+| `ReadFC` | Start with a previously computed Hessian | `InHess Read InHessName "...hess"` | `HESS=READ IHREP=0` and a `$HESS` block |
+
+See the native controls in the [ORCA geometry optimization manual](https://www.faccts.de/docs/orca/6.1/manual/contents/structurereactivity/optimizations.html)
+and the [GAMESS input manual (`$STATPT` and `$FORCE`)](https://www.msg.chem.iastate.edu/GAMESS/GAMESS_Manual/input.pdf).
+
+These ORCA/GAMESS calculations use numerical differentiation of gradients
+(`NumHess true` / `$FORCE METHOD=SEMINUM NVIB=2`). This also applies to TDDFT
+excited-state optimizations; GAMESS conventional TDDFT requires singlet
+excited-state gradients. Numerical Hessians can substantially increase cost,
+especially with `CalcAll`. `RCFC` remains Gaussian-only.
+
+For ORCA/GAMESS `ReadFC`, first complete the corresponding stage with `CalcFC`,
+`CalcAll`, or `RecalcFC=N`, keeping the calculation name and `.qcforever`
+directory. QCforever selects a Hessian from a verified completed calculation,
+checking file hashes, executable provenance, atom order, method, basis, charge,
+multiplicity, solvent and the target excited state. Nearby coordinates may differ:
+the Hessian supplies an initial curvature estimate and does not restore the
+optimizer trajectory. Ground-state Hessians are not substituted for excited-state
+ones. Missing, modified or incompatible data causes an explicit error; there is
+no fallback to a guessed Hessian. Importing arbitrary native Hessian files or
+resuming an interrupted optimization trajectory is not provided by this option.
+
+TADF remains Gaussian-only. Unknown fields, duplicate settings and invalid roots
+are rejected before launching a calculation. Changing only an excited-state FC
+setting leaves the ground-state input unchanged, allowing its existing result
+to be reused when the remaining reuse checks pass.
 
 ### Conformer search (`optconf`)
 
@@ -341,8 +641,9 @@ charge, and atomic masses (including specified isotopes). Masses are read from
 If the tensor or origin-transformation data is missing, the new properties are
 `None` and `quadrupole_info` explains why; the dipole remains available.
 
-For GAMESS, `dipole` adds the following group to generated inputs, including
-inputs regenerated from `.dat` files:
+For GAMESS, `dipole` uses a separate property single point at the ground-state
+geometry so adding it does not rerun optimization or unrelated TDDFT stages.
+Its input is regenerated from the ground-state `.dat` file and includes:
 
 ```text
  $ELMOM IEMOM=2 WHERE=COMASS $END

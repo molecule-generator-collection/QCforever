@@ -1,8 +1,101 @@
 import sys
+import re
+from pathlib import Path
 
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import Descriptors, rdmolops
+from qcforever.util.quadrupole import BOHR_TO_ANGSTROM
+
+
+def read_fchk(infile):
+    """Read molecular geometry/state directly from Gaussian formatted text.
+
+    No Gaussian executable is used. Atomic numbers identify elements even when
+    Nuclear charges have been reduced by ECPs. Orbitals/basis/energies are not
+    imported into another backend.
+    """
+    required = {'Number of atoms', 'Charge', 'Multiplicity', 'Atomic numbers',
+                'Current cartesian coordinates'}
+    names = {name.lower(): name for name in required | {'Nuclear charges'}}
+    pattern = re.compile(r'^\s*(' + '|'.join(re.escape(name) for name in names) +
+                         r')\s+([IR])\s+(.*?)\s*$', re.I)
+    number = re.compile(r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[DdEe][+-]?\d+)?')
+    fields = {}
+    with open(infile, encoding='utf-8', errors='replace') as stream:
+        # The first two lines are free-form title and method/basis descriptors.
+        next(stream, None)
+        next(stream, None)
+        for line in stream:
+            match = pattern.fullmatch(line)
+            if match is None:
+                continue
+            label, kind, content = names[match[1].lower()], match[2].upper(), match[3]
+            if label in fields:
+                raise ValueError(f'{infile}: duplicate fchk field {label}')
+            array = label in {'Atomic numbers', 'Nuclear charges', 'Current cartesian coordinates'}
+            expected_kind = 'R' if label in {'Nuclear charges', 'Current cartesian coordinates'} else 'I'
+            if kind != expected_kind:
+                raise ValueError(f'{infile}: invalid fchk type for {label}')
+            if array:
+                count_match = re.fullmatch(r'N=\s*(\d+)', content, re.I)
+                if count_match is None:
+                    raise ValueError(f'{infile}: missing fchk array count for {label}')
+                count = int(count_match[1])
+                values = []
+                while len(values) < count:
+                    row = next(stream, '')
+                    if not row or not row.strip() or number.sub('', row).strip():
+                        raise ValueError(f'{infile}: truncated or invalid fchk array {label}')
+                    tokens = number.findall(row)
+                    try:
+                        values.extend(int(value) if kind == 'I' else float(value.replace('D', 'E').replace('d', 'e'))
+                                      for value in tokens)
+                    except ValueError as exc:
+                        raise ValueError(f'{infile}: invalid fchk number in {label}') from exc
+                if len(values) != count:
+                    raise ValueError(f'{infile}: wrong fchk array length for {label}')
+                fields[label] = values
+            else:
+                try:
+                    fields[label] = int(content)
+                except ValueError as exc:
+                    raise ValueError(f'{infile}: invalid fchk integer for {label}') from exc
+            if required <= fields.keys():
+                break
+    missing = required - fields.keys()
+    if missing:
+        raise ValueError(f'{infile}: missing fchk fields: {", ".join(sorted(missing))}')
+    count = fields['Number of atoms']
+    numbers = fields['Atomic numbers']
+    coordinates = np.asarray(fields['Current cartesian coordinates'], dtype=float)
+    if count < 1 or len(numbers) != count or coordinates.size != 3 * count:
+        raise ValueError(f'{infile}: inconsistent fchk atom/coordinate counts')
+    if not all(1 <= value <= 118 for value in numbers):
+        raise ValueError(f'{infile}: unsupported ghost/dummy atom in fchk Atomic numbers')
+    if not np.all(np.isfinite(coordinates)):
+        raise ValueError(f'{infile}: nonfinite fchk coordinates')
+    nuclear = fields.get('Nuclear charges')
+    if nuclear is not None and (len(nuclear) != count or not all(np.isfinite(value) and value > 0 for value in nuclear)):
+        raise ValueError(f'{infile}: unsupported nuclear charges or ghost centers in fchk')
+    charge, mult = fields['Charge'], fields['Multiplicity']
+    if mult < 1:
+        raise ValueError(f'{infile}: fchk multiplicity must be positive')
+    atoms = [Chem.GetPeriodicTable().GetElementSymbol(value) for value in numbers]
+    coordinates = coordinates.reshape(count, 3) * BOHR_TO_ANGSTROM
+    return atoms, coordinates[:, 0], coordinates[:, 1], coordinates[:, 2], charge, mult
+
+
+def write_xyz(outfile, atoms, x, y, z, charge, multiplicity):
+    """Write a structure handoff without changing electronic-state overrides."""
+    if any(int(value) != value for value in (charge, multiplicity)) or multiplicity < 1:
+        raise ValueError('XYZ charge and multiplicity must be integers, with positive multiplicity')
+    coordinates = np.column_stack((x, y, z))
+    if len(coordinates) != len(atoms) or not np.all(np.isfinite(coordinates)):
+        raise ValueError('Invalid XYZ handoff coordinates')
+    Path(outfile).write_text(f'{len(atoms)}\n{int(charge)} {int(multiplicity)}\n' + ''.join(
+        f'{atom} {xx:.12f} {yy:.12f} {zz:.12f}\n'
+        for atom, (xx, yy, zz) in zip(atoms, coordinates)))
 
 
 def read_sdf(infile):

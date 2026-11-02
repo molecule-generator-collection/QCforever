@@ -5,7 +5,7 @@ import subprocess
 from collections import deque
 from pathlib import Path
 
-from qcforever.util import job_timeout
+from qcforever.util import job_timeout, calculation_cache
 from qcforever.util.gamess_scratch import resolve_scratch_directories
 
 
@@ -41,6 +41,15 @@ def read_rungms(gmspath):
 
 
 def exe_Gamess(jobname, gamessversion, nproc):
+    session = calculation_cache._active.get()
+    if session is None or session.backend != 'gamess' or session.directory != Path.cwd():
+        return _exe_Gamess(jobname, gamessversion, nproc)
+    return calculation_cache.execute(
+        'gamess', jobname, Path(jobname + '.inp').read_text(),
+        lambda: _exe_Gamess(jobname, gamessversion, nproc))
+
+
+def _exe_Gamess(jobname, gamessversion, nproc):
     job_state = ""
     cwd = os.getcwd()
     print(cwd)

@@ -11,6 +11,8 @@ import numpy as np
 from pathlib import Path
 
 from qcforever import gaussian_run
+from qcforever.util import calculation_cache
+from qcforever.util.calculation_options import excited_options
 from qcforever.util import (
     read_mol_file,
     check_resource,
@@ -64,6 +66,7 @@ class GaussianDFTRun:
         self.para_functional = []
         self.functional_parameter_optimization = None
         self.functional_parameter_prediction = None
+        self.reuse = True
 
     def check_scf_need(self, option):
         all_keys = set(option.keys())
@@ -600,6 +603,10 @@ class GaussianDFTRun:
                         ReadFrom, element=[], atomX=[], atomY=[], atomZ=[], optoption='', TDstate_info=[]):
 
         option_dict = copy.deepcopy(job_dict)
+        # opt=... belongs to the ground-state optimization. An excited state
+        # takes force-constant controls exclusively from its own option group.
+        if 'fluor' in option_dict or 'tadf' in option_dict:
+            optoption = option_dict.pop('excited_optoption', '')
 
         print (option_dict)
 
@@ -993,6 +1000,7 @@ class GaussianDFTRun:
         }
         return selected_parameters
 
+    @calculation_cache.workflow('gaussian')
     def run_gaussian(self):
         """Run the complete workflow, enforcing ``timejob`` when configured."""
         from qcforever.conformer_search.settings import parse_conformer_options
@@ -1078,6 +1086,7 @@ class GaussianDFTRun:
 
         # Setting options
         optoption = ''
+        options, excited_specs = excited_options(options, 'gaussian')
         for i in range(len(options)):
             option = options[i]
             if re.match(r'^opt(?:=|$)',  option.lower()):
@@ -1085,8 +1094,9 @@ class GaussianDFTRun:
                 option_dict['opt'] = True
                 job_eachState[0]['opt'] = True
                 if '=' in option:
-                    in_target = option.split('=')
-                    optoption = in_target[-1]
+                    optoption = option.split('=', 1)[1].strip()
+                    if optoption.startswith('(') and optoption.endswith(')'):
+                        optoption = optoption[1:-1]
                     print(f'Use {optoption} for geometry optimization in the ground state.')
                 else:
                     optoption = ''
@@ -1156,66 +1166,36 @@ class GaussianDFTRun:
             elif option.lower() == 'stable2o2':
                 option_dict['stable2o2'] = True
                 job_eachState[0]['stable2o2'] = True
-            elif 'fluor' in option.lower():
+            elif re.match(r'^fluor(?:=|$)', option.lower()):
                 option_dict['uv'] = True
                 option_dict['fluor'] = True
                 job_eachState.append({})
                 job_eachState[0]['uv'] = True
                 job_eachState[len(job_eachState)-1]['fluor'] = True
-                #setting the target state and its spin
-                if '=' in option:
-                    in_target = option.split('=')
-                    TargetStates.append(int(in_target[-1]))
-                    TargetSpinMulti.append(SpinMulti)
-                    TargetTotalCharge.append(TotalCharge)
-                else:
+                job_eachState[-1]['excited_optoption'] = excited_specs['fluor']['fc']
+                TargetStates.append(excited_specs['fluor']['state'])
+                TargetSpinMulti.append(SpinMulti)
+                TargetTotalCharge.append(TotalCharge)
+            elif option.lower() == 'nac':
+                option_dict['nac'] = True
+                fluor_job = next((job for job in job_eachState if 'fluor' in job), None)
+                if fluor_job is None:
+                    raise ValueError("'nac' requires 'fluor' (e.g. fluor=1 nac).")
+                fluor_job['nac'] = True
+            elif re.match(r'^tadf(?:=|$)', option.lower()):
+                option_dict['uv'] = True
+                job_eachState[0]['uv'] = True
+                if 'fluor' not in option_dict:
+                    option_dict['fluor'] = True
+                    job_eachState.append({'fluor': True, 'excited_optoption': ''})
                     TargetStates.append(1)
                     TargetSpinMulti.append(SpinMulti)
                     TargetTotalCharge.append(TotalCharge)
-            elif option.lower() == 'nac':
-                option_dict['nac'] = True
-                if len(job_eachState) < 2 or 'fluor' not in job_eachState[-1]:
-                    raise ValueError("'nac' requires 'fluor' (e.g. fluor=1 nac).")
-                job_eachState[len(job_eachState)-1]['nac'] = True
-            elif option.lower() == 'tadf':
-                option_dict['uv'] = True
-                job_eachState[0]['uv'] = True
-                job_eachState.append({})
-                if 'fluor' in option_dict:
-                    option_dict['tadf'] = True
-                    job_eachState[len(job_eachState)-1]['tadf'] = True
-                    #setting the target state and its spin
-                    if '=' in option:
-                        in_target = option.split('=')
-                        TargetStates.append(int(in_target[-1]))
-                        TargetSpinMulti.append(SpinMulti+2)
-                        TargetTotalCharge.append(TotalCharge)
-                    else:
-                        TargetStates.append(1)
-                        TargetSpinMulti.append(SpinMulti+2)
-                        TargetTotalCharge.append(TotalCharge)
-                else:
-                    option_dict['fluor'] = True
-                    option_dict['tadf'] = True
-                    job_eachState.append({})
-                    job_eachState[len(job_eachState)-2]['fluor'] = True
-                    job_eachState[len(job_eachState)-1]['tadf'] = True
-                    #setting the target state and its spin
-                    if '=' in option:
-                        in_target = option.split('=')
-                        TargetStates.append(int(in_target[-1]))
-                        TargetSpinMulti.append(SpinMulti)
-                        TargetTotalCharge.append(TotalCharge)
-                        TargetStates.append(int(in_target[-1]))
-                        TargetSpinMulti.append(SpinMulti+2)
-                        TargetTotalCharge.append(TotalCharge)
-                    else:
-                        TargetStates.append(1)
-                        TargetStates.append(1)
-                        TargetSpinMulti.append(SpinMulti)
-                        TargetSpinMulti.append(SpinMulti+2)
-                        TargetTotalCharge.append(TotalCharge)
-                        TargetTotalCharge.append(TotalCharge)
+                option_dict['tadf'] = True
+                job_eachState.append({'tadf': True, 'excited_optoption': excited_specs['tadf']['fc']})
+                TargetStates.append(excited_specs['tadf']['state'])
+                TargetSpinMulti.append(SpinMulti+2)
+                TargetTotalCharge.append(TotalCharge)
             elif option.lower() == 'vip':
                 job_eachState[0]['vip'] = True
                 option_dict['vip'] = True
@@ -1280,9 +1260,7 @@ class GaussianDFTRun:
         # Make work directory and move to the directory
         pwd = os.getcwd()
         print(f'Current dir: {pwd}')
-        if Path(JobName).is_dir():
-            shutil.rmtree(JobName)
-        os.mkdir(JobName)
+        calculation_cache.prepare_directory(JobName, infilename)
         self._active_job_directory = Path(pwd) / JobName
         if ReadFrom == 'chk':
             inchkfile = JobName + '.chk'
@@ -1636,7 +1614,8 @@ class GaussianDFTRun:
 
                 self.chain_job(JobNameState, scf_need, job_thisstate, TotalCharge, SpinMulti, 
                                     targetstate, ReadFrom, 
-                                    element=atm, atomX=X, atomY=Y, atomZ=Z, optoption=optoption, TDstate_info=TDstate_info)
+                                    element=atm, atomX=X, atomY=Y, atomZ=Z,
+                                    optoption=optoption if i == 0 else '', TDstate_info=TDstate_info)
             
                 job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe, self.error)
                 # Exe_Gaussian may return the final Link1 job type (e.g. "nac")

@@ -14,8 +14,10 @@ from .optimize_conformers import optimize_candidates
 from .relaxation_history import compact_relaxation_outputs, archive_relaxation_details
 from .structure_file_io import read_input_structure
 from .calculation_logs import write_json
+from qcforever.util import calculation_cache
 
 
+@calculation_cache.conformer_workflow
 def run_conformer_search(infilename, charge, multiplicity, method, nproc, memory, config):
     """Called by optconf with resolved defaults and optional YAML overrides.
 
