@@ -68,7 +68,10 @@ def exe_Gaussian(jobname, exe_time, error=0):
     session = calculation_cache._active.get()
     if session is None or session.backend != 'gaussian' or session.directory != Path.cwd():
         return _exe_Gaussian(jobname, exe_time, error)
-    parts = re.split(r'(?im)^\s*--link1--\s*$', original)
+    # Blank lines terminate Gaussian geometry/route/additional-input sections.
+    # Only consume the separator line: \s would also remove adjacent newlines
+    # and leave a standalone job with an unterminated geometry (ZSymb EOF).
+    parts = re.split(r'(?im)^[ \t]*--link1--[ \t]*(?:\n|$)', original)
     logs = []
     started = time.monotonic()
     status = 'normal'

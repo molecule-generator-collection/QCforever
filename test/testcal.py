@@ -14,6 +14,13 @@ test.mem = '2GB'
 test.timexe = 12*60*60
 outdic = test.run_gaussian()
 
+if outdic.get('log') != 'normal':
+    errors = '\n'.join(f'{key}: {value}' for key, value in outdic.items()
+                       if key.startswith('error_') or key in ('error', 'logfile'))
+    raise RuntimeError(f"QCforever calculation failed: {outdic.get('log', 'missing status')}\n{errors}")
+if 'symm' not in outdic:
+    raise RuntimeError(f"QCforever did not return the requested symm result. Returned keys: {sorted(outdic)}")
+
 ####for make a pkl file##########################
 '''
 result_dic = "reference.pkl"

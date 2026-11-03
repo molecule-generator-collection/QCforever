@@ -48,7 +48,7 @@ setup(
     long_description_content_type="text/markdown",
     license="MIT LIcense",                            
     url="https://github.com/molecule-generator-collection/QCforever",
-    version="2.5.1",
+    version="2.5.2",
     download_url="https://github.com/molecule-generator-collection/QCforever",
     python_requires=">=3.11",                                                      
     install_requires=INSTALL_REQUIRES,

@@ -3,6 +3,8 @@
 from contextlib import contextmanager
 import json
 from pathlib import Path
+import runpy
+from types import SimpleNamespace
 
 import pytest
 
@@ -183,6 +185,80 @@ def test_gaussian_link1_completed_prefix_and_failure_recovery(tmp_path,monkeypat
             assert Path('mol.com').read_text()==text
     assert len(calls)==2
     assert len(list((tmp_path/'job/.qcforever/history').iterdir()))==2
+
+
+@pytest.mark.parametrize('solvent', ['0', 'water'])
+@pytest.mark.parametrize('separator', ['--Link1--\n', ' \t--lInK1-- \t\n'])
+def test_gaussian_link1_preserves_required_blank_lines_and_reuses_stages(
+        tmp_path, monkeypatch, solvent, separator):
+    monkeypatch.setattr(GaussianRunPack.check_resource, 'respec_cores', lambda count: count)
+    job = GaussianRunPack.GaussianDFTRun('B3LYP', 'STO-3G', 1,
+                                       'opt symm freq', 'water.xyz', solvent=solvent)
+    job.mem = '2GB'
+    calls = []
+    def execute(name, *args):
+        text = Path(name + '.com').read_text()
+        # A coordinate line followed by EOF is rejected by Gaussian l101 as
+        # "End of file in ZSymb." The blank section terminator must survive.
+        assert text.endswith('\n\n'), repr(text[-100:])
+        calls.append(text)
+        return complete('gaussian', name)
+    monkeypatch.setattr(Exe_Gaussian, '_exe_Gaussian', execute)
+    for attempt in range(2):
+        with session(tmp_path / 'job', 'gaussian') as current:
+            job.chain_job('mol', True, {'opt': True, 'symm': True, 'freq': True},
+                          0, 1, 0, 'xyz', element=['O', 'H', 'H'],
+                          atomX=[0, 0, .92], atomY=[0, 0, 0], atomZ=[0, .96, -.24])
+            original = Path('mol.com').read_text()
+            expected = original.split('--Link1--\n')
+            submitted = original.replace('--Link1--\n', separator)
+            Path('mol.com').write_text(submitted)
+            assert Exe_Gaussian.exe_Gaussian('mol', 60) == 'normal'
+            assert Path('mol.com').read_text() == submitted
+            assert calls == expected
+            assert Path('mol.log').read_text().count('Normal termination') == 3
+            assert {step['action'] for step in current.steps} == ({'executed'} if attempt == 0 else {'reused'})
+
+
+@pytest.mark.parametrize('status', ['abnormal', 'timeout', 'oscillation'])
+def test_gaussian_failed_calculation_preserves_checkpoint_and_reports_log(
+        tmp_path, monkeypatch, status):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(GaussianRunPack.check_resource, 'respec_cores', lambda count: count)
+    Path('water.xyz').write_text('3\n0 1\nO 0 0 0\nH 0 0 .96\nH .92 0 -.24\n')
+    def execute(name, *args):
+        Path(name + '.log').write_text('End of file in ZSymb.\nError termination via Lnk1e\n')
+        Path(name + '.chk').write_text('partial checkpoint')
+        return status
+    monkeypatch.setattr(Exe_Gaussian, '_exe_Gaussian', execute)
+    monkeypatch.setattr(GaussianRunPack.gaussian_run.chk2fchk, 'Get_chklist',
+                        lambda *args: pytest.fail('Do not convert a failed checkpoint'))
+    monkeypatch.setattr(GaussianRunPack.gaussian_run.Get_MolCoordinate_fchk, 'Get_fchklist2xyz',
+                        lambda *args: pytest.fail('Do not export failed geometry'))
+    monkeypatch.setattr(GaussianRunPack.GaussianDFTRun, 'Extract_values',
+                        lambda *args: pytest.fail('Do not parse properties from a failed calculation'))
+    job = GaussianRunPack.GaussianDFTRun('B3LYP', 'STO-3G', 1,
+                                       'opt symm homolumo energy', 'water.xyz', restart=False, pklsave=True)
+    job.mem = '2GB'
+    result = job.run_gaussian()
+    assert result['log_0'] == status and result['log'] != 'normal'
+    assert status in result['error_0'] and result['logfile'] in result['error_0']
+    assert 'ZSymb' in Path(result['logfile']).read_text()
+    assert Path(result['logfile']).with_suffix('.chk').read_text() == 'partial checkpoint'
+    assert result['reuse_report']['failed'] == 1
+
+
+@pytest.mark.parametrize('result,reason', [
+    ({'log': 'Gaussian computation failed!', 'error_0': 'End of file in ZSymb.',
+      'logfile': '/work/ch2o/ch2o_State0_1_0.log'}, 'ZSymb'),
+    ({'log': 'normal'}, 'requested symm result'),
+])
+def test_manual_gaussian_comparison_reports_missing_result_before_keyerror(
+        monkeypatch, result, reason):
+    monkeypatch.setattr(GaussianRunPack, 'GaussianDFTRun',
+                        lambda *args, **kwargs: SimpleNamespace(run_gaussian=lambda: result))
+    with pytest.raises(RuntimeError, match=reason):
+        runpy.run_path(str(Path(__file__).with_name('testcal.py')))
 
 
 def test_legacy_orca_requires_executed_input_echo_and_success(tmp_path):

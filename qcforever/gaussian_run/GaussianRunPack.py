@@ -1620,12 +1620,17 @@ class GaussianDFTRun:
                                     optoption=optoption if i == 0 else '', TDstate_info=TDstate_info)
             
                 job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe, self.error)
-                # Exe_Gaussian may return the final Link1 job type (e.g. "nac")
-                # although Gaussian completed successfully.  Keep status and
-                # job type separate so fluorescence is not marked unsuccessful.
-                #if self._normal_termination(JobNameState):
-                #    job_state = "normal"
-                #print (job_state)
+                if job_state != 'normal':
+                    logfile = str(Path(JobNameState + '.log').resolve())
+                    output_dic[i].update({
+                        f'log_{i}': job_state or 'abnormal',
+                        f'error_{i}': f'Gaussian calculation ended with {job_state or "abnormal"}; see {logfile}',
+                        'failed_job': JobNameState,
+                        'logfile': logfile,
+                    })
+                    # Preserve incomplete checkpoints for diagnosis. Neither
+                    # formchk nor property extraction can repair a failed job.
+                    break
                 # When the scf is performed, the obtained wavefunction is saved to chk file.
                 # But for 'symm' and 'volume' that information is emply except for when the input is chk or fchk files.
                 if scf_need or ReadFrom=='chk':
@@ -1785,7 +1790,7 @@ class GaussianDFTRun:
                 pickle.dump(output_sum, f)
 
         # Convert fchk to xyz 
-        if self.restart == False and scf_need == True:
+        if self.restart == False and scf_need == True and output_sum['log'] == 'normal':
             try:
                 gaussian_run.Get_MolCoordinate_fchk.Get_fchklist2xyz()
             except:
