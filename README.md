@@ -292,10 +292,11 @@ must be updated. No separate model installation is needed.
 
 - After the workflow finishes (normally, with an error, or by `timejob`), the
   calculation directory is cleaned automatically. Gaussian keeps `.chk` and
-  `.fchk` restart files (or the selected geometry `.xyz` output when
-  `restart=False`) together with `.com`/`.gjf` input and `.log`/`.out` output
-  files. GAMESS first moves matching `.dat` restart files from SCR/USERSCR into
-  the calculation directory and keeps them together with `.inp` input and
+  `.fchk` restart files together with `.com`/`.gjf` input and `.log`/`.out` output
+  files. With `restart=False`, Gaussian keeps available `.xyz` output and removes
+  `.chk` and `.fchk` files from the job directory, reuse cache and job history
+  after both successful and failed runs. GAMESS first moves matching `.dat`
+  restart files from SCR/USERSCR into the calculation directory and keeps them together with `.inp` input and
   `.log`/`.out` output files.
   If `pklsave=True`, the explicitly requested `.pkl` result is also retained.
 
@@ -406,9 +407,10 @@ files are still retained in history.
 The returned `reuse_report` lists each stage's `job`, `action` (`reused`,
 `executed` or `failed`) and reason, with counts for each action. The report is also
 saved to `.qcforever/reuse-report.json`; `.qcforever/index.json` records the input
-and output provenance. The cache holds wavefunctions/restart files needed for
-later stages, independently of the public restart-file retention setting. These
-records and histories consume additional disk space and are retained by cleanup.
+and output provenance. The cache holds wavefunctions and restart files needed for
+later stages. With Gaussian `restart=False`, cleanup removes checkpoints from
+the cache and history, so stages requiring those checkpoints are recomputed on
+the next run. Logs, records and histories still consume additional disk space.
 
 Results produced before this feature lack this execution record. An old ORCA or
 GAMESS result is imported only if its complete executed input can be recovered

@@ -20,6 +20,9 @@ if outdic.get('log') != 'normal':
     raise RuntimeError(f"QCforever calculation failed: {outdic.get('log', 'missing status')}\n{errors}")
 if 'symm' not in outdic:
     raise RuntimeError(f"QCforever did not return the requested symm result. Returned keys: {sorted(outdic)}")
+missing_triplet = {'T_Min', 'T_Min_MaxDisplace', 'T_Phos'} - outdic.keys()
+if missing_triplet:
+    raise RuntimeError(f"QCforever did not return the requested triplet results: {', '.join(sorted(missing_triplet))}")
 
 ####for make a pkl file##########################
 '''

@@ -38,18 +38,34 @@ def _clean_job_directory(job_directory, restart_suffixes, preserve_pickle=False,
 
 
 def cleanup_gaussian(job_directory, preserve_pickle=False, preserve_xyz=False, preserve_conformers=False):
-    """Keep Gaussian restart, input, and output files."""
-    preserved_suffixes = {".chk", ".fchk", ".com", ".gjf", ".log", ".out"}
+    """Keep Gaussian inputs, logs and the selected restart format."""
+    from .calculation_cache import DIRECTORY, preserve_path
+
+    job_directory = Path(job_directory)
+    checkpoint_suffixes = {".chk", ".fchk"}
+    preserved_suffixes = {".com", ".gjf", ".log", ".out"}
     if preserve_xyz:
-        # ``restart=False`` intentionally retains geometry rather than the
-        # electronic checkpoint; an xyz can restart QCforever geometrically.
         preserved_suffixes.add(".xyz")
+    else:
+        preserved_suffixes.update(checkpoint_suffixes)
     _clean_job_directory(
         job_directory,
         restart_suffixes=preserved_suffixes,
         preserve_pickle=preserve_pickle,
         preserve_conformers=preserve_conformers,
     )
+    if preserve_xyz:
+        # Remove copies in retained workflow data too. Cache validation will
+        # reject entries whose checkpoint files are gone.
+        for name in (DIRECTORY, "conformer_search"):
+            root = job_directory / name
+            if root.is_symlink() or not root.is_dir():
+                continue
+            if name != DIRECTORY and preserve_path(job_directory, root):
+                continue
+            for path in root.rglob("*"):
+                if path.suffix.lower() in checkpoint_suffixes and (path.is_symlink() or path.is_file()):
+                    path.unlink(missing_ok=True)
 
 
 def cleanup_orca(job_directory, preserve_pickle=False, preserve_restart=True, preserve_conformers=False):

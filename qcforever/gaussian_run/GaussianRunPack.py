@@ -1266,7 +1266,10 @@ class GaussianDFTRun:
         self._active_job_directory = Path(pwd) / JobName
         if ReadFrom == 'chk':
             inchkfile = JobName + '.chk'
-            shutil.move(inchkfile, JobName) 
+            if JobNameSuffix == '.chk' and not self.restart:
+                shutil.copy2(inchkfile, JobName)
+            else:
+                shutil.move(inchkfile, JobName)
         os.chdir(JobName)
         print(f'Calculation dir: {os.getcwd()}')
 

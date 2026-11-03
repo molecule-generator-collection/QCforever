@@ -220,38 +220,63 @@ def test_gaussian_link1_preserves_required_blank_lines_and_reuses_stages(
             assert {step['action'] for step in current.steps} == ({'executed'} if attempt == 0 else {'reused'})
 
 
-@pytest.mark.parametrize('status', ['abnormal', 'timeout', 'oscillation'])
-def test_gaussian_failed_calculation_preserves_checkpoint_and_reports_log(
-        tmp_path, monkeypatch, status):
+@pytest.mark.parametrize('restart', [True, False])
+@pytest.mark.parametrize('status', ['normal', 'abnormal', 'timeout', 'oscillation'])
+def test_gaussian_checkpoint_retention_and_job_status(tmp_path, monkeypatch, status, restart):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(GaussianRunPack.check_resource, 'respec_cores', lambda count: count)
     Path('water.xyz').write_text('3\n0 1\nO 0 0 0\nH 0 0 .96\nH .92 0 -.24\n')
+    Path('water').mkdir()
+    Path('water/previous.FCHK').write_text('previous checkpoint')
     def execute(name, *args):
+        if status == 'normal':
+            complete('gaussian', name)
+            Path(name + '.fchk').write_text('formatted checkpoint')
+            return status
         Path(name + '.log').write_text('End of file in ZSymb.\nError termination via Lnk1e\n')
         Path(name + '.chk').write_text('partial checkpoint')
+        Path(name + '.fchk').write_text('partial formatted checkpoint')
         return status
     monkeypatch.setattr(Exe_Gaussian, '_exe_Gaussian', execute)
-    monkeypatch.setattr(GaussianRunPack.gaussian_run.chk2fchk, 'Get_chklist',
-                        lambda *args: pytest.fail('Do not convert a failed checkpoint'))
-    monkeypatch.setattr(GaussianRunPack.gaussian_run.Get_MolCoordinate_fchk, 'Get_fchklist2xyz',
-                        lambda *args: pytest.fail('Do not export failed geometry'))
-    monkeypatch.setattr(GaussianRunPack.GaussianDFTRun, 'Extract_values',
-                        lambda *args: pytest.fail('Do not parse properties from a failed calculation'))
+    if status == 'normal':
+        monkeypatch.setattr(GaussianRunPack.gaussian_run.chk2fchk, 'Get_chklist', lambda *args: None)
+        monkeypatch.setattr(GaussianRunPack.gaussian_run.Get_MolCoordinate_fchk, 'Get_fchklist2xyz',
+                            lambda: Path('optimized.xyz').write_text('geometry'))
+        monkeypatch.setattr(GaussianRunPack.GaussianDFTRun, 'Extract_values', lambda *args: {'symm': 'C1'})
+    else:
+        monkeypatch.setattr(GaussianRunPack.gaussian_run.chk2fchk, 'Get_chklist',
+                            lambda *args: pytest.fail('Do not convert a failed checkpoint'))
+        monkeypatch.setattr(GaussianRunPack.gaussian_run.Get_MolCoordinate_fchk, 'Get_fchklist2xyz',
+                            lambda *args: pytest.fail('Do not export failed geometry'))
+        monkeypatch.setattr(GaussianRunPack.GaussianDFTRun, 'Extract_values',
+                            lambda *args: pytest.fail('Do not parse properties from a failed calculation'))
     job = GaussianRunPack.GaussianDFTRun('B3LYP', 'STO-3G', 1,
-                                       'opt symm homolumo energy', 'water.xyz', restart=False, pklsave=True)
+                                       'opt symm homolumo energy', 'water.xyz', restart=restart, pklsave=True)
     job.mem = '2GB'
     result = job.run_gaussian()
-    assert result['log_0'] == status and result['log'] != 'normal'
-    assert status in result['error_0'] and result['logfile'] in result['error_0']
-    assert 'ZSymb' in Path(result['logfile']).read_text()
-    assert Path(result['logfile']).with_suffix('.chk').read_text() == 'partial checkpoint'
-    assert result['reuse_report']['failed'] == 1
+    assert result['log_0'] == status
+    if status == 'normal':
+        assert result['log'] == 'normal' and result['symm'] == 'C1'
+        assert Path('water/optimized.xyz').exists() == (not restart)
+        assert result['reuse_report']['executed'] == 2
+    else:
+        assert result['log'] != 'normal'
+        assert status in result['error_0'] and result['logfile'] in result['error_0']
+        assert 'ZSymb' in Path(result['logfile']).read_text()
+        assert result['reuse_report']['failed'] == 1
+    checkpoints = [p for p in Path('water').rglob('*') if p.suffix.lower() in {'.chk', '.fchk'}]
+    if restart:
+        assert {p.name for p in checkpoints} >= {'water_State0_1_0.chk', 'water_State0_1_0.fchk', 'previous.FCHK'}
+    else:
+        assert not checkpoints
+    assert list(Path('water').glob('*.log')) and Path('water/water.pkl').is_file()
 
 
 @pytest.mark.parametrize('result,reason', [
     ({'log': 'Gaussian computation failed!', 'error_0': 'End of file in ZSymb.',
       'logfile': '/work/ch2o/ch2o_State0_1_0.log'}, 'ZSymb'),
     ({'log': 'normal'}, 'requested symm result'),
+    ({'log': 'normal', 'symm': 'C2V'}, 'requested triplet results: T_Min'),
 ])
 def test_manual_gaussian_comparison_reports_missing_result_before_keyerror(
         monkeypatch, result, reason):
