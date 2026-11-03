@@ -110,8 +110,8 @@ output = job.run_orca()
 
 Supported options are `opt` (`opt=loose/tight/verytight` also accepted), `energy`,
 `homolumo`, `dipole`, `cden`, `polar`, `vip`, `vea`, `aip`, `aea`, `uv`,
-`fluor`/`fluor=N`, `freq`, `nmr`, and `optconf`. Unsupported options, KTLC,
-and `para_functional` overrides return `log="error"` before launching ORCA.
+`fluor`/`fluor=N`, `freq`, `nmr`, and `optconf`. Unsupported options, other KTLC
+functionals, and `para_functional` overrides return `log="error"` before launch.
 ORCA accepts SDF, XYZ, and Gaussian formatted checkpoints (`.fchk`/`.fch`);
 see [FCHK input](#gaussian-fchk-input-for-gamess-and-orca). XYZ comments can specify `charge multiplicity`
 (otherwise neutral singlet). `SpecTotalCharge` and `SpecSpinMulti` override them.
@@ -133,6 +133,42 @@ Explicit PM6 requests fail before any calculation. Install the separate `xtb`
 executable for conformer searches. The existing generation, LAQA settings,
 selected structure, and retained histories are reused. A failed search returns
 an error; it does not silently continue with the original geometry.
+
+ORCA supports `KTLC-BLYP-BO` and `KTLC-PBE-BO` as functional names. For example:
+
+```python
+job = OrcaRunPack.OrcaDFTRun(
+    'KTLC-PBE-BO', 'def2-SVP', 4, 'optconf opt energy homolumo uv', 'molecule.sdf',
+)
+output = job.run_orca()
+```
+
+The Bayesian search holds the input geometry fixed, using the selected xTB
+conformer if `optconf` was requested. It evaluates the parent and its one-electron
+oxidized state at each trial μ and minimizes the squared residual
+`[E(N−1) − E(N) + ε_HOMO(N)]²`. The basis, solvent and vertical ion multiplicity
+follow the workflow settings. The search targets an absolute residual of 0.01 eV
+with a budget of 52 trials in the range 0.01–1.0 bohr⁻¹. If the target is not
+reached, the best valid trial is used. If all trials fail, the workflow returns an
+error. The selected μ appears in `functional_param`, and the residual and trials
+appear in `functional_parameter_optimization`. Trial inputs, logs and restart
+files are temporary and are removed when tuning finishes or fails. Rerunning the
+workflow repeats the tuning while completed property stages remain eligible for
+reuse.
+
+The selected μ is fixed for the following structure optimizations and property
+calculations. ORCA receives it as `%method RangeSepMu`. For LC-BLYP, the LibXC
+short-range exchange parameter `_omega` is also set to the same value. Excited
+state optimization with `KTLC-PBE-BO` uses numerical gradients (`NumGrad`) because
+ORCA 6.1 lacks the required analytic derivative for its native LC-PBE exchange.
+
+ORCA uses `MOREAD` to start vertical ion calculations, UV and the `fluor`
+optimization from the parent orbitals. Each KTLC VIP trial starts from the
+parent orbitals calculated at the same μ. Relaxed ion and emission steps start
+from the corresponding vertical ion and relaxed excited-state orbitals,
+respectively. If a source `.gbw` is unavailable or ORCA rejects the orbital guess,
+the stage uses ORCA's default initial guess. Charge and multiplicity are set
+for each target calculation, and SCF is converged again.
 
 Output conventions:
 
@@ -405,7 +441,9 @@ To request fresh calculations, set `job.reuse = False` before running; previous
 files are still retained in history.
 
 The returned `reuse_report` lists each stage's `job`, `action` (`reused`,
-`executed` or `failed`) and reason, with counts for each action. The report is also
+`executed` or `failed`) and reason, with counts for each action. A stage's `key`
+identifies its cache entry and is a SHA-256 hash of its normalized inputs and
+dependencies. The report is also
 saved to `.qcforever/reuse-report.json`; `.qcforever/index.json` records the input
 and output provenance. The cache holds wavefunctions and restart files needed for
 later stages. With Gaussian `restart=False`, cleanup removes checkpoints from

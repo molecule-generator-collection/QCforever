@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import pickle
+import re
 import shutil
 import sys
 
@@ -104,7 +105,7 @@ def test_invalid_memory_is_rejected(value):
         OrcaRunPack.memory_per_core(value, 1)
 
 
-@pytest.mark.parametrize('options', ['KTLC-BLYP-BO', 'optconf=pm6',
+@pytest.mark.parametrize('options', ['KTLC-BLYP-Pred', 'optconf=pm6',
     'optconf=(conf_relax=pm6)', 'stable', 'opt=bad', 'energy=anything', 'uv=', 'nac'])
 def test_unsupported_requests_do_not_launch(job, launcher, options):
     if options.startswith('KTLC'):
@@ -144,6 +145,11 @@ def test_complete_workflow_uses_optimized_geometry_and_keeps_electronic_state(jo
     assert '* xyz 1 2' in ion_inputs['water_AIP']
     assert '* xyz -1 2' in ion_inputs['water_AEA']
     assert '-0.052317' in ion_inputs['water_VIP']
+    for name in ('water_VIP', 'water_VEA', 'water_TD', 'water_TDopt'):
+        assert '%moinp "water.gbw"' in ion_inputs[name]
+    assert '%moinp "water_VIP.gbw"' in ion_inputs['water_AIP']
+    assert '%moinp "water_VEA.gbw"' in ion_inputs['water_AEA']
+    assert '%moinp "water_TDopt.gbw"' in ion_inputs['water_Emission']
     assert 'NumFreq' in ion_inputs['water_freq']
     assert 'LibXC(B3LYP/G)' in ion_inputs['water']
     assert ion_inputs['water_nmr'].index('* xyz') < ion_inputs['water_nmr'].index('%eprnmr')
@@ -188,6 +194,111 @@ def test_search_failure_is_reported_without_silent_fallback(job, launcher, monke
     assert result['optconf'] is False
     assert result['conformer_search']['state'] == 'failed'
     assert launcher == []
+
+
+@pytest.mark.parametrize('functional', ['KTLC-BLYP-BO', 'KTLC-PBE-BO'])
+def test_ktlc_uses_selected_conformer_then_applies_mu_to_properties(job, launcher, monkeypatch, functional):
+    from qcforever.conformer_search import conformer_search
+    from qcforever.orca_run.parse_log import EH_TO_EV
+
+    monkeypatch.setattr(conformer_search, 'run_conformer_search', lambda *args: {'state': 'succeeded'})
+    monkeypatch.setattr(conformer_search, 'read_selected_structure', lambda _: (
+        ['O', 'H', 'H'], [0, 0, .92], [0, 0, 0], [0, 1.02, -.24], 0, 1, [], []))
+    launch = Exe_Orca.exe_Orca
+    parent = parse_log(FIXTURES / 'water.txt')
+
+    def simulate(name, *args):
+        status = launch(name, *args)
+        if name.endswith('_KTLC_001_VIP'):
+            raise Exe_Orca.OrcaExecutionError(name, 1, name + '.log', 'SCF did not converge')
+        if '_KTLC_' in name and name.endswith('_VIP'):
+            residual = .002 if name.endswith('_002_VIP') else .1
+            energy = parent.energy()[0] - parent.homo() + residual / EH_TO_EV
+            path = Path(name + '.log')
+            path.write_text(re.sub(r'(FINAL SINGLE POINT ENERGY\s+)[-\d.]+',
+                                   lambda m: f'{m[1]}{energy:.12f}', path.read_text()))
+        return status
+
+    monkeypatch.setattr(Exe_Orca, 'exe_Orca', simulate)
+    job.functional = functional
+    job.value = 'optconf opt homolumo vip fluor'
+    result = job.run_orca()
+    assert result['log'] == 'normal', result
+    report = result['functional_parameter_optimization']
+    assert report['state'] == 'converged' and report['valid_evaluations'] == 2
+    assert report['error_ev'] == pytest.approx(.002, abs=1e-9)
+    assert result['functional_param'] == [.35] and job.functional == functional
+    assert 'SCF did not converge' in report['trials'][0]['error']
+    trial_inputs = [inp for name, inp in launcher if '_KTLC_' in name]
+    assert len(trial_inputs) == 6
+    assert all('1.020000000000' in inp and ' Opt' not in inp for inp in trial_inputs)
+    assert '* xyz 1 2' in trial_inputs[1]
+    for index in range(1, 4):
+        assert f'%moinp "water_KTLC_{index:03d}.gbw"' in trial_inputs[2 * index - 1]
+    inputs = dict(launcher)
+    assert '1.020000000000' in inputs['water']
+    for name in ('water', 'water_properties', 'water_VIP', 'water_TD', 'water_TDopt', 'water_Emission'):
+        inp = inputs[name]
+        mu = next(line.split()[1] for line in inp.splitlines() if line.strip().startswith('RangeSepMu'))
+        assert float(mu) == .35
+        if functional == 'KTLC-BLYP-BO':
+            assert f'ExtParamXC "_omega" {mu}' in inp
+        else:
+            assert '! LC-PBE ' in inp
+    assert ('NumGrad' in inputs['water_TDopt']) == (functional == 'KTLC-PBE-BO')
+    assert Path('water/water.log').is_file()
+    assert not list(Path('water').rglob('*_KTLC_*'))
+    assert not list(Path('water').glob('ktlc-*'))
+    assert {step['job'] for step in result['reuse_report']['steps']} == set(inputs) - {
+        name for name in inputs if '_KTLC_' in name}
+
+
+def test_orca_retries_with_default_guess_when_gbw_read_fails(job, launcher, monkeypatch):
+    launch = Exe_Orca.exe_Orca
+
+    def reject_guess(name, *args):
+        status = launch(name, *args)
+        if name == 'water_VIP' and '%moinp' in Path(name + '.inp').read_text():
+            Path(name + '.log').write_text('ORCA finished by error termination in GUESS\n')
+            raise Exe_Orca.OrcaExecutionError(name, 1, name + '.log', 'orbital guess rejected')
+        return status
+
+    monkeypatch.setattr(Exe_Orca, 'exe_Orca', reject_guess)
+    job.value = 'vip'
+    result = job.run_orca()
+    assert result['log'] == 'normal', result
+    warm, cold = [inp for name, inp in launcher if name == 'water_VIP']
+    assert '%moinp "water.gbw"' in warm and '%moinp' not in cold
+    assert '* xyz 1 2' in warm and '* xyz 1 2' in cold
+    assert 'error termination in GUESS' in Path('water/water_VIP.moread.log').read_text()
+    assert Path('water/water.gbw').read_text() == 'checkpoint'
+    steps = [step for step in result['reuse_report']['steps'] if step['job'] == 'water_VIP']
+    assert [step['action'] for step in steps] == ['failed', 'executed']
+    assert steps[0]['key'] != steps[1]['key']
+
+
+@pytest.mark.parametrize('error,expected', [
+    (FileNotFoundError('ORCA unavailable'), 'failed'),
+    (job_timeout.QCforeverTimeoutError('Trial timed out'), 'timeout'),
+])
+def test_ktlc_cleans_trial_files_and_preserves_failure_status(job, monkeypatch, error, expected):
+    def fail(name, *_):
+        Path(name + '.log').write_text('partial output')
+        Path(name + '.gbw').write_text('temporary checkpoint')
+        raise error
+
+    monkeypatch.setattr(Exe_Orca, 'exe_Orca', fail)
+    job.functional = 'KTLC-PBE-BO'
+    job.pklsave = True
+    result = job.run_orca()
+    assert result['log'] == ('error' if expected == 'failed' else 'timeout')
+    report = result['functional_parameter_optimization']
+    assert report['state'] == expected and report['selected_mu'] is None
+    assert 'logfile' not in result
+    assert not list(Path('water').rglob('*_KTLC_*'))
+    assert not list(Path('water').glob('ktlc-*'))
+    with Path('water/water.pkl').open('rb') as stream:
+        assert pickle.load(stream)['functional_parameter_optimization'] == report
 
 
 def test_existing_work_is_preserved(job, launcher):

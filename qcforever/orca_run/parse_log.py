@@ -79,7 +79,7 @@ class parse_log:
             raise ValueError('Missing final Cartesian coordinates')
         return atoms, np.array(xyz)
 
-    def orbitals(self):
+    def _orbital_channels(self):
         block = self._block('ORBITAL ENERGIES')
         channels, rows = [], []
         for line in block.splitlines():
@@ -98,6 +98,18 @@ class parse_log:
             channels.append(rows)
         if not channels:
             raise ValueError('Missing orbital energies')
+        return channels
+
+    def homo(self):
+        """Return the highest occupied orbital across spin channels, in Eh."""
+        occupied = [energy for channel in self._orbital_channels()
+                    for occupation, energy in channel if occupation > 1e-6]
+        if not occupied:
+            raise ValueError('Missing occupied orbital energies')
+        return max(occupied)
+
+    def orbitals(self):
+        channels = self._orbital_channels()
         result, gaps = {}, []
         for index, channel in enumerate(channels):
             occupied = [energy for occupation, energy in channel if occupation > 1e-6]

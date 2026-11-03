@@ -10,6 +10,7 @@ from pathlib import Path
 import pickle
 import re
 import shutil
+from tempfile import TemporaryDirectory
 
 import numpy as np
 from rdkit import Chem
@@ -22,6 +23,9 @@ from .parse_log import EH_TO_EV, parse_log
 from qcforever.util import calculation_cache
 from qcforever.util import read_mol_file
 from qcforever.util.calculation_options import parse_excited_optimization, ground_optimization, requires_hessian
+
+
+_KTLC_FUNCTIONALS = {'KTLC-BLYP-BO': 'LC-BLYP', 'KTLC-PBE-BO': 'LC-PBE'}
 
 
 def _token(value, label):
@@ -74,6 +78,7 @@ class OrcaDFTRun:
         self.maxiter = 200
         self.conformer_config = None
         self.para_functional = []
+        self._ktlc_mu = None
         # Optional element -> shielding (ppm) at the same method/basis/solvent.
         # Missing H/C/Si references are calculated from optimized TMS with ORCA.
         self.nmr_reference = {}
@@ -81,8 +86,11 @@ class OrcaDFTRun:
         self.reuse = True
 
     def _options(self):
-        if str(self.functional).upper().startswith('KTLC-') or self.para_functional:
-            raise ValueError('KTLC and custom functional parameters are not supported by orca_run')
+        functional = str(self.functional).strip().upper()
+        if functional.startswith('KTLC-') and functional not in _KTLC_FUNCTIONALS:
+            raise ValueError(f'Unsupported ORCA KTLC functional: {self.functional}')
+        if self.para_functional:
+            raise ValueError('Manual functional parameter overrides are not supported by orca_run')
         # Shared search syntax defaults to PM6; normalize ORCA's xTB default
         # before passing the string to either shared parser.
         search_value = re.sub(r'(?i)(optconf\s*=\s*\()([^()]*)\)',
@@ -181,10 +189,16 @@ class OrcaDFTRun:
 
     def make_input(self, jobname, atoms, xyz, charge, multiplicity, *, optimize=None,
                    td=False, root=None, freq=False, polar=False, nmr=False,
-                   dipole=False, orbitals=False, moread=None, fc=''):
+                   dipole=False, orbitals=False, moread=None, fc='', range_mu=None):
         if fc and not optimize:
             raise ValueError('FC requires an optimization')
         functional = _token(self.functional, 'functional')
+        ktlc_base = _KTLC_FUNCTIONALS.get(functional.upper())
+        if ktlc_base:
+            functional = ktlc_base
+            range_mu = self._ktlc_mu if range_mu is None else range_mu
+            if range_mu is None or not math.isfinite(range_mu) or range_mu <= 0:
+                raise ValueError('ORCA KTLC requires a positive, finite range-separation parameter')
         # Match the Gaussian B3LYP convention; ORCA-native B3LYP is VWN5.
         if functional.upper() == 'B3LYP':
             functional = 'B3LYP/G'
@@ -197,6 +211,10 @@ class OrcaDFTRun:
         if optimize:
             keywords.append({'normal': 'Opt', 'loose': 'LooseOpt',
                              'tight': 'TightOpt', 'verytight': 'VeryTightOpt'}[optimize])
+            if td and ktlc_base == 'LC-PBE':
+                # Native LC-PBE lacks the XC third derivative used by analytic
+                # excited-state gradients in ORCA 6.1.
+                keywords.append('NumGrad')
         if freq:
             keywords.append('NumFreq')
         if nmr:
@@ -210,6 +228,13 @@ class OrcaDFTRun:
                  f'%pal nprocs {self.nproc} end',
                  f'%maxcore {memory_per_core(self.mem, self.nproc)}',
                  '%scf MaxIter 512 end']
+        if ktlc_base:
+            mu = repr(float(range_mu))
+            lines.extend(['%method', f' RangeSepMu {mu}'])
+            if ktlc_base == 'LC-BLYP':
+                # LibXC evaluates the short-range exchange with its own omega.
+                lines.append(f' ExtParamXC "_omega" {mu}')
+            lines.append('end')
         if moread:
             lines.append(f'%moinp "{Path(moread).name}"')
         if optimize:
@@ -254,21 +279,91 @@ class OrcaDFTRun:
             source = calculation_cache.previous_hessian('orca', jobname, '\n'.join(lines), self.executable)
             shutil.copyfile(source, f'{jobname}.readfc.hess')
 
-    def _calculate(self, name, atoms, xyz, charge, mult, **kwargs):
+    def _calculate(self, name, atoms, xyz, charge, mult, *, moread=None, **kwargs):
         self._active_job = name
-        self.make_input(name, atoms, xyz, charge, mult, **kwargs)
-        calculation_cache.execute('orca', name, Path(f'{name}.inp').read_text(),
-                                  lambda: Exe_Orca.exe_Orca(name, self.timexe, self.executable),
-                                  self.executable)
-        parsed = parse_log(f'{name}.log')
-        parsed.check(optimize=bool(kwargs.get('optimize')))
-        return parsed
+        source = Path(moread).name if moread else None
+        if source == f'{name}.gbw' or (source and not Path(source).is_file()):
+            source = None
+        for guess in (source, None):
+            self.make_input(name, atoms, xyz, charge, mult, moread=guess, **kwargs)
+            try:
+                calculation_cache.execute('orca', name, Path(f'{name}.inp').read_text(),
+                                          lambda: Exe_Orca.exe_Orca(name, self.timexe, self.executable),
+                                          self.executable)
+            except Exe_Orca.OrcaExecutionError as exc:
+                if guess is None or not re.search(
+                        r'error termination in GUESS\b|no orbitals were found in the gbw file|orca_guess/guess_restart\.cpp',
+                        str(exc), re.I):
+                    raise
+                Path(exc.logfile).replace(f'{name}.moread.log')
+                Path(f'{name}.gbw').unlink(missing_ok=True)
+                continue
+            parsed = parse_log(f'{name}.log')
+            parsed.check(optimize=bool(kwargs.get('optimize')))
+            return parsed
 
     def _ion_mult(self, key, mult):
         # Like the existing workflows: remove an unpaired electron for open
         # shells, or form a doublet from a singlet. Users can select alternatives.
         return _integer(self.ion_multiplicities.get(key, 2 if mult == 1 else mult - 1),
                         f'{key} multiplicity', 1)
+
+    def _tune_koopmans(self, name, atoms, xyz, charge, mult):
+        """Minimize the vertical IP minus the negative HOMO at fixed geometry."""
+        from bayes_opt import BayesianOptimization, UtilityFunction
+
+        tolerance = 0.01
+        limit = 52
+        trials = []
+        best = None
+        ion_mult = self._ion_mult('vip', mult)
+
+        def objective(mu):
+            nonlocal best
+            trial_name = f'{name}_KTLC_{len(trials) + 1:03d}'
+            trial = {'mu': float(mu), 'jobname': trial_name}
+            trials.append(trial)
+            try:
+                parent = self._calculate(trial_name, atoms, xyz, charge, mult,
+                                         orbitals=True, range_mu=mu)
+                homo_ev = parent.homo() * EH_TO_EV
+                cation = self._calculate(trial_name + '_VIP', atoms, xyz, charge + 1,
+                                         ion_mult, range_mu=mu, moread=f'{trial_name}.gbw')
+                vip_ev = (cation.energy()[0] - parent.energy()[0]) * EH_TO_EV
+                residual = vip_ev + homo_ev
+                score = -(residual ** 2)
+                if not math.isfinite(score):
+                    raise ValueError('Non-finite Koopmans residual')
+            except (Exe_Orca.OrcaExecutionError, ValueError) as exc:
+                trial['error'] = str(exc)
+                return -10.0
+            trial.update(vip_ev=vip_ev, homo_ev=homo_ev, error_ev=abs(residual))
+            if best is None or trial['error_ev'] < best['error_ev']:
+                best = trial
+            return score
+
+        optimizer = BayesianOptimization(f=objective, pbounds={'mu': (0.01, 1.0)},
+                                          verbose=0, random_state=1)
+        for initial in (0.15, 0.35, 0.65):
+            optimizer.probe(params={'mu': initial}, lazy=True)
+        acquisition = UtilityFunction(kind='ei', xi=1e-4)
+        optimizer.maximize(init_points=0, n_iter=0, acquisition_function=acquisition)
+        for _ in range(limit - len(trials)):
+            if best is not None and best['error_ev'] <= tolerance:
+                break
+            optimizer.maximize(init_points=0, n_iter=1, acquisition_function=acquisition)
+
+        if best is None:
+            state, reason = 'failed', 'no_valid_evaluations'
+        elif best['error_ev'] <= tolerance:
+            state, reason = 'converged', 'tolerance_reached'
+        else:
+            state, reason = 'best_evaluated', 'evaluation_limit'
+        return {'state': state, 'selection_reason': reason,
+                'selected_mu': best['mu'] if best else None,
+                'error_ev': best['error_ev'] if best else None,
+                'tolerance_ev': tolerance, 'valid_evaluations': sum('error_ev' in t for t in trials),
+                'trials': trials}
 
     def _nmr(self, parsed, output):
         rows = parsed.shielding()
@@ -350,8 +445,27 @@ class OrcaDFTRun:
                     output['optconf'] = False
                     output['conformer_search'] = {'state': 'failed', 'error': str(exc)}
                     raise RuntimeError('xTB conformer search failed: ' + str(exc)) from exc
+            if str(self.functional).strip().upper() in _KTLC_FUNCTIONALS:
+                tuning = {'state': 'failed', 'selection_reason': 'execution_error',
+                          'selected_mu': None, 'error_ev': None}
+                output['functional_parameter_optimization'] = tuning
+                try:
+                    # A separate working directory keeps the trial files out
+                    # of the persistent calculation cache.
+                    with TemporaryDirectory(prefix='ktlc-', dir='.') as scratch, chdir(scratch):
+                        tuning.update(self._tune_koopmans(jobname, atoms, xyz, charge, mult))
+                except job_timeout.QCforeverTimeoutError as exc:
+                    tuning.update(state='timeout', selection_reason='time_limit')
+                    raise job_timeout.QCforeverTimeoutError('ORCA KTLC parameter optimization timed out') from exc
+                finally:
+                    self._active_job = None
+                self._ktlc_mu = tuning['selected_mu']
+                if self._ktlc_mu is None:
+                    raise RuntimeError('ORCA KTLC found no valid Koopmans evaluation')
+                output['functional_param'] = [self._ktlc_mu]
             ground = self._calculate(jobname, atoms, xyz, charge, mult,
                                       optimize=options.get('opt'), fc=options.get('opt_fc', ''))
+            ground_gbw = f'{jobname}.gbw'
             if 'opt' in options:
                 final_atoms, xyz = ground.coordinates()
                 if final_atoms != atoms:
@@ -378,18 +492,21 @@ class OrcaDFTRun:
             for vertical, relaxed, delta in (('vip', 'aip', 1), ('vea', 'aea', -1)):
                 if vertical in options or relaxed in options:
                     ion_mult = self._ion_mult(vertical, mult)
-                    ion = self._calculate(jobname + '_' + vertical.upper(), atoms, xyz, charge + delta, ion_mult)
+                    ion_name = jobname + '_' + vertical.upper()
+                    ion = self._calculate(ion_name, atoms, xyz, charge + delta, ion_mult,
+                                          moread=ground_gbw)
                     value = delta * (ion.energy()[0] - output['energy'][0]) * EH_TO_EV
                     output[vertical] = [value, ion.energy()[1]]
                 if relaxed in options:
                     relaxed_log = self._calculate(jobname + '_' + relaxed.upper(), atoms, xyz,
                                                   charge + delta, _integer(self.ion_multiplicities.get(relaxed, ion_mult),
                                                                            f'{relaxed} multiplicity', 1),
-                                                  optimize='normal')
+                                                  optimize='normal', moread=f'{ion_name}.gbw')
                     value = delta * (relaxed_log.energy()[0] - output['energy'][0]) * EH_TO_EV
                     output[relaxed] = [value, relaxed_log.energy()[1]]
             if 'uv' in options or 'fluor' in options:
-                td = self._calculate(jobname + '_TD', atoms, xyz, charge, mult, td=True)
+                td = self._calculate(jobname + '_TD', atoms, xyz, charge, mult,
+                                     td=True, moread=ground_gbw)
                 transitions = td.transitions()
                 output['uv'] = [[v for _, v, _ in transitions], [v for _, _, v in transitions]]
                 if 'UV' in self.ref_spectrum_paths:
@@ -401,14 +518,16 @@ class OrcaDFTRun:
                 root = options['fluor']
                 if root not in {i for i, _, _ in transitions}:
                     raise ValueError(f'fluor={root} is outside the computed excited states')
-                excited = self._calculate(jobname + '_TDopt', atoms, xyz, charge, mult,
+                excited_name = jobname + '_TDopt'
+                excited = self._calculate(excited_name, atoms, xyz, charge, mult,
                                           td=True, root=root, optimize='normal',
-                                          fc=options.get('fluor_fc', ''))
+                                          fc=options.get('fluor_fc', ''), moread=ground_gbw)
                 ex_atoms, ex_xyz = excited.coordinates()
-                self._write_xyz(jobname + '_TDopt', ex_atoms, ex_xyz, charge, mult)
+                self._write_xyz(excited_name, ex_atoms, ex_xyz, charge, mult)
                 followed = re.findall(r'The IROOT now is\s*:\s*(\d+)', excited.text, re.I)
                 root = int(followed[-1]) if followed else root
-                emission = self._calculate(jobname + '_Emission', ex_atoms, ex_xyz, charge, mult, td=True)
+                emission = self._calculate(jobname + '_Emission', ex_atoms, ex_xyz, charge, mult,
+                                           td=True, moread=f'{excited_name}.gbw')
                 transitions = emission.transitions()
                 selected = next((row for row in transitions if row[0] == root), None)
                 if selected is None:
@@ -436,6 +555,7 @@ class OrcaDFTRun:
         """Return properties or log=error/timeout; retain inputs and diagnostics."""
         self._active_directory = None
         self._active_job = None
+        self._ktlc_mu = None
         output = {}
         try:
             with job_timeout.overall_timeout(self.timejob):

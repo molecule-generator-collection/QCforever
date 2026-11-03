@@ -16,7 +16,7 @@ def main():
     parser.add_argument('--solvent', default='0')
     args = parser.parse_args()
     job = OrcaRunPack.OrcaDFTRun(args.functional, args.basis, args.nproc,
-                                args.options, args.input_file, solvent=args.solvent)
+                                args.options, args.input_file, solvent=args.solvent, pklsave=True)
     job.mem = args.memory
     result = job.run_orca()
     print(result)
