@@ -11,6 +11,7 @@ from pathlib import Path
 
 from qcforever import gamess_run
 from qcforever.util import calculation_cache
+from qcforever.util import fchk_orbitals
 from qcforever.util.calculation_options import excited_options, ground_optimization, requires_hessian
 from qcforever.util.quadrupole import quadrupole_from_buckingham, quadrupole_properties
 from qcforever.util import (
@@ -62,6 +63,8 @@ class GamessDFTRun:
         self.para_functional = []
         self.functional_parameter_optimization = None
         self.reuse = True
+        self.fchk_angular = 'auto'
+        self._fchk_orbitals = None
 
     def conversion_memory(self, mem_byte):
         r = re.compile("([0-9]+)([a-zA-Z]+)")
@@ -296,7 +299,9 @@ class GamessDFTRun:
             functional = self.functional
 
 #setting for basis set
-        GBASIS, NGAUSS, NDFUNC = gamess_run.make_basis.basis_dissection(self.basis)
+        imported = getattr(self, '_fchk_orbitals', None)
+        if not imported:
+            GBASIS, NGAUSS, NDFUNC = gamess_run.make_basis.basis_dissection(self.basis)
 
         if datfile != None and Mol_atom == []:
             datlines = gamess_run.read_dat.read_dat(datfile)
@@ -306,6 +311,8 @@ class GamessDFTRun:
                 cc = gamess_run.read_dat.get_dataBlock(datlines, "DATA")
             orb_bb = gamess_run.read_dat.get_dataBlock(datlines, "VEC")
             Norb = gamess_run.read_dat.count_orbital(orb_bb)
+            if imported:
+                Norb = imported.nmo
 
         if run_type == 'RAMAN':
             hess_bb = gamess_run.read_dat.get_dataBlock(datlines, "HESS")
@@ -325,6 +332,8 @@ class GamessDFTRun:
 #make input
         with open(GamInputName ,'w') as ofile:
             line_input = f' $CONTRL SCFTYP={scftype} RUNTYP={run_type} DFTTYP={functional} MAXIT=100'
+            if imported:
+                line_input += f' ISPHER={1 if imported.spherical else -1}'
             if TDDFT == True:
                 line_input += ' TDDFT=EXCITE \n' 
             elif TDDFT == 'SPNFLP':
@@ -377,23 +386,38 @@ class GamessDFTRun:
                     line_input += ' $FORCE METHOD=SEMINUM NVIB=2 $END\n'
             if run_type == 'HESSIAN' or run_type == 'RAMAN':
                 line_input +=' $FORCE METHOD=ANALYTIC $END\n' 
-            line_input += f' $BASIS GBASIS={GBASIS} NGAUSS={NGAUSS} NDFUNC={NDFUNC} $END\n'
+            if not imported:
+                line_input += f' $BASIS GBASIS={GBASIS} NGAUSS={NGAUSS} NDFUNC={NDFUNC} $END\n'
             if datfile == None:
-                line_input += ' $GUESS GUESS=HUCKEL $END\n' 
+                if imported:
+                    line_input += f' $GUESS GUESS=MOREAD NORB={imported.nmo} $END\n'
+                else:
+                    line_input += ' $GUESS GUESS=HUCKEL $END\n'
             else:
-                line_input += f' $GUESS GUESS=MOREAD NORB={Norb} $END\n'
+                line_input += f' $GUESS GUESS=MOREAD NORB={int(Norb)} $END\n'
             line_input += ' $DATA\n'
             line_input += f'{GamInputName} {self.functional}/{self.basis}\n'
             line_input += 'C1\n'
             if datfile == None and Mol_atom != []:
-                for i in range(len(Mol_atom)):
-                    AtomicNum = float(gamess_run.AtomInfo.AtomicNumElec(Mol_atom[i]))
-                    line_input += f'{Mol_atom[i]}   {AtomicNum:.1f}   {X[i]:.10f}   {Y[i]:.10f}   {Z[i]:.10f}\n' 
+                if imported:
+                    line_input += imported.gamess_coordinates(Mol_atom, np.column_stack((X, Y, Z)))
+                else:
+                    for i in range(len(Mol_atom)):
+                        AtomicNum = float(gamess_run.AtomInfo.AtomicNumElec(Mol_atom[i]))
+                        line_input += f'{Mol_atom[i]}   {AtomicNum:.1f}   {X[i]:.10f}   {Y[i]:.10f}   {Z[i]:.10f}\n'
                 line_input += ' $END\n'
+                if imported:
+                    line_input += imported.gamess_vec()
             else:
-                for i in range(len(cc)):
-                    if len(cc[i].split()) == 5:
-                        line_input += cc[i] 
+                if imported:
+                    rows = [row.split() for row in cc if len(row.split()) == 5]
+                    atoms = [row[0] for row in rows]
+                    xyz = np.array([[float(v.replace('D', 'E')) for v in row[2:]] for row in rows])
+                    line_input += imported.gamess_coordinates(atoms, xyz)
+                else:
+                    for i in range(len(cc)):
+                        if len(cc[i].split()) == 5:
+                            line_input += cc[i]
                 line_input += ' $END\n'
                 line_input += ' $VEC\n'
                 for i in range(len(orb_bb)):
@@ -630,6 +654,9 @@ class GamessDFTRun:
             TotalCharge = self.SpecTotalCharge
         if np.isnan(self.SpecSpinMulti) != True:
             SpinMulti = self.SpecSpinMulti
+
+        self._fchk_orbitals = fchk_orbitals.for_job(self, 'gamess',
+            {token.partition('=')[0].lower() for token in options})
 
         # Setting options
         for i in range(len(options)):

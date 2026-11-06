@@ -21,7 +21,7 @@ from qcforever.util import check_resource, job_cleanup, job_timeout, Spectrum_si
 from . import Exe_Orca
 from .parse_log import EH_TO_EV, parse_log
 from qcforever.util import calculation_cache
-from qcforever.util import read_mol_file
+from qcforever.util import read_mol_file, fchk_orbitals
 from qcforever.util.calculation_options import parse_excited_optimization, ground_optimization, requires_hessian
 
 
@@ -84,6 +84,8 @@ class OrcaDFTRun:
         self.nmr_reference = {}
         self.ion_multiplicities = {}
         self.reuse = True
+        self.fchk_angular = 'auto'
+        self._fchk_orbitals = None
 
     def _options(self):
         functional = str(self.functional).strip().upper()
@@ -206,8 +208,13 @@ class OrcaDFTRun:
         # Use the documented equivalent LibXC form throughout the workflow.
         if functional.upper() in ('B3LYP/G', 'BLYP', 'LC-BLYP', 'CAM-B3LYP'):
             functional = f'LibXC({functional})'
-        basis = _token(self.basis, 'basis')
-        keywords = [functional, basis, 'TightSCF', 'NoAutoStart']
+        imported = getattr(self, '_fchk_orbitals', None)
+        basis = [] if imported else [_token(self.basis, 'basis')]
+        keywords = [functional, *basis, 'TightSCF', 'NoAutoStart']
+        if imported:
+            keywords.append('NoECP')
+            if imported.beta is not None:
+                keywords.append('UKS')
         if optimize:
             keywords.append({'normal': 'Opt', 'loose': 'LooseOpt',
                              'tight': 'TightOpt', 'verytight': 'VeryTightOpt'}[optimize])
@@ -266,8 +273,12 @@ class OrcaDFTRun:
                 lines.append(' Polar true')
             lines.append('end')
         lines.append(f'* xyz {charge} {multiplicity}')
-        lines.extend(f'{atom} {x:.12f} {y:.12f} {z:.12f}'
-                     for atom, (x, y, z) in zip(atoms, xyz))
+        if imported and list(atoms) != imported.atoms:
+            raise ValueError('FCHK basis requires the source atom order/composition')
+        for i, (atom, (x, y, z)) in enumerate(zip(atoms, xyz)):
+            lines.append(f'{atom} {x:.12f} {y:.12f} {z:.12f}')
+            if imported:
+                lines.extend(imported.orca_basis(i))
         lines.append('*')
         # The EPRNMR parser requires coordinates to precede nucleus selections.
         if nmr:
@@ -279,9 +290,11 @@ class OrcaDFTRun:
             source = calculation_cache.previous_hessian('orca', jobname, '\n'.join(lines), self.executable)
             shutil.copyfile(source, f'{jobname}.readfc.hess')
 
-    def _calculate(self, name, atoms, xyz, charge, mult, *, moread=None, **kwargs):
+    def _calculate(self, name, atoms, xyz, charge, mult, *, moread=None, require_moread=False, **kwargs):
         self._active_job = name
         source = Path(moread).name if moread else None
+        if require_moread and (source is None or source == f'{name}.gbw' or not Path(source).is_file()):
+            raise ValueError('Missing imported FCHK orbitals')
         if source == f'{name}.gbw' or (source and not Path(source).is_file()):
             source = None
         for guess in (source, None):
@@ -291,7 +304,7 @@ class OrcaDFTRun:
                                           lambda: Exe_Orca.exe_Orca(name, self.timexe, self.executable),
                                           self.executable)
             except Exe_Orca.OrcaExecutionError as exc:
-                if guess is None or not re.search(
+                if require_moread or guess is None or not re.search(
                         r'error termination in GUESS\b|no orbitals were found in the gbw file|orca_guess/guess_restart\.cpp',
                         str(exc), re.I):
                     raise
@@ -406,6 +419,7 @@ class OrcaDFTRun:
 
     def _run_orca(self, options, output):
         atoms, xyz, charge, mult = self._read_structure()
+        self._fchk_orbitals = fchk_orbitals.for_job(self, 'orca', options)
         self._atoms = atoms
         self.mem = check_resource.respec_memory(
             spec_memory=self.mem,
@@ -463,7 +477,9 @@ class OrcaDFTRun:
                 if self._ktlc_mu is None:
                     raise RuntimeError('ORCA KTLC found no valid Koopmans evaluation')
                 output['functional_param'] = [self._ktlc_mu]
-            ground = self._calculate(jobname, atoms, xyz, charge, mult,
+            guess = self._fchk_orbitals.orca_gbw(self.executable, jobname+'_fchk_guess') if self._fchk_orbitals else None
+            ground = self._calculate(jobname, atoms, xyz, charge, mult, moread=guess,
+                                      require_moread=self._fchk_orbitals is not None,
                                       optimize=options.get('opt'), fc=options.get('opt_fc', ''))
             ground_gbw = f'{jobname}.gbw'
             if 'opt' in options:

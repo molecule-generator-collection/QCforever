@@ -384,7 +384,7 @@ orca = OrcaRunPack.OrcaDFTRun(
 orca_result = orca.run_orca()
 ```
 
-The destination calculation uses the functional, basis/ECP, solvent and options
+With an ordinary basis name, the destination calculation uses the functional, basis/ECP, solvent and options
 specified on the GAMESS/ORCA job. The Gaussian method, basis/ECP, solvent,
 isotope masses, constraints, energies, density and molecular orbitals are not
 transferred. The target engine starts a new electronic calculation at the
@@ -393,8 +393,64 @@ the supplied geometry is kept for a single-point calculation. The source fchk
 is left unchanged and no sibling `.chk` is created. Binary `.chk` files must
 first be converted to formatted text using Gaussian's `formchk` separately.
 
+To import **both the source basis and molecular orbitals as an SCF initial
+guess**, specify `FCHK` instead of a basis name:
+
+```python
+orca = OrcaRunPack.OrcaDFTRun(
+    'B3LYP', 'FCHK', 4, 'opt energy homolumo', '/path/to/molecule.fchk',
+)
+orca.mem = '4GB'
+orca.fchk_angular = 'auto'  # optional: 'spherical' or 'cartesian' to require that source representation
+result = orca.run_orca()
+
+gamess = GamessRunPack.GamessDFTRun(
+    'B3LYP', 'FCHK', 4, 'opt energy', '/path/to/molecule.fchk',
+)
+gamess.mem = '4GB'
+result = gamess.run_gamess()
+```
+
+`FCHK` is opt-in. No MOKIT, PySCF or additional Python dependency is required.
+The functional and solvent still come from the destination job. A new SCF is
+performed; the source energy/density is not reused as a calculation result.
+Unlike the geometry-only mode, this mode uses the primitive exponents,
+contraction coefficients and shell definitions in the checkpoint, retaining
+the AO space associated with its MO coefficients. It does not project MOs onto
+another named basis or between 5D and 6D spaces.
+
+| Engine | Orbital import with `basis='FCHK'` | d-shell representation |
+| --- | --- | --- |
+| Gaussian | `unfchk`, `ChkBasis`, `Guess=Read` | Source representation, including 5D or 6D |
+| GAMESS | Native `$DATA` basis and `$VEC`, `GUESS=MOREAD` | 5D uses `ISPHER=1` and an exact expansion into six Cartesian coefficient rows; 6D uses `ISPHER=-1` |
+| ORCA | Native `.mkl`, ORCA's bundled `orca_2mkl -gbw`, `MOREAD`/`%moinp` | 5D required; 6D input produces an error |
+
+For Gaussian, `FCHK` selects `ChkBasis`; ordinary basis names also retain the
+existing checkpoint-guess behavior. FCHK/FCH extensions are case-insensitive,
+and `unfchk` writes the binary checkpoint inside the calculation directory
+without modifying the source. A failed conversion stops the job.
+
+Native GAMESS/ORCA import currently supports **all-electron s, p, sp and d
+shells**, restricted and unrestricted real MOs, and the source charge and
+multiplicity. ECPs, f and higher shells, mixed 5D/6D shells, zero contractions,
+negative single-primitive contractions, changed charge/multiplicity,
+`optconf`, and KTLC tuning are rejected in this mode. These restrictions do not
+apply to geometry-only input. `opt` and subsequent calculations of the same
+molecule retain the imported basis. For ORCA NMR, provide `nmr_reference`
+shieldings explicitly because an atom-specific imported basis cannot be
+assigned automatically to TMS.
+
+`fchk_angular='auto'` detects the GAMESS/ORCA source representation from FCHK
+`Shell types` (`-2` = 5D, `2` = 6D). `spherical`/`cartesian` require a matching
+source; they do not convert an incompatible wavefunction. For a 6D source
+intended for ORCA, regenerate the Gaussian checkpoint using `5D` (and `7F`
+when f shells are present; native f-shell import is not yet supported).
+Deleting one Cartesian component cannot preserve a general 6D wavefunction.
+Conversion failure or rejection of the initial imported ORCA guess stops the
+calculation rather than silently substituting a default guess.
+
 `SpecTotalCharge` and `SpecSpinMulti` override the imported electronic state in
-the usual way. With `optconf`, the resolved geometry, charge and multiplicity
+the usual way in geometry-only mode. With `optconf`, the resolved geometry, charge and multiplicity
 are exported to `fchk_geometry.xyz` inside the calculation directory and passed
 to the existing search. Bonds are reconstructed as for any XYZ input; the SDF
 bond graph and stereochemical annotations are not present in FCHK. ORCA still

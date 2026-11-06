@@ -40,7 +40,7 @@ class GaussianDFTRun:
                 error=0, 
                 restart=True, 
                 pklsave=False):
-        self.in_file = Path(in_file).name
+        self.in_file = str(Path(in_file).expanduser().absolute())
         self.functional = functional.lower()
         self.basis = basis.lower()
         self.nproc = check_resource.respec_cores(nproc)
@@ -456,12 +456,13 @@ class GaussianDFTRun:
             line_iop_functional += gaussian_run.Gen_IOPline_functional.functional_para(self.functional, self.para_functional)
 
         #Section for method
+        method_basis = ' ChkBasis' if self.basis == 'fchk' else f'/{self.basis}'
         if scf == 'open' or SpinMulti != 1:
-            line_method   = f'#u{self.functional}/{self.basis} test {line_iop_functional}\n'
+            line_method   = f'#u{self.functional}{method_basis} test {line_iop_functional}\n'
         elif scf == 'close' and SpinMulti == 1:
-            line_method = f'#r{self.functional}/{self.basis} test {line_iop_functional}\n' 
+            line_method = f'#r{self.functional}{method_basis} test {line_iop_functional}\n'
         else:
-            line_method = f'#{self.functional}/{self.basis} test {line_iop_functional}\n' 
+            line_method = f'#{self.functional}{method_basis} test {line_iop_functional}\n'
 
         if TDDFT:
             NState = target+4 if (run_type == 'opt' or run_type == 'freq') else 20
@@ -1039,6 +1040,9 @@ class GaussianDFTRun:
         TargetTotalCharge = []
         p = Path(infilename)
         JobName, JobNameSuffix = p.stem, p.suffix
+        JobNameSuffix = JobNameSuffix.lower()
+        if self.basis == 'fchk' and JobNameSuffix not in ('.fchk', '.fch'):
+            raise ValueError('basis=FCHK requires a Gaussian formatted checkpoint')
         if self.functional == 'ktlc-blyp-pred' and JobNameSuffix not in {'.sdf', '.xyz'}:
             raise ValueError('KTLC-BLYP-Pred requires SDF or XYZ molecular input')
         ReadFrom = None
@@ -1055,8 +1059,8 @@ class GaussianDFTRun:
             atm, X, Y, Z, TotalCharge, SpinMulti = read_mol_file.read_xyz(infilename)
         elif JobNameSuffix == ".chk":
             ReadFrom = 'chk' 
-        elif JobNameSuffix == ".fchk":
-            TotalCharge, SpinMulti = gaussian_run.fchk2chk.Get_fchk(JobName)
+        elif JobNameSuffix in ('.fchk', '.fch'):
+            TotalCharge, SpinMulti = gaussian_run.fchk2chk.ChargeSpin_fchk(infilename)
             ReadFrom = 'chk' 
         else:
             print("Invalid input file")
@@ -1266,10 +1270,10 @@ class GaussianDFTRun:
         self._active_job_directory = Path(pwd) / JobName
         if ReadFrom == 'chk':
             inchkfile = JobName + '.chk'
-            if JobNameSuffix == '.chk' and not self.restart:
-                shutil.copy2(inchkfile, JobName)
+            if JobNameSuffix in ('.fchk', '.fch'):
+                gaussian_run.fchk2chk.convert(infilename, Path(JobName) / inchkfile)
             else:
-                shutil.move(inchkfile, JobName)
+                shutil.copy2(infilename, Path(JobName) / inchkfile)
         os.chdir(JobName)
         print(f'Calculation dir: {os.getcwd()}')
 
