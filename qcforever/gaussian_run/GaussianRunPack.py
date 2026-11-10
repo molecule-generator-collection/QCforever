@@ -12,7 +12,8 @@ from pathlib import Path
 
 from qcforever import gaussian_run
 from qcforever.util import calculation_cache
-from qcforever.util.calculation_options import excited_options, requires_hessian
+from qcforever.util.calculation_options import cden_fukui, excited_options, requires_hessian
+from qcforever.util.fukui import condensed_fukui
 from qcforever.util import (
     read_mol_file,
     check_resource,
@@ -293,6 +294,10 @@ class GaussianDFTRun:
                 EA_Energy_SS =  parse_log.Extract_SCFEnergy(EA_lines)
                 # Normal electronic affinity calculation
                 output["vea"] = [Eh2eV*(GS_Energy-EA_Energy_SS[0]), EA_Energy_SS[1]]
+            if option_dict.get('fukui'):
+                extract_charges = gaussian_run.Get_ChargeSpin.Extract_ChargeSpin
+                output['fukui'] = condensed_fukui(
+                    output['cden'], extract_charges(IP_lines), extract_charges(EA_lines))
         
         if is_aip or is_aea:
             try:
@@ -1216,9 +1221,12 @@ class GaussianDFTRun:
                 job_eachState[0]['aea'] = True
                 option_dict['vea'] = True
                 option_dict['aea'] = True
-            elif option.lower() == 'cden':
+            elif option.partition('=')[0].lower() == 'cden':
                 job_eachState[0]['cden'] = True
                 option_dict['cden'] = True
+                if cden_fukui(option):
+                    job_eachState[0].update(fukui=True, vip=True, vea=True)
+                    option_dict.update(fukui=True, vip=True, vea=True)
             elif option.lower() == 'pka':
                 TargetStates.append(0)
                 job_eachState[0]['energy'] = True

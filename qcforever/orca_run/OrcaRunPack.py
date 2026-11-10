@@ -22,7 +22,10 @@ from . import Exe_Orca
 from .parse_log import EH_TO_EV, parse_log
 from qcforever.util import calculation_cache
 from qcforever.util import read_mol_file, fchk_orbitals
-from qcforever.util.calculation_options import parse_excited_optimization, ground_optimization, requires_hessian
+from qcforever.util.calculation_options import (
+    cden_fukui, ground_optimization, parse_excited_optimization, requires_hessian,
+)
+from qcforever.util.fukui import condensed_fukui
 
 
 _KTLC_FUNCTIONALS = {'KTLC-BLYP-BO': 'LC-BLYP', 'KTLC-PBE-BO': 'LC-PBE'}
@@ -124,6 +127,10 @@ class OrcaDFTRun:
                 spec = parse_excited_optimization(token, 'orca')
                 options[key] = spec['state']
                 options['fluor_fc'] = spec['fc']
+            elif key == 'cden':
+                options[key] = True
+                if cden_fukui(token):
+                    options['fukui'] = True
             elif key in ('uv', 'nmr', 'freq'):
                 options[key] = True
                 if separator:
@@ -139,6 +146,8 @@ class OrcaDFTRun:
                 options[key] = True
         if not options:
             raise ValueError('Specify at least one ORCA calculation option')
+        if 'fukui' in options:
+            options.update(vip=True, vea=True)
         if 'NMR' in references:
             options['nmr'] = True
         self._search_config = parse_conformer_options(search_value, self.conformer_config)
@@ -505,6 +514,7 @@ class OrcaDFTRun:
             if 'polar' in options:
                 polar_log = self._calculate(jobname + '_polar', atoms, xyz, charge, mult, polar=True)
                 output.update(polar_log.polar())
+            ion_charges = {}
             for vertical, relaxed, delta in (('vip', 'aip', 1), ('vea', 'aea', -1)):
                 if vertical in options or relaxed in options:
                     ion_mult = self._ion_mult(vertical, mult)
@@ -513,6 +523,8 @@ class OrcaDFTRun:
                                           moread=ground_gbw)
                     value = delta * (ion.energy()[0] - output['energy'][0]) * EH_TO_EV
                     output[vertical] = [value, ion.energy()[1]]
+                    if 'fukui' in options:
+                        ion_charges[vertical] = ion.charges()
                 if relaxed in options:
                     relaxed_log = self._calculate(jobname + '_' + relaxed.upper(), atoms, xyz,
                                                   charge + delta, _integer(self.ion_multiplicities.get(relaxed, ion_mult),
@@ -520,6 +532,9 @@ class OrcaDFTRun:
                                                   optimize='normal', moread=f'{ion_name}.gbw')
                     value = delta * (relaxed_log.energy()[0] - output['energy'][0]) * EH_TO_EV
                     output[relaxed] = [value, relaxed_log.energy()[1]]
+            if 'fukui' in options:
+                output['fukui'] = condensed_fukui(
+                    output['cden'], ion_charges['vip'], ion_charges['vea'])
             if 'uv' in options or 'fluor' in options:
                 td = self._calculate(jobname + '_TD', atoms, xyz, charge, mult,
                                      td=True, moread=ground_gbw)

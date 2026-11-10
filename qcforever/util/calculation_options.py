@@ -13,7 +13,7 @@ def split_options(text):
     """Keep recognized parenthesized option groups together, including spaces.
 
     Spectrum paths and all other existing scalar tokens retain their spelling.
-    Only opt/fluor/tadf groups are handled here; optconf is expanded beforehand.
+    This handles opt, fluor, tadf and cden groups. The caller expands optconf first.
     """
     result = []
     position = 0
@@ -22,7 +22,7 @@ def split_options(text):
             position += 1
             continue
         start = position
-        group = re.match(r'(fluor|tadf|opt)\s*=\s*\(', text[start:], re.I)
+        group = re.match(r'(fluor|tadf|opt|cden)\s*=\s*\(', text[start:], re.I)
         if group:
             opening = start + group.end() - 1
             position, depth = opening + 1, 1
@@ -37,6 +37,16 @@ def split_options(text):
                 position += 1
             result.append(text[start:position])
     return result
+
+
+def cden_fukui(token):
+    """Validate a cden option and return whether it requests Fukui indices."""
+    _, separator, argument = token.partition('=')
+    if not separator:
+        return False
+    if not re.fullmatch(r'\(\s*fukui\s*\)', argument, re.I):
+        raise ValueError('Use cden or cden=(fukui)')
+    return True
 
 
 def parse_excited_optimization(token, backend='gaussian'):

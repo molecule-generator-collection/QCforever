@@ -12,7 +12,8 @@ from pathlib import Path
 from qcforever import gamess_run
 from qcforever.util import calculation_cache
 from qcforever.util import fchk_orbitals
-from qcforever.util.calculation_options import excited_options, ground_optimization, requires_hessian
+from qcforever.util.calculation_options import cden_fukui, excited_options, ground_optimization, requires_hessian
+from qcforever.util.fukui import condensed_fukui
 from qcforever.util.quadrupole import quadrupole_from_buckingham, quadrupole_properties
 from qcforever.util import (
     read_mol_file,
@@ -185,6 +186,11 @@ class GamessDFTRun:
             else:
                 output['vea'] = ''
                 output['log'] = vea_scfstate
+
+        if (option_dict.get('fukui') and job_scfstate is True
+                and vip_scfstate is True and vea_scfstate is True):
+            output['fukui'] = condensed_fukui(
+                output['cden'], parse_viplog.getChargeSpin(), parse_vealog.getChargeSpin())
 
         if is_aip_specified:
             aipjobname = jobname + '_AIP'
@@ -677,8 +683,10 @@ class GamessDFTRun:
                 option_dict['homolumo'] = True
             elif option.lower() == 'dipole':
                 option_dict['dipole'] = True
-            elif option.lower() == 'cden':
+            elif option.partition('=')[0].lower() == 'cden':
                 option_dict['cden'] = True
+                if cden_fukui(option):
+                    option_dict.update(fukui=True, energy=True, vip=True, vea=True)
             elif option.lower() == 'uv':
                 option_dict['uv'] = True
             elif re.match(r'^fluor(?:=|$)', option.lower()):

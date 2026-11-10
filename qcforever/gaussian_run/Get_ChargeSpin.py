@@ -2,28 +2,26 @@ import sys
 
 
 def Extract_ChargeSpin(lines):
-    print("Start finding charge & spin...")
-    count = 0
-    for line in lines:
-        if line.find("Mulliken charges and spin densities:") >= 0:
-            Atom_index = []
-            Charge = []
-            Spin = []
-            count += 1
-            continue
-        if count == 1:
-            count += 1
-            continue
-        if count == 2:
-            if line.find("Sum of Mulliken charges = ") >= 0:
-                count = 0 
-            else:
-                Charge_spin_line = line.split()
-                Atom_index.append(Charge_spin_line[1])
-                Charge.append(float(Charge_spin_line[2]))
-                Spin.append(float(Charge_spin_line[3]))
-                continue
-    return Atom_index, Charge, Spin
+    """Read the last full Mulliken table in a Gaussian job step."""
+    for index in range(len(lines) - 1, -1, -1):
+        header = lines[index].strip()
+        if header in ("Mulliken charges:", "Mulliken charges and spin densities:"):
+            break
+    else:
+        raise ValueError("Missing Mulliken charges")
+
+    has_spin = header == "Mulliken charges and spin densities:"
+    elements, charges, spins = [], [], []
+    for line in lines[index + 2:]:
+        if line.strip().startswith("Sum of Mulliken charges") and elements:
+            return elements, charges, spins
+        fields = line.split()
+        if len(fields) != 3 + has_spin or fields[0] != str(len(elements) + 1):
+            break
+        elements.append(fields[1])
+        charges.append(float(fields[2]))
+        spins.append(float(fields[3]) if has_spin else 0.0)
+    raise ValueError("Incomplete Mulliken charge table")
 
 
 def find_MaxProtic(Atom, Charge):

@@ -436,3 +436,16 @@ def test_real_orca_energy_uv_and_ion(job):
     assert len(result['cden'][0]) == 3
     assert result['polar_iso'] > 0
     assert len(result['nmr'][0]) == 3
+
+
+def test_fukui_reuses_vertical_jobs(job, launcher):
+    job.value = 'vip cden=(fukui) vea'
+    result = job.run_orca()
+    assert result['log'] == 'normal', result
+    assert [name for name, _ in launcher] == ['water', 'water_VIP', 'water_VEA']
+    assert '* xyz 1 2' in launcher[1][1]
+    assert '* xyz -1 2' in launcher[2][1]
+    assert result['fukui']['atoms'] == ['O', 'H', 'H']
+    # The launcher uses the cation excerpt for both ion states.
+    assert result['fukui']['f_minus'] == pytest.approx([0.452951, 0.27352, 0.273529])
+    assert result['fukui']['f_plus'] == pytest.approx([-0.452951, -0.27352, -0.273529])

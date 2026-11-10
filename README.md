@@ -109,7 +109,7 @@ output = job.run_orca()
 ```
 
 Supported options are `opt` (`opt=loose/tight/verytight` also accepted), `energy`,
-`homolumo`, `dipole`, `cden`, `polar`, `vip`, `vea`, `aip`, `aea`, `uv`,
+`homolumo`, `dipole`, `cden`/`cden=(fukui)`, `polar`, `vip`, `vea`, `aip`, `aea`, `uv`,
 `fluor`/`fluor=N`, `freq`, `nmr`, and `optconf`. Unsupported options, other KTLC
 functionals, and `para_functional` overrides return `log="error"` before launch.
 ORCA accepts SDF, XYZ, and Gaussian formatted checkpoints (`.fchk`/`.fch`);
@@ -536,7 +536,7 @@ Following options are currently available:
 |nmr| NMR chemical shift (ppm to TMS) of each atom is computed. `nmr=/absolute/path/to/nmr.dat` also compares it with a two-column `position intensity` reference spectrum.|:white_check_mark:||:white_check_mark:|
 |uv| absorption wavelengths (nm) (for spin allowed states) are computed. If you add an absolute path of text file that specify peak positions and their peak like (uv=/ab/path2uv.dat), it is possible to the similarity and dissimilarity between the target and reference. |:white_check_mark:|:white_check_mark:|:white_check_mark:|
 |energy| SCF energy (in Eh) is printed.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
-|cden| charge and spin densities on each atom are computed.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+|cden| Mulliken charges and spin populations. Use `cden=(fukui)` for condensed Fukui indices.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
 |homolumo| HOMO/LUMO gap (Eh) calculation|:white_check_mark:|:white_check_mark:|:white_check_mark:|
 |dipole| Dipole moment and quadrupole properties at the center of mass; see the output definitions below.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
 |polar| Dipole polarizability (in 10**-24 cm**3) of a molecule|:white_check_mark:||:white_check_mark:|
@@ -554,6 +554,18 @@ Following options are currently available:
 |stable| try to find a stable structure when the negative frequency is detected.|:white_check_mark:|||
 |optspin| try to find a suitable spin multiplicity.|:white_check_mark:|||
 |optconf| Search for a stable conformer (default: PM6 for Gaussian/GAMESS, xTB for ORCA). See [Conformer search](#conformer-search-optconf) below.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
+
+### Condensed Fukui indices
+
+`cden=(fukui)` enables `cden`, `vip` and `vea`. All three Mulliken charge
+analyses use the reference geometry. Include `opt` to optimize that geometry
+first. The result dictionary includes `fukui` with the keys `atoms`, `f_plus`
+and `f_minus`. The lists follow the atom order in `cden`.
+
+- `f_plus` is q(N) − q(N+1), the response to electron addition at sites
+  susceptible to nucleophilic attack.
+- `f_minus` is q(N−1) − q(N), the response to electron removal at sites
+  susceptible to electrophilic attack.
 
 ### Ground- and excited-state optimization options
 
