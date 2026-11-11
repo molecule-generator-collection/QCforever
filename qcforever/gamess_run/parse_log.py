@@ -2,6 +2,8 @@ import re
 import sys
 import os
 
+import numpy as np
+
 from qcforever.util.quadrupole import (
     BOHR_TO_ANGSTROM, COMPONENTS, tensor_from_components,
 )
@@ -348,34 +350,78 @@ class parse_log:
                 break
         return result
 
+    @staticmethod
+    def _frequencies(line):
+        return [-abs(_moment_float(value)) if imaginary else _moment_float(value)
+                for value, imaginary in re.findall(r'(' + _MOMENT_NUMBER + r')\s*(I)?', line)]
+
+    @staticmethod
+    def _vibration_indices(block, size):
+        rigid = re.search(r'MODES?\s+(\d+)(?:\s+TO\s+(\d+))?\s+ARE TAKEN AS ROTATIONS AND TRANSLATIONS',
+                          ''.join(block))
+        if rigid:
+            first = int(rigid[1])
+            last = int(rigid[2] or first)
+        else:
+            # Older logs without an explicit rotation/translation range.
+            first, last = 1, 6
+        return [i for i in range(size) if not first <= i + 1 <= last]
+
     def getFreq(self, block):
-        ii = 0 
-        Frequency = []
-        IR = []
-        Raman = []
+        frequencies, ir, raman = [], [], []
+        for line in block:
+            label, _, values = line.partition(':')
+            if label.strip() == 'FREQUENCY':
+                frequencies.extend(self._frequencies(values))
+            elif label.strip() == 'IR INTENSITY':
+                ir.extend(map(_moment_float, values.split()))
+            elif label.strip() == 'RAMAN ACTIVITY':
+                raman.extend(map(_moment_float, values.split()))
+        keep = self._vibration_indices(block, len(frequencies))
+        return tuple([values[i] for i in keep if i < len(values)] for values in (frequencies, ir, raman))
 
-        while(ii < len(block)-1):
-            ll = block[ii]
-            if(re.search(r"\s* FREQUENCY:",ll)):
-                iFreq = re.split(r"[\s]+",re.sub(r"[\s]+$","",re.sub(r"^[\s]+","",ll)))
-                #print(iFreq[1:])
-                for pp in range(1, len(iFreq)):
-                    Frequency.append(float(iFreq[pp]))
+    def hessian_coordinates(self, atom_count):
+        """Read the undisplaced reference geometry of a Hessian job in Å."""
+        row_pattern = r'\s*(\S+)(?:\s+(' + _MOMENT_NUMBER + r')){4}\s*'
+        for i, line in enumerate(self.lines):
+            header = re.match(r'\s*ATOM\s+ATOMIC\s+COORDINATES \((BOHR|ANGS)\)', line)
+            if not header:
+                continue
+            rows = self.lines[i + 2:i + 2 + atom_count]
+            if len(rows) != atom_count or not all(re.fullmatch(row_pattern, row) for row in rows):
+                break
+            fields = [row.split() for row in rows]
+            coordinates = np.array([[_moment_float(v) for v in row[2:]] for row in fields])
+            if header[1] == 'BOHR':
+                coordinates *= BOHR_TO_ANGSTROM
+            return [row[0].capitalize() for row in fields], coordinates
+        raise ValueError('Missing GAMESS reference geometry for normal-mode displacements')
 
-            if(re.search(r"\s* IR INTENSITY:",ll)):
-                iIR = re.split(r"[\s]+",re.sub(r"[\s]+$","",re.sub(r"^[\s]+","",ll)))
-                #print(iInt[2:])
-                for pp in range(2, len(iIR)):
-                    IR.append(float(iIR[pp]))
-
-            if(re.search(r"\s* RAMAN ACTIVITY:",ll)):
-                iRaman = re.split(r"[\s]+",re.sub(r"[\s]+$","",re.sub(r"^[\s]+","",ll)))
-                #print(iInt[2:])
-                for pp in range(2, len(iRaman)):
-                    Raman.append(float(iRaman[pp]))
-            ii += 1
-
-        return Frequency[6:], IR[6:], Raman[6:]
+    def normal_modes(self, block, atom_count):
+        """Read Cartesian modes with GAMESS's imaginary signs and rigid-mode range."""
+        frequencies, modes = [], []
+        groups = re.split(r'^\s*FREQUENCY:\s*([^\n]+)\n', ''.join(block), flags=re.M)
+        for values, rows in zip(groups[1::2], groups[2::2]):
+            group = self._frequencies(values)
+            width = len(group)
+            coords = []
+            for line in rows.splitlines():
+                fields = line.split()
+                if len(fields) >= width + 1 and fields[-width - 1] in ('X', 'Y', 'Z'):
+                    axis = fields[-width - 1]
+                    if axis != 'XYZ'[len(coords) % 3]:
+                        raise ValueError('Unexpected GAMESS normal-mode axis order')
+                    coords.append([_moment_float(v) for v in fields[-width:]])
+                    if len(coords) == 3 * atom_count:
+                        break
+            if not group or len(coords) != 3 * atom_count:
+                raise ValueError('Incomplete GAMESS Cartesian normal modes')
+            frequencies.extend(group)
+            modes.extend(np.asarray(coords).reshape(atom_count, 3, width).transpose(2, 0, 1))
+        if len(frequencies) != 3 * atom_count:
+            raise ValueError('Incomplete GAMESS frequency table')
+        keep = self._vibration_indices(block, len(frequencies))
+        return [frequencies[i] for i in keep], np.asarray(modes)[keep].transpose(2, 0, 1).tolist()
 
     def getThermo(self, block):
         ii = 0
@@ -389,7 +435,7 @@ class parse_log:
 
         flag = 0
 
-        while(ii < len(block)-1):
+        while(ii < len(block)):
             ll = block[ii]
             if(flag == 0 and re.search(r"\s* THE HARMONIC ZERO POINT ENERGY IS",ll)):
                 flag = 1

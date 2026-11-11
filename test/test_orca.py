@@ -106,7 +106,7 @@ def test_invalid_memory_is_rejected(value):
 
 
 @pytest.mark.parametrize('options', ['KTLC-BLYP-Pred', 'optconf=pm6',
-    'optconf=(conf_relax=pm6)', 'stable', 'opt=bad', 'energy=anything', 'uv=', 'nac'])
+    'optconf=(conf_relax=pm6)', 'stable=anything', 'opt=bad', 'energy=anything', 'uv=', 'nac'])
 def test_unsupported_requests_do_not_launch(job, launcher, options):
     if options.startswith('KTLC'):
         job.functional = options

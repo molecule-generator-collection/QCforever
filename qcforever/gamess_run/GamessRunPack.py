@@ -14,6 +14,7 @@ from qcforever.util import calculation_cache
 from qcforever.util import fchk_orbitals
 from qcforever.util.calculation_options import cden_fukui, excited_options, ground_optimization, requires_hessian
 from qcforever.util.fukui import condensed_fukui
+from qcforever.util.imaginary_modes import StationaryPoint, follow_imaginary_modes
 from qcforever.util.quadrupole import quadrupole_from_buckingham, quadrupole_properties
 from qcforever.util import (
     read_mol_file,
@@ -81,7 +82,7 @@ class GamessDFTRun:
 
         return memory_MB/8
 
-    def Extract_values(self, jobname, option_dict):
+    def Extract_values(self, jobname, option_dict, frequency_job=None):
 
         opt = option_dict['opt'] if 'opt' in option_dict else False
         is_energy_specified = option_dict['energy'] if 'energy' in option_dict else False
@@ -217,16 +218,16 @@ class GamessDFTRun:
                 output['log'] = vea_scfstate
 
         if is_freq_specified:
-            freqjobname = jobname + '_raman'
+            freqjobname = frequency_job or jobname + '_raman'
             infilename_freq = f"{freqjobname}.log"
             parse_freqlog = gamess_run.parse_log.parse_log(infilename_freq)
             freq_scfstate = parse_freqlog.Check_VIB()
             if freq_scfstate == True:
                 ff = parse_freqlog.getBlock("NORMAL COORDINATE ANALYSIS IN THE HARMONIC APPROXIMATION")
-                output['freq'], output['IR'], output['Raman'] = parse_freqlog.getFreq(ff[0])
+                output['freq'], output['IR'], output['Raman'] = parse_freqlog.getFreq(ff[-1])
                 for spectrum_type in ('IR', 'Raman'):
                     reference_path = self.ref_spectrum_paths.get(spectrum_type)
-                    if reference_path:
+                    if reference_path and output[spectrum_type]:
                         output.setdefault('Spectrum_similarity', {})[spectrum_type] = (
                             Spectrum_similarity.compare_with_file(
                                 reference_path,
@@ -275,7 +276,7 @@ class GamessDFTRun:
         self, run_type, 
         TotalCharge, SpinMulti, 
         GamInputName, Mol_atom=[], X=[], Y=[], Z=[], 
-        TDDFT=False, target=[1, 1], datfile=None, solvent='0', moments=None, fc=''):
+        TDDFT=False, target=[1, 1], datfile=None, solvent='0', moments=None, fc='', numerical_hessian=False):
         if fc and run_type != 'OPTIMIZE':
             raise ValueError('FC requires an optimization')
         if TDDFT and fc and (SpinMulti != 1 or target[1] != 1):
@@ -391,7 +392,8 @@ class GamessDFTRun:
                 if fc and fc != 'ReadFC':
                     line_input += ' $FORCE METHOD=SEMINUM NVIB=2 $END\n'
             if run_type == 'HESSIAN' or run_type == 'RAMAN':
-                line_input +=' $FORCE METHOD=ANALYTIC $END\n' 
+                method = 'SEMINUM NVIB=2' if numerical_hessian else 'ANALYTIC'
+                line_input += f' $FORCE METHOD={method} $END\n'
             if not imported:
                 line_input += f' $BASIS GBASIS={GBASIS} NGAUSS={NGAUSS} NDFUNC={NDFUNC} $END\n'
             if datfile == None:
@@ -622,6 +624,43 @@ class GamessDFTRun:
             self._active_job_name = None
             self._separate_moments = False
 
+    def _stable_ground(self, jobname, atoms, charge, mult):
+        def stationary(name, elements):
+            optimized = gamess_run.parse_log.parse_log(name + '.log')
+            if (optimized.Check_SCF() is not True
+                    or not any('EQUILIBRIUM GEOMETRY LOCATED' in line for line in optimized.lines)
+                    or not any('EXECUTION OF GAMESS TERMINATED NORMALLY' in line for line in optimized.lines)):
+                raise ValueError(f'Ground-state optimization did not converge: {name}.log')
+            frequency_name = name + '_freq'
+            self.make_input('HESSIAN', charge, mult, frequency_name + '.inp',
+                            datfile=name + '.dat', solvent=self.solvent, numerical_hessian=True)
+            gamess_run.Exe_Gamess.exe_Gamess(frequency_name, self.gamessversion, self.nproc)
+            vibration = gamess_run.parse_log.parse_log(frequency_name + '.log')
+            if (vibration.Check_VIB() is not True
+                    or not any('EXECUTION OF GAMESS TERMINATED NORMALLY' in line for line in vibration.lines)):
+                raise ValueError(f'GAMESS vibration calculation failed: {frequency_name}.log')
+            blocks = vibration.getBlock('NORMAL COORDINATE ANALYSIS IN THE HARMONIC APPROXIMATION')
+            if not blocks:
+                raise ValueError(f'Missing GAMESS normal modes: {frequency_name}.log')
+            reference_atoms, xyz = vibration.hessian_coordinates(len(elements))
+            if reference_atoms != [atom.capitalize() for atom in elements]:
+                raise ValueError(f'Hessian calculation changed atom order/composition: {frequency_name}.log')
+            frequencies, modes = vibration.normal_modes(blocks[-1], len(elements))
+            return StationaryPoint(name, elements, xyz, optimized.getEnergy()[0], frequencies, modes, {})
+
+        def evaluate(label, elements, coordinates):
+            name = f'{jobname}_stable_{label}'
+            self.make_input('OPTIMIZE', charge, mult, name + '.inp', elements, *coordinates.T,
+                            solvent=self.solvent)
+            gamess_run.Exe_Gamess.exe_Gamess(name, self.gamessversion, self.nproc)
+            return stationary(name, elements)
+
+        point = follow_imaginary_modes(stationary(jobname, atoms), evaluate)
+        if point.name != jobname:
+            for suffix in ('.inp', '.log', '.dat'):
+                shutil.copyfile(point.name + suffix, jobname + suffix)
+        return point
+
     def _run_gamess(self):
         infilename = self.in_file
         option_line = self.value    
@@ -707,6 +746,8 @@ class GamessDFTRun:
                 option_dict['energy'] = True
                 option_dict['vea'] = True
                 option_dict['aea'] = True
+            elif option.lower() == 'stable':
+                option_dict.update(stable=True, opt=True)
             elif re.match(r'^freq(?:=|$)', option.lower()):
                 option_dict['freq'] = True
                 if '=' in option:
@@ -729,7 +770,7 @@ class GamessDFTRun:
             total_charge=TotalCharge,
             nproc=self.nproc,
             options=option_dict.keys(),
-            calculate_hessian=requires_hessian(
+            calculate_hessian='stable' in option_dict or requires_hessian(
                 ground_fc, *(spec['fc'] for spec in excited_specs.values())),
         )
 
@@ -798,6 +839,15 @@ class GamessDFTRun:
 
         self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, Mol_atom, X, Y, Z, TDDFT=False, datfile=None, solvent=self.solvent, fc=ground_fc)
         job_state = gamess_run.Exe_Gamess.exe_Gamess(jobname, self.gamessversion, self.nproc)
+        point = None
+        if 'stable' in option_dict:
+            try:
+                point = self._stable_ground(jobname, Mol_atom, TotalCharge, SpinMulti)
+            except job_timeout.QCforeverTimeoutError:
+                raise
+            except (OSError, ValueError, RuntimeError) as exc:
+                return {'log': 'error', 'error': str(exc)}
+            option_dict['energy'] = True
 
         if 'dipole' in option_dict:
             self._moment_jobname = jobname + '_properties'
@@ -881,34 +931,33 @@ class GamessDFTRun:
             self.make_input(run_type, EATotalCharge, EASpinMulti, GamInputName, datfile=VEAdatfile, solvent=self.solvent)
             job_state = gamess_run.Exe_Gamess.exe_Gamess(aeajobname, self.gamessversion, self.nproc)
 
-        if 'freq' in  option_dict:
-            run_type = 'HESSIAN'
-        
-            GSdatfile = jobname + '.dat'
-            freqjobname = jobname + '_freq'
-            GamInputName = freqjobname +'.inp'    
+        frequency_job = None
+        if point is not None:
+            frequency_job = point.name + '_freq'
+        if 'freq' in option_dict and (point is None or self.solvent == '0'):
+            if frequency_job is None:
+                frequency_job = jobname + '_freq'
+                self.make_input('HESSIAN', TotalCharge, SpinMulti, frequency_job + '.inp',
+                                datfile=jobname + '.dat')
+                job_state = gamess_run.Exe_Gamess.exe_Gamess(frequency_job, self.gamessversion, self.nproc)
+            raman_job = jobname + '_raman'
+            self.make_input('RAMAN', TotalCharge, SpinMulti, raman_job + '.inp', datfile=frequency_job + '.dat')
+            job_state = gamess_run.Exe_Gamess.exe_Gamess(raman_job, self.gamessversion, self.nproc)
+            frequency_job = raman_job
 
-            #self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=GSdatfile, solvent=self.solvent)
-            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=GSdatfile, solvent='0')
-            job_state = gamess_run.Exe_Gamess.exe_Gamess(freqjobname, self.gamessversion, self.nproc)
-
-            run_type= 'RAMAN'
-
-            freqdatfile = jobname + '_freq.dat'
-            ramanjobname = jobname + '_raman'
-            GamInputName = ramanjobname + '.inp'
-
-            #self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=freqdatfile, solvent=self.solvent)
-            self.make_input(run_type, TotalCharge, SpinMulti, GamInputName, datfile=freqdatfile, solvent='0')
-            job_state = gamess_run.Exe_Gamess.exe_Gamess(ramanjobname, self.gamessversion, self.nproc)
-
-#        output_dic = self.Extract_values(jobname, option_dict)
         try:
-            output_dic = self.Extract_values(jobname, option_dict)
-        except Exception as e: 
-            job_state = "error"
-            print(e)
-            pass
+            if frequency_job is None:
+                output_dic = self.Extract_values(jobname, option_dict)
+            else:
+                output_dic = self.Extract_values(jobname, dict(option_dict, freq=True), frequency_job)
+        except Exception as exc:
+            output_dic = {'log': 'error', 'error': str(exc)}
+
+        if point is not None:
+            output_dic.update(freqmode=point.modes, stable_0=point.minimum_frequency >= 0)
+            # Raman and Hessian modes refer to the same stationary geometry.
+            if frequency_job != jobname + '_raman':
+                output_dic['freq'] = point.frequencies
 
         if self.para_functional != []:
             output_dic['functional_param'] = self.para_functional

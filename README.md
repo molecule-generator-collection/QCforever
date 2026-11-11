@@ -110,7 +110,7 @@ output = job.run_orca()
 
 Supported options are `opt` (`opt=loose/tight/verytight` also accepted), `energy`,
 `homolumo`, `dipole`, `cden`/`cden=(fukui)`, `polar`, `vip`, `vea`, `aip`, `aea`, `uv`,
-`fluor`/`fluor=N`, `freq`, `nmr`, and `optconf`. Unsupported options, other KTLC
+`fluor`/`fluor=N`, `freq`, `stable`, `nmr`, and `optconf`. Unsupported options, other KTLC
 functionals, and `para_functional` overrides return `log="error"` before launch.
 ORCA accepts SDF, XYZ, and Gaussian formatted checkpoints (`.fchk`/`.fch`);
 see [FCHK input](#gaussian-fchk-input-for-gamess-and-orca). XYZ comments can specify `charge multiplicity`
@@ -551,7 +551,7 @@ Following options are currently available:
 |tadf| Compute the energy gap (in Eh) between minima in the spin-allowed and spin-forbidden states. Gaussian accepts `tadf=(FC=CalcFC, state=1)` independently of `fluor`.|:white_check_mark:|||
 |freq| Compute the variable related to the vibrational analysis of a molecule. `freq=IR.dat,Raman.dat` compares the calculated IR and Raman spectra with two-column `position intensity` reference files. For Gaussian and ORCA, an optional third NMR file (`freq=IR.dat,Raman.dat,NMR.dat`) also enables NMR and compares all three spectra. Before comparison, peaks within 1.0 cm-1 (IR/Raman) or 0.01 ppm (NMR) are merged; intensities are summed and positions are averaged.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
 |pka| Compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species. The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydrogen.|:white_check_mark:|||
-|stable| try to find a stable structure when the negative frequency is detected.|:white_check_mark:|||
+|stable| Optimize and check ground-state frequencies. If an imaginary mode remains, optimize both displacements along it and check their frequencies. |:white_check_mark:|:white_check_mark:|:white_check_mark:|
 |optspin| try to find a suitable spin multiplicity.|:white_check_mark:|||
 |optconf| Search for a stable conformer (default: PM6 for Gaussian/GAMESS, xTB for ORCA). See [Conformer search](#conformer-search-optconf) below.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
 
@@ -644,6 +644,30 @@ TADF remains Gaussian-only. Unknown fields, duplicate settings and invalid roots
 are rejected before launching a calculation. Changing only an excited-state FC
 setting leaves the ground-state input unchanged, allowing its existing result
 to be reused when the remaining reuse checks pass.
+
+### Ground-state imaginary modes
+
+`stable` runs a ground-state optimization and vibrational analysis. If it finds
+an imaginary frequency, it displaces the optimized geometry along the most
+negative Cartesian normal mode in both directions. Each trial starts with a
+maximum displacement of 0.05 Å per atom. The workflow checks frequencies after
+both optimizations and prefers an imaginary-free geometry, then the lower
+electronic energy. It tries up to nine pairs. The result reports `stable_0`,
+which is true when the selected geometry has no imaginary frequency.
+Subsequent properties use the selected geometry.
+
+Gaussian can start from existing frequencies when the input already describes
+the geometry used for the frequency analysis. Set `job.stable_from` to the
+Gaussian frequency log or pickle before calling `run_gaussian()`. Pickles
+with `frequency_context` include the Cartesian frame of the normal modes.
+Older pickles can use the log named by `gaussian_log` or a companion log.
+The method, basis, solvent, functional parameters, charge, multiplicity,
+and atom-ordered geometry must match. With reuse enabled, Gaussian also
+checks the preceding result in the same job directory. A saved stable result
+can be reused for the same starting geometry.
+
+GAMESS uses numerical Hessians for these checks, including under PCM. Its
+separate Raman step is available with `stable freq` in vacuum.
 
 ### Conformer search (`optconf`)
 

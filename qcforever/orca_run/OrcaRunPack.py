@@ -26,6 +26,7 @@ from qcforever.util.calculation_options import (
     cden_fukui, ground_optimization, parse_excited_optimization, requires_hessian,
 )
 from qcforever.util.fukui import condensed_fukui
+from qcforever.util.imaginary_modes import StationaryPoint, follow_imaginary_modes
 
 
 _KTLC_FUNCTIONALS = {'KTLC-BLYP-BO': 'LC-BLYP', 'KTLC-PBE-BO': 'LC-PBE'}
@@ -105,7 +106,7 @@ class OrcaDFTRun:
         search_value = re.sub(r'(?i)(?<!\S)optconf(?=\s|$)', 'optconf=xtb', search_value)
         options, references = {}, {}
         supported = {'energy', 'opt', 'homolumo', 'dipole', 'cden', 'vip', 'vea',
-                     'aip', 'aea', 'uv', 'fluor', 'freq', 'polar', 'nmr', 'optconf'}
+                     'aip', 'aea', 'uv', 'fluor', 'freq', 'polar', 'nmr', 'optconf', 'stable'}
         for token in calculation_tokens(search_value):
             key, separator, argument = token.partition('=')
             key = key.lower()
@@ -146,6 +147,8 @@ class OrcaDFTRun:
                 options[key] = True
         if not options:
             raise ValueError('Specify at least one ORCA calculation option')
+        if 'stable' in options:
+            options.setdefault('opt', 'tight')
         if 'fukui' in options:
             options.update(vip=True, vea=True)
         if 'NMR' in references:
@@ -437,7 +440,7 @@ class OrcaDFTRun:
             total_charge=charge,
             nproc=self.nproc,
             options=options,
-            calculate_hessian=requires_hessian(options.get('opt_fc', ''),
+            calculate_hessian='stable' in options or requires_hessian(options.get('opt_fc', ''),
                                                 options.get('fluor_fc', '')),
         )
         memory_per_core(self.mem, self.nproc)
@@ -495,6 +498,31 @@ class OrcaDFTRun:
                 final_atoms, xyz = ground.coordinates()
                 if final_atoms != atoms:
                     raise ValueError('Optimized geometry changed atom order/composition')
+            stable_vibration = None
+            if 'stable' in options:
+                def stationary(name, elements, coords, optimized):
+                    vibr = self._calculate(name + '_freq', elements, coords, charge, mult, freq=True).frequencies()
+                    return StationaryPoint(name, elements, coords, optimized.energy()[0], vibr['freq'],
+                                           vibr['freqmode'], {'ground': optimized, 'vibration': vibr})
+
+                def evaluate(label, elements, coordinates):
+                    name = f'{jobname}_stable_{label}'
+                    optimized = self._calculate(name, elements, coordinates, charge, mult, optimize=options['opt'])
+                    final_elements, final_coords = optimized.coordinates()
+                    if final_elements != elements:
+                        raise ValueError('Optimized geometry changed atom order/composition')
+                    return stationary(name, final_elements, final_coords, optimized)
+
+                point = follow_imaginary_modes(stationary(jobname, atoms, xyz, ground), evaluate)
+                xyz, ground = point.coordinates, point.properties['ground']
+                if point.name != jobname:
+                    for suffix in ('.inp', '.log', '.gbw'):
+                        path = Path(point.name + suffix)
+                        if path.is_file():
+                            shutil.copyfile(path, jobname + suffix)
+                self._active_job = point.name + '_freq'
+                stable_vibration = point.properties['vibration']
+                output['stable_0'] = point.minimum_frequency >= 0
             self._write_xyz(jobname, atoms, xyz, charge, mult)
             output['energy'] = ground.energy()
             output['Energy'] = output['energy'].copy()
@@ -566,9 +594,11 @@ class OrcaDFTRun:
                 output['fluor'] = [[v for _, v, _ in transitions], [v for _, _, v in transitions]]
                 output['fluor_state'] = {'root': root, 'wavelength_nm': selected[1],
                                           'oscillator_strength': selected[2]}
-            if 'freq' in options:
-                vibration = self._calculate(jobname + '_freq', atoms, xyz, charge, mult, freq=True)
-                output.update(vibration.frequencies())
+            if 'freq' in options or stable_vibration is not None:
+                if stable_vibration is None:
+                    vibration = self._calculate(jobname + '_freq', atoms, xyz, charge, mult, freq=True)
+                    stable_vibration = vibration.frequencies()
+                output.update(stable_vibration)
                 self._compare(output, 'IR', output['freq'], output['IR'])
                 self._compare(output, 'Raman', output['freq'], output['Raman'])
             if 'nmr' in options:

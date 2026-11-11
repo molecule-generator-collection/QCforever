@@ -14,6 +14,7 @@ from qcforever import gaussian_run
 from qcforever.util import calculation_cache
 from qcforever.util.calculation_options import cden_fukui, excited_options, requires_hessian
 from qcforever.util.fukui import condensed_fukui
+from qcforever.util.imaginary_modes import StationaryPoint, follow_imaginary_modes
 from qcforever.util import (
     read_mol_file,
     check_resource,
@@ -22,6 +23,7 @@ from qcforever.util import (
     job_cleanup,
     job_timeout,
 )
+from qcforever.gaussian_run import frequency_seed
 from qcforever.gaussian_run.solvent import resolve_gaussian_solvent
 from qcforever.util.quadrupole import quadrupole_at_center_of_mass, quadrupole_properties
 
@@ -68,6 +70,7 @@ class GaussianDFTRun:
         self.functional_parameter_optimization = None
         self.functional_parameter_prediction = None
         self.reuse = True
+        self.stable_from = None
 
     def check_scf_need(self, option):
         all_keys = set(option.keys())
@@ -237,6 +240,8 @@ class GaussianDFTRun:
             output["Cv"] = Cv
             output["Si"] = St
             output["freqmode"] = [VibX, VibY, VibZ]
+            if getattr(self, 'pklsave', False) and any(' orientation:' in line for line in freq_lines):
+                output['frequency_context'] = frequency_seed.frequency_context(parse_log, freq_lines)
             for spectrum_type, intensities in (("IR", IR), ("Raman", Raman)):
                 reference_path = self.ref_spectrum_paths.get(spectrum_type)
                 if reference_path:
@@ -836,6 +841,75 @@ class GaussianDFTRun:
                 )
 
 
+    def _stable_ground(self, name, charge, mult, read_from, atoms, x, y, z, optoption, stable_from=None):
+        options = {'opt': True, 'freq': True, 'energy': True}
+
+        def calculate(job, source, elements, coordinates, optimizer):
+            self.chain_job(job, True, options, charge, mult, 0, source, element=elements,
+                           atomX=coordinates[0], atomY=coordinates[1], atomZ=coordinates[2],
+                           optoption=optimizer)
+            status = gaussian_run.Exe_Gaussian.exe_Gaussian(job, self.timexe, self.error)
+            if status != 'normal':
+                raise RuntimeError(f'Gaussian ended with {status!r}: {job}.log')
+            parsed = gaussian_run.parse_log.parse_log(job + '.log')
+            index, links = parsed.Check_task()
+            if 'freq_line' not in index or 'ts' not in index:
+                raise ValueError(f'Missing optimization or frequency step: {job}.log')
+            if not any('Stationary point found' in line for line in links[index['ts']]):
+                raise ValueError(f'Ground-state optimization did not converge: {job}.log')
+            props = self.Extract_values(job, options, [], [])
+            context = frequency_seed.frequency_context(parsed, links[index['freq_line']])
+            props['frequency_context'] = context
+            return StationaryPoint(job, context['atoms'], np.array(context['coordinates_angstrom']),
+                                   props['Energy'][0], props['freq'], props['freqmode'], props)
+
+        point = None
+        if stable_from or (self.reuse and len(atoms) and not self.geom_spec):
+            if not len(atoms) or self.geom_spec or self.basis == 'fchk':
+                raise ValueError('stable_from requires explicit, unconstrained input coordinates and basis')
+            previous_log = calculation_cache.previous_output(name + '.log')
+            sources = [calculation_cache.previous_output(stable_from)] if stable_from else [
+                calculation_cache.previous_output(Path(self.in_file).stem + '.pkl'), previous_log,
+            ]
+            solvent_route, solvent_read = self.MakeSolventLine()
+            parameters = (gaussian_run.Gen_IOPline_functional.functional_para(self.functional, self.para_functional)
+                          if self.para_functional else '')
+            for source in sources:
+                if not stable_from and not source.is_file():
+                    continue
+                try:
+                    point = frequency_seed.load(
+                        source, name, atoms=atoms, coordinates=np.column_stack((x, y, z)),
+                        charge=charge, mult=mult, method=f'u{self.functional}/{self.basis}',
+                        solvent_route=solvent_route, solvent_read=solvent_read,
+                        parameter_route=parameters, companion=previous_log,
+                        allow_completed_stable=not stable_from)
+                except (OSError, KeyError, IndexError, TypeError, ValueError, EOFError, pickle.UnpicklingError) as exc:
+                    if stable_from:
+                        raise ValueError(f'Cannot reuse {source}: {exc}') from exc
+                    continue
+                print(f'Reusing ground-state vibrations from {source}')
+                break
+        if point is None:
+            point = calculate(name, read_from, atoms, (x, y, z), optoption)
+
+        def evaluate(label, elements, coordinates):
+            # A new input uses the displaced Cartesian geometry directly.
+            return calculate(f'{name}_stable_{label}', 'xyz', elements, coordinates.T, '')
+
+        reused_source = point.properties.get('stable_source')
+        if not any(spec[1] == 'F' for spec in self.geom_spec.values()):
+            point = follow_imaginary_modes(point, evaluate)
+        if reused_source:
+            point.properties['stable_source'] = reused_source
+        if len(atoms) and not self.geom_spec:
+            point.properties['stable_input_geometry'] = np.column_stack((x, y, z)).tolist()
+        if point.name != name:
+            for suffix in ('.chk', '.log', '.com'):
+                shutil.copyfile(point.name + suffix, name + suffix)
+        return point
+
+
     def SpinMulti_scan(self, JobName,  ReadFrom, GivenSpinMulti, TotalCharge, atm, X, Y, Z, targetstate=0, TDstate_info=[]):
         print('Try to optimize the spin state of the ground state!')
         
@@ -1034,6 +1108,7 @@ class GaussianDFTRun:
 
     def _run_gaussian(self):
         infilename = self.in_file
+        stable_from = Path(self.stable_from).expanduser().resolve() if self.stable_from else None
         option_line = self.value    
         from qcforever.conformer_search.settings import calculation_tokens
         options = calculation_tokens(option_line)
@@ -1255,7 +1330,7 @@ class GaussianDFTRun:
             elif option.lower() == 'volume':
                 job_eachState[0]['volume'] = True
                 option_dict['volume'] = True
-            elif 'stable' in option.lower():
+            elif option.lower() == 'stable':
                 option_dict['stable'] = True
             else:
                 print('Invalid option: ', option)
@@ -1267,7 +1342,7 @@ class GaussianDFTRun:
             total_charge=TotalCharge,
             nproc=self.nproc,
             options=option_dict.keys(),
-            calculate_hessian=requires_hessian(
+            calculate_hessian='stable' in option_dict or requires_hessian(
                 optoption, *(spec['fc'] for spec in excited_specs.values())),
         )
 
@@ -1411,7 +1486,6 @@ class GaussianDFTRun:
             '''
 
             Jobchk = JobNameState  + '.chk' 
-            AttmptStable = True
 
             if ReadFrom == 'chk' and i == 0:
                 inchkfile = JobName + '.chk'
@@ -1465,238 +1539,105 @@ class GaussianDFTRun:
                 Z = np.delete(Mol_Z,Index_MaxProtic)
                 ReadFrom = 'xyz'
 
-            if 'stable' in option_dict:
-
-                if self.geom_spec != {}: 
-                    for k in self.geom_spec.keys():
-                        if self.geom_spec[k][1] == 'F':
-                            print('Specified frozen molecular freedoms are found.')
-                            print('We will not try to find a stable structure.')
-                            #setting the interation limit, relese from the cycle to find stable structure.
-                            Stable_Iteration = 9
-                        else:
-                            Stable_Iteration = 0
-                else:
-                    Stable_Iteration = 0
-
-                AttmptStable = False
-                option_dict_optcheck = {'opt': True, 'freq': True, 'energy': True}
-                scf_need=True
-                self.chain_job(JobNameState, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
-                             targetstate, ReadFrom, 
-                             element=atm, atomX=X, atomY=Y, atomZ=Z, optoption='', TDstate_info=TDstate_info)
-                job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe)
-            
-                while AttmptStable == False:
-
-                    try:
-                        output_prop = self.Extract_values(JobNameState, option_dict_optcheck, Bondpair1, Bondpair2)
-                    except Exception as e:
-                        job_state = "error"
-                        print(e)
-                        pass
-            
-                    #print(output_prop)
-                    Freq_CK = np.array(output_prop['freq'])
-                    Freq_min = Freq_CK.min()
-                    Freq_min_index = np.argmin(Freq_CK)
-                    
-                    #For the next job, change  RaedFrom to 'chk' 
-                    ReadFrom = 'chk'
-            
-                    if Freq_min > 0:
-                        print (f'Mnimum frequency is positive...{Freq_min} cm^-1')
-                        #remove the stable option
-                        output_dic[i][f'stable_{i}'] = True
-                        AttmptStable = True
-                        Stable_Iteration += 1
-            
-                        #Initializing molecular coordinate since the next job will use chk file
-                        atm, X, Y, Z = [], [], [], [] 
-            
-                        #Checking the remain task (option)
-                        all_options = set(job_thisstate.keys())
-                        remain_keys = all_options - set(option_dict_optcheck.keys())
-            
-                        if len(remain_keys) >= 1:
-                            output_dic[i].update(output_prop)
-                            print(remain_keys)
-                            if 'freq' in job_thisstate:
-                                del job_thisstate['freq']
-                            if 'opt' in job_thisstate:
-                                del job_thisstate['opt']
-                            #for the next computation
-                        else:
-                            output_dic[i].update(output_prop)
-
-                        print(f'Remaining job....{job_thisstate}')
-            
-                    else:
-                        print (f'Negative frequency is detected...{Freq_min} cm^-1')
-                
-                        Stable_Iteration += 1
-                        if  Stable_Iteration == 10: # quit after over 10 iterations
-                            output_dic[i][f'stable_{i}'] = False
-                            output_dic[i].update(output_prop)
-                            AttmptStable = True
-
-                            #Checking the remain task (option)
-                            all_options = set(job_thisstate.keys())
-                            remain_keys = all_options - set(option_dict_optcheck.keys())
-            
-                            if len(remain_keys) >= 1:
-                                output_dic[i].update(output_prop)
-                                print(remain_keys)
-                                if 'freq' in job_thisstate:
-                                    del job_thisstate['freq']
-                                if 'opt' in job_thisstate:
-                                    del job_thisstate['opt']
-                            #for the next computation
-                            else:
-                                output_dic[i].update(output_prop)
-                            print(f'Remaining job....{job_thisstate}')
-                            break
-
-                        #Get molecular coordinate
-                        check_logfile = JobNameState + '.log'
-                        with open(check_logfile,'r') as ifile:
-                            CKF_lines = ifile.readlines()
-                        Mol_atom, Mol_X, Mol_Y, Mol_Z = gaussian_run.Get_MolCoordinate.Extract_Coordinate(CKF_lines)
-            
-                        #try to erase the imaginary frequency mode...
-                        ImFreq_modeX = output_prop['freqmode'][0][Freq_min_index]
-                        ImFreq_modeY = output_prop['freqmode'][1][Freq_min_index]
-                        ImFreq_modeZ = output_prop['freqmode'][2][Freq_min_index]
-            
-                        fX = Mol_X + 0.05 * ImFreq_modeX
-                        fY = Mol_Y + 0.05 * ImFreq_modeY
-                        fZ = Mol_Z + 0.05 * ImFreq_modeZ
-            
-                        rX = Mol_X - 0.05 * ImFreq_modeX
-                        rY = Mol_Y - 0.05 * ImFreq_modeY
-                        rZ = Mol_Z - 0.05 * ImFreq_modeZ
-            
-                        JobName_ChStableF = JobNameState+'_ChStableF'+f'_State{targetstate}'
-                        JobName_ChStableR = JobNameState+'_ChStableR'+f'_State{targetstate}'
-                        check_logfileF = JobName_ChStableF+'.log'
-                        check_logfileR = JobName_ChStableR+'.log'
-                        JobName_ChStableF_chk = JobName_ChStableF + '.chk'
-                        JobName_ChStableR_chk = JobName_ChStableR + '.chk'
-            
-                        shutil.copy(Jobchk, JobName_ChStableF_chk)
-                        shutil.copy(Jobchk, JobName_ChStableR_chk)
-            
-                        #explore the direction of forward mode 
-                        self.chain_job(JobName_ChStableF, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
-                                            targetstate, ReadFrom, 
-                                            element=atm, atomX=fX, atomY=fY, atomZ=fZ, optoption='ReadFC', TDstate_info=TDstate_info)
-                        job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_ChStableF, self.timexe)
-            
-                        try:
-                            output_prop_f = self.Extract_values(JobName_ChStableF, option_dict_optcheck, Bondpair1, Bondpair2)
-                        except Exception as e:
-                            job_state = "error"
-                            print(e)
-                            output_prop_f['Energy'] = [0, 0]
-                            pass
-            
-                        #explore the direction of reverse mode 
-                        self.chain_job(JobName_ChStableR, scf_need, option_dict_optcheck, TotalCharge, SpinMulti, 
-                                            targetstate, ReadFrom, 
-                                            element=atm, atomX=rX, atomY=rY, atomZ=rZ, optoption='ReadFC', TDstate_info=TDstate_info)
-                        job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobName_ChStableR, self.timexe)
-            
-                        try:
-                            output_prop_r = self.Extract_values(JobName_ChStableR, option_dict_optcheck, Bondpair1, Bondpair2)
-                        except Exception as e:
-                            job_state = "error"
-                            print(e)
-                            output_prop_r['Energy'] = [0, 0]
-                            pass
-            
-                        if output_prop_f["Energy"][0] <=  output_prop_r["Energy"][0]:
-                            output_prop = output_prop_f.copy()
-                            shutil.copy(JobName_ChStableF_chk, Jobchk)
-                            shutil.copy(check_logfileF, check_logfile)
-                            output_prop_f = {}
-                        else:
-                            output_prop = output_prop_r.copy()
-                            shutil.copy(JobName_ChStableR_chk, Jobchk)
-                            shutil.copy(check_logfileR, check_logfile)
-                            output_prop_r = {}
-
-            if ('stable' not in option_dict) or AttmptStable:
-                check_logfile = JobName+'.log'
-                scf_need = self.check_scf_need(job_thisstate)
-
-                self.chain_job(JobNameState, scf_need, job_thisstate, TotalCharge, SpinMulti, 
-                                    targetstate, ReadFrom, 
-                                    element=atm, atomX=X, atomY=Y, atomZ=Z,
-                                    optoption=optoption if i == 0 else '', TDstate_info=TDstate_info)
-            
-                job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe, self.error)
-                if job_state != 'normal':
-                    logfile = str(Path(JobNameState + '.log').resolve())
-                    output_dic[i].update({
-                        f'log_{i}': job_state or 'abnormal',
-                        f'error_{i}': f'Gaussian calculation ended with {job_state or "abnormal"}; see {logfile}',
-                        'failed_job': JobNameState,
-                        'logfile': logfile,
-                    })
-                    # Preserve incomplete checkpoints for diagnosis. Neither
-                    # formchk nor property extraction can repair a failed job.
-                    break
-                # When the scf is performed, the obtained wavefunction is saved to chk file.
-                # But for 'symm' and 'volume' that information is emply except for when the input is chk or fchk files.
-                if scf_need or ReadFrom=='chk':
-                    gaussian_run.chk2fchk.Get_chklist(1)
-                elif scf_need != True and ReadFrom != 'chk':
-                    for f in glob.glob('./*.chk'):
-                        #os.remove(os.path.join('.', f))
-                        Path(f).unlink()
-
-                #output_prop = self.Extract_values(JobName, option_dict, Bondpair1, Bondpair2)
-                #output_dic[i].update(output_prop)
+            if i == 0 and 'stable' in option_dict:
                 try:
-                    output_prop = self.Extract_values(JobNameState, job_thisstate, Bondpair1, Bondpair2)
-                    output_dic[i].update(output_prop)
-                    output_dic[i][f'log_{i}'] = job_state
-                #except Exception as e:
-                #    print(e)
-                #    job_state = f"{e}"
-                #    output_dic[i][f'log_{i}'] = job_state
-                #    break
-                except Exception as e:
-                    print(e)
-                    output_dic[i][f"log_{i}"] = "error"
-                    output_dic[i][f"error_{i}"] = (
-                        f"{type(e).__name__}: {e}"
-                    )
+                    point = self._stable_ground(JobNameState, TotalCharge, SpinMulti, ReadFrom,
+                                                atm, X, Y, Z, optoption, stable_from)
+                except job_timeout.QCforeverTimeoutError:
+                    raise
+                except (OSError, ValueError, RuntimeError) as exc:
+                    output_dic[i].update(log_0='error', error_0=str(exc), failed_job=JobNameState,
+                                         logfile=str(Path(JobNameState + '.log').resolve()))
                     break
-            
-                # for pka computation
-                if 'pka' in job_thisstate:
-                    #print("pka: ", output_dic_pka)
-                    E_dH = output_dic[i]["Energy"][0]
-                    output_dic[i]["pka"] = (E_dH - E_pH)*Eh2kJmol
+                output_dic[i].update(point.properties, stable_0=point.minimum_frequency >= 0)
+                for key in ('opt', 'freq', 'energy'):
+                    job_thisstate.pop(key, None)
+                has_checkpoint = Path(Jobchk).is_file()
+                if not job_thisstate:
+                    scf_need = has_checkpoint
+                    if has_checkpoint:
+                        gaussian_run.chk2fchk.Get_chklist(1)
+                    output_dic[i]['log_0'] = 'normal'
+                    continue
+                if has_checkpoint:
+                    ReadFrom = 'chk'
+                    atm, X, Y, Z = [], [], [], []
+                else:
+                    ReadFrom = 'xyz'
+                    atm = point.atoms
+                    X, Y, Z = point.coordinates.T
 
-                if 'fluor' in job_thisstate :
-                    if job_state == 'normal':
-                        output_dic[i]["fluorescence"] = 'Likely'
-                    else:
-                        output_dic[i]["fluorescence"] = 'Unlikely'
-                        
+            check_logfile = JobName+'.log'
+            scf_need = self.check_scf_need(job_thisstate)
 
-                if 'tadf' in job_thisstate:
-                    if job_state == 'normal':
-                        output_dic[i]["phosphorescence"] = 'Likely'
-                        TADF_Eng = 0.0
-                        S_Eext = output_dic[i-1]["MinEtarget"]
-                        T_Eext = output_dic[i]["T_Min"]
-                        TADF_Eng = S_Eext - T_Eext
-                        output_dic[i]["Delta(S-T)"] = TADF_Eng
-                    else:
-                        output_dic[i]["phosphorescence"] = 'Unlikely'
+            self.chain_job(JobNameState, scf_need, job_thisstate, TotalCharge, SpinMulti,
+                                targetstate, ReadFrom,
+                                element=atm, atomX=X, atomY=Y, atomZ=Z,
+                                optoption=optoption if i == 0 else '', TDstate_info=TDstate_info)
+
+            job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe, self.error)
+            if job_state != 'normal':
+                logfile = str(Path(JobNameState + '.log').resolve())
+                output_dic[i].update({
+                    f'log_{i}': job_state or 'abnormal',
+                    f'error_{i}': f'Gaussian calculation ended with {job_state or "abnormal"}; see {logfile}',
+                    'failed_job': JobNameState,
+                    'logfile': logfile,
+                })
+                # Preserve incomplete checkpoints for diagnosis. Neither
+                # formchk nor property extraction can repair a failed job.
+                break
+            # When the scf is performed, the obtained wavefunction is saved to chk file.
+            # But for 'symm' and 'volume' that information is emply except for when the input is chk or fchk files.
+            if scf_need or ReadFrom=='chk':
+                gaussian_run.chk2fchk.Get_chklist(1)
+            elif scf_need != True and ReadFrom != 'chk':
+                for f in glob.glob('./*.chk'):
+                    #os.remove(os.path.join('.', f))
+                    Path(f).unlink()
+
+            #output_prop = self.Extract_values(JobName, option_dict, Bondpair1, Bondpair2)
+            #output_dic[i].update(output_prop)
+            try:
+                output_prop = self.Extract_values(JobNameState, job_thisstate, Bondpair1, Bondpair2)
+                output_dic[i].update(output_prop)
+                output_dic[i][f'log_{i}'] = job_state
+            #except Exception as e:
+            #    print(e)
+            #    job_state = f"{e}"
+            #    output_dic[i][f'log_{i}'] = job_state
+            #    break
+            except Exception as e:
+                print(e)
+                output_dic[i][f"log_{i}"] = "error"
+                output_dic[i][f"error_{i}"] = (
+                    f"{type(e).__name__}: {e}"
+                )
+                break
+
+            # for pka computation
+            if 'pka' in job_thisstate:
+                #print("pka: ", output_dic_pka)
+                E_dH = output_dic[i]["Energy"][0]
+                output_dic[i]["pka"] = (E_dH - E_pH)*Eh2kJmol
+
+            if 'fluor' in job_thisstate :
+                if job_state == 'normal':
+                    output_dic[i]["fluorescence"] = 'Likely'
+                else:
+                    output_dic[i]["fluorescence"] = 'Unlikely'
+
+
+            if 'tadf' in job_thisstate:
+                if job_state == 'normal':
+                    output_dic[i]["phosphorescence"] = 'Likely'
+                    TADF_Eng = 0.0
+                    S_Eext = output_dic[i-1]["MinEtarget"]
+                    T_Eext = output_dic[i]["T_Min"]
+                    TADF_Eng = S_Eext - T_Eext
+                    output_dic[i]["Delta(S-T)"] = TADF_Eng
+                else:
+                    output_dic[i]["phosphorescence"] = 'Unlikely'
 
         output_sum = {}
         for i, j in enumerate(output_dic):

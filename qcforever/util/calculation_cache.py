@@ -314,6 +314,17 @@ def prepare_directory(directory, source=None):
         session.prepare(directory, source)
 
 
+def previous_output(path):
+    """Find an output moved into this invocation's history, if it exists."""
+    path = Path(path).absolute()
+    if path.is_file():
+        return path
+    session = _active.get()
+    if session is not None and session.legacy is not None and path.is_relative_to(session.directory):
+        return session.legacy / path.relative_to(session.directory)
+    return path
+
+
 def workflow(backend):
     def decorate(method):
         @wraps(method)

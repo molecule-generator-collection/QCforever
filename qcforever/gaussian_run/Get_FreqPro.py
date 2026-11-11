@@ -48,50 +48,26 @@ def Extract_Freq(lines):
 
 
 def Extract_vibvec(lines):
-    result_lines = []
-    vibX = []
-    vibY = []
-    vibZ = []
+    modes = []
+    for i, line in enumerate(lines):
+        fields = line.split()
+        if fields[:2] != ["Atom", "AN"] or not fields[2:]:
+            continue
+        width, remainder = divmod(len(fields) - 2, 3)
+        if remainder or fields[2:] != ["X", "Y", "Z"] * width:
+            continue
+        block = []
+        for row in lines[i + 1:]:
+            values = row.split()
+            if len(values) != 2 + 3 * width or not all(v.isdigit() for v in values[:2]):
+                break
+            block.append([float(v) for v in values[2:]])
+        if block:
+            modes.extend(np.asarray(block).reshape(-1, width, 3).transpose(1, 0, 2))
+    if not modes:
+        raise ValueError("Missing Gaussian Cartesian normal modes")
+    return tuple(np.asarray(modes).transpose(2, 0, 1))
 
-    count = 0
-
-    for line in lines:
-        pattern_match = re.match(r'\s*\bAtom\s+AN\s+X\s+Y\s+Z\s+X\s+Y\s+Z\s+X\s+Y\s+Z\b', line)
-        if pattern_match:
-            count += 1
-        match = re.match(r'\s*(\d+)\s+(\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+', line)
-        if match:
-            vibvec_info = line.strip().split()
-            #print(vibvec_info[2:])
-            for i in range(2, len(vibvec_info), 3): 
-                vibX.append(float(vibvec_info[i]))
-                vibY.append(float(vibvec_info[i+1]))
-                vibZ.append(float(vibvec_info[i+2]))
-
-            result_lines.append(line)
-
-    vibX = np.array(vibX)
-    vibY = np.array(vibY)
-    vibZ = np.array(vibZ)
-
-    vibX_tmp = vibX.reshape(count, -1)
-    vibY_tmp = vibY.reshape(count, -1)
-    vibZ_tmp = vibZ.reshape(count, -1)
-
-    vibX_reshape = vibX_tmp[0].reshape(-1, 3).T
-    vibY_reshape = vibY_tmp[0].reshape(-1, 3).T
-    vibZ_reshape = vibZ_tmp[0].reshape(-1, 3).T
-
-    for i in range(1, count):
-        vibX_reshape = np.vstack([vibX_reshape, vibX_tmp[i].reshape(-1, 3).T])
-        vibY_reshape = np.vstack([vibY_reshape, vibY_tmp[i].reshape(-1, 3).T])
-        vibZ_reshape = np.vstack([vibZ_reshape, vibZ_tmp[i].reshape(-1, 3).T])
-
-#    print(vibX_reshape)
-#    print(vibY_reshape)
-#    print(vibZ_reshape)
-
-    return vibX_reshape, vibY_reshape, vibZ_reshape
 
 def Extract_polar(lines):
 
