@@ -14,7 +14,7 @@ from qcforever.util import calculation_cache
 from qcforever.util import fchk_orbitals
 from qcforever.util.calculation_options import cden_fukui, excited_options, ground_optimization, requires_hessian
 from qcforever.util.fukui import condensed_fukui
-from qcforever.util.imaginary_modes import StationaryPoint, follow_imaginary_modes
+from qcforever.util.imaginary_modes import NO_STABLE_MINIMUM, StationaryPoint, follow_imaginary_modes
 from qcforever.util.quadrupole import quadrupole_from_buckingham, quadrupole_properties
 from qcforever.util import (
     read_mol_file,
@@ -276,7 +276,8 @@ class GamessDFTRun:
         self, run_type, 
         TotalCharge, SpinMulti, 
         GamInputName, Mol_atom=[], X=[], Y=[], Z=[], 
-        TDDFT=False, target=[1, 1], datfile=None, solvent='0', moments=None, fc='', numerical_hessian=False):
+        TDDFT=False, target=[1, 1], datfile=None, solvent='0', moments=None, fc='',
+        numerical_hessian=False, mode_scan=False):
         if fc and run_type != 'OPTIMIZE':
             raise ValueError('FC requires an optimization')
         if TDDFT and fc and (SpinMulti != 1 or target[1] != 1):
@@ -368,6 +369,8 @@ class GamessDFTRun:
             if is_dipole:
                 line_input += ' $ELMOM IEMOM=2 WHERE=COMASS $END\n'
             line_input += ' $SCF damp=.TRUE.'
+            if mode_scan:
+                line_input += ' CONV=1.0D-08'
             if run_type == 'HESSIAN' or run_type == 'RAMAN':
                 line_input += ' DIRSCF=.TRUE. $END\n'
             else:
@@ -648,6 +651,20 @@ class GamessDFTRun:
             frequencies, modes = vibration.normal_modes(blocks[-1], len(elements))
             return StationaryPoint(name, elements, xyz, optimized.getEnergy()[0], frequencies, modes, {})
 
+        def single_point(label, elements, coordinates):
+            name = f'{jobname}_stable_{label}'
+            self.make_input('ENERGY', charge, mult, name + '.inp', elements, *coordinates.T,
+                            solvent=self.solvent, moments=False, mode_scan=True)
+            gamess_run.Exe_Gamess.exe_Gamess(name, self.gamessversion, self.nproc)
+            parsed = gamess_run.parse_log.parse_log(name + '.log')
+            if (parsed.Check_SCF() is not True
+                    or not any('EXECUTION OF GAMESS TERMINATED NORMALLY' in line for line in parsed.lines)):
+                raise ValueError(f'GAMESS single point failed: {name}.log')
+            try:
+                return parsed.getEnergy()[0]
+            except IndexError as exc:
+                raise ValueError(f'Missing single-point energy: {name}.log') from exc
+
         def evaluate(label, elements, coordinates):
             name = f'{jobname}_stable_{label}'
             self.make_input('OPTIMIZE', charge, mult, name + '.inp', elements, *coordinates.T,
@@ -655,7 +672,7 @@ class GamessDFTRun:
             gamess_run.Exe_Gamess.exe_Gamess(name, self.gamessversion, self.nproc)
             return stationary(name, elements)
 
-        point = follow_imaginary_modes(stationary(jobname, atoms), evaluate)
+        point = follow_imaginary_modes(stationary(jobname, atoms), single_point, evaluate)
         if point.name != jobname:
             for suffix in ('.inp', '.log', '.dat'):
                 shutil.copyfile(point.name + suffix, jobname + suffix)
@@ -847,6 +864,13 @@ class GamessDFTRun:
                 raise
             except (OSError, ValueError, RuntimeError) as exc:
                 return {'log': 'error', 'error': str(exc)}
+            if point.minimum_frequency < 0:
+                output = dict(log='error', error=NO_STABLE_MINIMUM, stable_0=False,
+                              freq=point.frequencies, freqmode=point.modes)
+                if self.pklsave:
+                    with open(jobname + '.pkl', 'wb') as stream:
+                        pickle.dump(output, stream)
+                return output
             option_dict['energy'] = True
 
         if 'dipole' in option_dict:

@@ -7,6 +7,14 @@ import numpy as np
 from .job_timeout import QCforeverTimeoutError
 
 
+_INITIAL_RMS_DISPLACEMENT = 0.003  # Å across all atoms
+_INITIAL_MAX_DISPLACEMENT = 0.015  # Å for any one atom
+_MAX_DISPLACEMENT = 0.05
+_REPEATED_GEOMETRY_TOLERANCE = 0.001
+_MIN_ENERGY_DROP = 1e-8  # Hartree
+NO_STABLE_MINIMUM = 'Imaginary-mode search did not find a ground-state minimum'
+
+
 @dataclass
 class StationaryPoint:
     name: str
@@ -38,16 +46,14 @@ def same_geometry(first, second, tolerance=3e-5):
     return np.linalg.norm(a @ left @ right - b, axis=1).max() <= tolerance
 
 
-def displace_imaginary_mode(coordinates, frequencies, modes, distance=0.05):
-    """Return (+, −) geometries with a maximum per-atom displacement in Å."""
+def _imaginary_mode(coordinates, frequencies, modes):
     xyz = np.asarray(coordinates, dtype=float)
     frequencies = np.asarray(frequencies, dtype=float)
     if (xyz.ndim != 2 or xyz.shape[1] != 3 or not np.isfinite(xyz).all()
-            or frequencies.ndim != 1 or not np.isfinite(frequencies).all()
-            or not np.isfinite(distance) or distance <= 0):
-        raise ValueError('Invalid Cartesian coordinates, frequencies or displacement distance')
+            or frequencies.ndim != 1 or not np.isfinite(frequencies).all()):
+        raise ValueError('Invalid Cartesian coordinates or frequencies')
     if frequencies.min(initial=np.inf) >= 0:
-        return None
+        return xyz, None
     axes = np.asarray(modes, dtype=float)
     if axes.shape != (3, len(frequencies), len(xyz)):
         raise ValueError('Normal modes must have shape (3, number of modes, number of atoms)')
@@ -55,22 +61,79 @@ def displace_imaginary_mode(coordinates, frequencies, modes, distance=0.05):
     maximum = np.linalg.norm(mode, axis=1).max()
     if not np.isfinite(maximum) or maximum == 0:
         raise ValueError('Invalid Cartesian displacement for the imaginary mode')
-    step = distance * mode / maximum
+    return xyz, mode / maximum
+
+
+def displace_imaginary_mode(coordinates, frequencies, modes, distance=_MAX_DISPLACEMENT):
+    """Return (+, −) geometries with a maximum per-atom displacement in Å."""
+    if not np.isfinite(distance) or distance <= 0:
+        raise ValueError('Invalid displacement distance')
+    xyz, mode = _imaginary_mode(coordinates, frequencies, modes)
+    if mode is None:
+        return None
+    step = distance * mode
     return xyz + step, xyz - step
 
 
-def follow_imaginary_modes(point, evaluate, max_steps=9):
-    """Evaluate both signs at each step and return the best converged point."""
-    for iteration in range(1, max_steps + 1):
-        pair = displace_imaginary_mode(point.coordinates, point.frequencies, point.modes)
-        if pair is None:
-            break
-        print(f'{point.name}: imaginary frequency {point.minimum_frequency:.2f} cm^-1')
-        candidates = []
-        for sign, coordinates in zip(('plus', 'minus'), pair):
-            label = f'{iteration}_{sign}'
+def _scan_mode(single_point, point, xyz, mode, widths, iteration, reference, best):
+    for index, width in enumerate(widths, 1):
+        for sign, direction in (('plus', 1), ('minus', -1)):
+            label = f'{iteration}_sp_{index}_{sign}'
             try:
-                candidate = evaluate(label, point.atoms, coordinates)
+                energy = single_point(label, point.atoms, xyz + direction * width * mode)
+                if not np.isfinite(energy):
+                    raise ValueError('Invalid single-point energy')
+            except QCforeverTimeoutError:
+                raise
+            except (OSError, ValueError, RuntimeError) as exc:
+                print(f'Imaginary-mode single point {label} failed: {exc}', flush=True)
+                continue
+            delta = energy - reference
+            print(f'{point.name}: {label}, max displacement {width:.5f} Å per atom, '
+                  f'ΔE={delta:+.3e} Eh', flush=True)
+            if delta < -_MIN_ENERGY_DROP and (sign not in best or (energy, width) < best[sign]):
+                best[sign] = energy, width
+
+
+def follow_imaginary_modes(point, single_point, evaluate, max_steps=9):
+    """Scan both signs at fixed geometries, then optimize the best seed in each sign."""
+    visited = []
+    distance = None
+    for iteration in range(1, max_steps + 1):
+        if distance is None:
+            xyz, mode = _imaginary_mode(point.coordinates, point.frequencies, point.modes)
+            if mode is None:
+                break
+            visited.append(xyz)
+            rms = np.sqrt(np.mean(np.sum(mode**2, axis=1)))
+            initial = min(_INITIAL_MAX_DISPLACEMENT, _INITIAL_RMS_DISPLACEMENT / rms)
+            widths = (initial / 2, initial, 2 * initial)
+            print(f'{point.name}: imaginary frequency {point.minimum_frequency:.2f} cm^-1', flush=True)
+            reference = single_point(f'{iteration}_sp_reference', point.atoms, xyz)
+            if not np.isfinite(reference):
+                raise ValueError(f'Invalid reference single-point energy for {point.name}')
+            best = {}
+            optimized = set()
+        else:
+            widths = (min(2 * distance, _MAX_DISPLACEMENT),)
+        distance = widths[-1]
+        _scan_mode(single_point, point, xyz, mode, widths, iteration, reference, best)
+        if len(best) < 2:
+            if distance >= _MAX_DISPLACEMENT:
+                print(f'{point.name}: energy decrease was not confirmed in both directions', flush=True)
+                break
+            continue
+
+        candidates = []
+        for sign, direction in (('plus', 1), ('minus', -1)):
+            _, width = best[sign]
+            if (sign, width) in optimized:
+                continue
+            optimized.add((sign, width))
+            label = f'{iteration}_{sign}'
+            print(f'{point.name}: optimizing {label} from {width:.5f} Å per atom', flush=True)
+            try:
+                candidate = evaluate(label, point.atoms, xyz + direction * width * mode)
                 if candidate.atoms != point.atoms or not np.isfinite(candidate.energy):
                     raise ValueError('Invalid atom order or energy after optimization')
                 candidate.minimum_frequency  # Validate before comparing the candidates.
@@ -79,7 +142,15 @@ def follow_imaginary_modes(point, evaluate, max_steps=9):
                 raise
             except (OSError, ValueError, RuntimeError) as exc:
                 print(f'Imaginary-mode trial {label} failed: {exc}')
-        if not candidates:
+        minima = [candidate for candidate in candidates if candidate.minimum_frequency >= 0]
+        if minima:
+            return min(minima, key=lambda candidate: candidate.energy)
+        new_points = [candidate for candidate in candidates
+                      if not any(same_geometry(candidate.coordinates, previous, _REPEATED_GEOMETRY_TOLERANCE)
+                                 for previous in visited)]
+        if new_points:
+            point = min(new_points, key=lambda candidate: candidate.energy)
+            distance = None
+        elif distance >= _MAX_DISPLACEMENT:
             break
-        point = min(candidates, key=lambda candidate: (candidate.minimum_frequency < 0, candidate.energy))
     return point

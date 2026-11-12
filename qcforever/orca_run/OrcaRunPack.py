@@ -26,7 +26,7 @@ from qcforever.util.calculation_options import (
     cden_fukui, ground_optimization, parse_excited_optimization, requires_hessian,
 )
 from qcforever.util.fukui import condensed_fukui
-from qcforever.util.imaginary_modes import StationaryPoint, follow_imaginary_modes
+from qcforever.util.imaginary_modes import NO_STABLE_MINIMUM, StationaryPoint, follow_imaginary_modes
 
 
 _KTLC_FUNCTIONALS = {'KTLC-BLYP-BO': 'LC-BLYP', 'KTLC-PBE-BO': 'LC-PBE'}
@@ -203,7 +203,7 @@ class OrcaDFTRun:
 
     def make_input(self, jobname, atoms, xyz, charge, multiplicity, *, optimize=None,
                    td=False, root=None, freq=False, polar=False, nmr=False,
-                   dipole=False, orbitals=False, moread=None, fc='', range_mu=None):
+                   dipole=False, orbitals=False, moread=None, fc='', range_mu=None, mode_scan=False):
         if fc and not optimize:
             raise ValueError('FC requires an optimization')
         functional = _token(self.functional, 'functional')
@@ -222,7 +222,7 @@ class OrcaDFTRun:
             functional = f'LibXC({functional})'
         imported = getattr(self, '_fchk_orbitals', None)
         basis = [] if imported else [_token(self.basis, 'basis')]
-        keywords = [functional, *basis, 'TightSCF', 'NoAutoStart']
+        keywords = [functional, *basis, 'VeryTightSCF' if mode_scan else 'TightSCF', 'NoAutoStart']
         if imported:
             keywords.append('NoECP')
             if imported.beta is not None:
@@ -505,6 +505,10 @@ class OrcaDFTRun:
                     return StationaryPoint(name, elements, coords, optimized.energy()[0], vibr['freq'],
                                            vibr['freqmode'], {'ground': optimized, 'vibration': vibr})
 
+                def single_point(label, elements, coordinates):
+                    name = f'{jobname}_stable_{label}'
+                    return self._calculate(name, elements, coordinates, charge, mult, mode_scan=True).energy()[0]
+
                 def evaluate(label, elements, coordinates):
                     name = f'{jobname}_stable_{label}'
                     optimized = self._calculate(name, elements, coordinates, charge, mult, optimize=options['opt'])
@@ -513,7 +517,12 @@ class OrcaDFTRun:
                         raise ValueError('Optimized geometry changed atom order/composition')
                     return stationary(name, final_elements, final_coords, optimized)
 
-                point = follow_imaginary_modes(stationary(jobname, atoms, xyz, ground), evaluate)
+                point = follow_imaginary_modes(stationary(jobname, atoms, xyz, ground), single_point, evaluate)
+                output['stable_0'] = point.minimum_frequency >= 0
+                if not output['stable_0']:
+                    output.update(point.properties['vibration'])
+                    self._active_job = point.name + '_freq'
+                    raise ValueError(NO_STABLE_MINIMUM)
                 xyz, ground = point.coordinates, point.properties['ground']
                 if point.name != jobname:
                     for suffix in ('.inp', '.log', '.gbw'):
@@ -522,7 +531,6 @@ class OrcaDFTRun:
                             shutil.copyfile(path, jobname + suffix)
                 self._active_job = point.name + '_freq'
                 stable_vibration = point.properties['vibration']
-                output['stable_0'] = point.minimum_frequency >= 0
             self._write_xyz(jobname, atoms, xyz, charge, mult)
             output['energy'] = ground.energy()
             output['Energy'] = output['energy'].copy()

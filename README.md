@@ -649,12 +649,23 @@ to be reused when the remaining reuse checks pass.
 
 `stable` runs a ground-state optimization and vibrational analysis. If it finds
 an imaginary frequency, it displaces the optimized geometry along the most
-negative Cartesian normal mode in both directions. Each trial starts with a
-maximum displacement of 0.05 Å per atom. The workflow checks frequencies after
-both optimizations and prefers an imaginary-free geometry, then the lower
-electronic energy. It tries up to nine pairs. The result reports `stable_0`,
-which is true when the selected geometry has no imaginary frequency.
-Subsequent properties use the selected geometry.
+negative Cartesian normal mode in both directions. It starts with single-point
+calculations at half, one and twice a displacement scaled to 0.003 Å RMS
+across atoms and capped at 0.015 Å for any atom. The undisplaced geometry is
+evaluated with the same single-point settings. Once both signs have an energy
+drop greater than 10⁻⁸ Hartree, only the lowest-energy sampled geometry in each
+direction is optimized and checked for imaginary frequencies. The workflow picks
+the lower electronic energy when both optimizations reach minima.
+
+If an optimization reaches a new geometry with an imaginary mode, the search
+starts again along that mode. If either direction lacks a confirmed energy
+drop, or the optimizations fail to reach a new geometry, the search doubles
+the scan width up to 0.05 Å per atom. It compares geometries after alignment
+with a tolerance of 0.001 Å per atom and limits the search to nine scan rounds.
+The log reports each displacement and relative single-point energy. If the
+search ends without a verified minimum, `stable_0` is false and the job stops
+before the requested property calculations. Otherwise, subsequent properties
+use the selected geometry.
 
 Gaussian can start from existing frequencies when the input already describes
 the geometry used for the frequency analysis. Set `job.stable_from` to the

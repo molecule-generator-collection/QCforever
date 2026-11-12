@@ -8,27 +8,105 @@ from qcforever.util.job_timeout import QCforeverTimeoutError
 
 
 def test_follow_modes_checks_both_signs_and_selects_a_minimum():
-    coordinates = np.zeros((2, 3))
-    mode = [[[1, 2]], [[0, 2]], [[0, 1]]]
+    coordinates = np.array([[0., 0., 0.], [1., 0., 0.]])
+    mode = [[[-1, 1]], [[0, 0]], [[0, 0]]]
     start = StationaryPoint('ground', ['H', 'H'], coordinates, -1, [-10], mode, {})
     attempts = {}
+    energies = {
+        '1_sp_reference': -1.,
+        '1_sp_1_plus': -0.9, '1_sp_1_minus': -0.95,
+        '1_sp_2_plus': -1.2, '1_sp_2_minus': -1.01,
+        '1_sp_3_plus': -1.1, '1_sp_3_minus': -1.02,
+    }
+
+    def single_point(label, atoms, xyz):
+        attempts[label] = xyz
+        return energies[label]
 
     def evaluate(label, atoms, xyz):
         attempts[label] = xyz
         if label.endswith('_plus'):
-            return StationaryPoint(label, atoms, xyz, -3, [-5], mode, {})
-        return StationaryPoint(label, atoms, xyz, -2, [5], mode, {})
+            return StationaryPoint(label, atoms, xyz, -2, [5], [], {})
+        return StationaryPoint(label, atoms, xyz, -3, [5], [], {})
 
-    point = follow_imaginary_modes(start, evaluate)
-    plus, minus = attempts['1_plus'], attempts['1_minus']
-    np.testing.assert_allclose((plus + minus) / 2, coordinates)
-    assert np.linalg.norm(plus - coordinates, axis=1).max() == pytest.approx(0.05)
+    point = follow_imaginary_modes(start, single_point, evaluate)
+    assert list(attempts) == [*energies, '1_plus', '1_minus']
+    np.testing.assert_array_equal(attempts['1_sp_reference'], coordinates)
+    np.testing.assert_array_equal(attempts['1_plus'], attempts['1_sp_2_plus'])
+    np.testing.assert_array_equal(attempts['1_minus'], attempts['1_sp_3_minus'])
+    assert np.linalg.norm(attempts['1_plus'] - coordinates, axis=1).max() == pytest.approx(0.003)
+    assert np.linalg.norm(attempts['1_minus'] - coordinates, axis=1).max() == pytest.approx(0.006)
     assert point.name == '1_minus' and point.minimum_frequency == 5
+
+
+def test_follow_modes_widens_when_optimization_returns_to_a_previous_geometry():
+    xyz = np.array([[0., 0., 0.], [1., 0., 0.]])
+    mode = [[[-1, 1]], [[0, 0]], [[0, 0]]]
+    start = StationaryPoint('ground', ['H', 'H'], xyz, -1, [-10], mode, {})
+    next_xyz = xyz.copy()
+    next_xyz[1, 0] += 0.1
+    attempts = {}
+
+    def single_point(label, atoms, coords):
+        center = next_xyz if label.startswith('3_') else xyz
+        return -1. - np.linalg.norm(coords - center)
+
+    def evaluate(label, atoms, coords):
+        attempts[label] = coords
+        if label.startswith('1_'):
+            return StationaryPoint(label, atoms, xyz + 1., -1, [-10], mode, {})
+        if label.startswith('2_'):
+            return StationaryPoint(label, atoms, next_xyz, -2, [-5], mode, {})
+        return StationaryPoint(label, atoms, coords, -3, [5], [], {})
+
+    assert follow_imaginary_modes(start, single_point, evaluate).minimum_frequency == 5
+    for i, center, expected in ((1, xyz, 0.006), (2, xyz, 0.012), (3, next_xyz, 0.006)):
+        plus, minus = attempts[f'{i}_plus'], attempts[f'{i}_minus']
+        np.testing.assert_allclose((plus + minus) / 2, center, atol=1e-12)
+        assert np.linalg.norm(plus - center, axis=1).max() == pytest.approx(expected)
+
+
+def test_follow_modes_caps_displacement_for_a_localized_mode():
+    xyz = np.column_stack((np.arange(36), np.zeros((36, 2))))
+    mode = np.zeros((3, 1, len(xyz)))
+    mode[0, 0, 0] = 1.
+    start = StationaryPoint('ground', ['H'] * len(xyz), xyz, -1, [-10], mode, {})
+    attempts = []
+    samples = []
+
+    def single_point(label, atoms, coords):
+        distance = np.linalg.norm(coords - xyz, axis=1).max()
+        samples.append(distance)
+        return -1. - distance
+
+    def evaluate(label, atoms, coords):
+        attempts.append(np.linalg.norm(coords - xyz, axis=1).max())
+        return start
+
+    assert follow_imaginary_modes(start, single_point, evaluate) is start
+    assert samples == pytest.approx([0., 0.0075, 0.0075, 0.015, 0.015, 0.03, 0.03, 0.05, 0.05])
+    assert attempts == pytest.approx([0.03, 0.03, 0.05, 0.05])
+
+
+def test_follow_modes_needs_a_resolved_energy_drop_in_both_directions():
+    start = StationaryPoint('ground', ['H'], np.zeros((1, 3)), -1, [-5], [[[1]], [[0]], [[0]]], {})
+
+    def single_point(label, atoms, coords):
+        x = coords[0, 0]
+        return -1. - x if x > 0 else -1. - 1e-9 * abs(x)
+
+    def evaluate(*args):
+        pytest.fail('Optimization started before confirming a downhill seed in both directions')
+
+    assert follow_imaginary_modes(start, single_point, evaluate) is start
 
 
 def test_follow_modes_can_recover_from_one_failed_branch():
     start = StationaryPoint('ground', ['H'], np.zeros((1, 3)), -1, [-5], [[[1]], [[0]], [[0]]], {})
     calls = []
+
+    def single_point(label, atoms, xyz):
+        return -1. - abs(xyz[0, 0])
 
     def evaluate(label, atoms, xyz):
         calls.append(label)
@@ -36,14 +114,15 @@ def test_follow_modes_can_recover_from_one_failed_branch():
             raise RuntimeError('SCF failed')
         return StationaryPoint(label, atoms, xyz, -2, [10], [], {})
 
-    assert follow_imaginary_modes(start, evaluate).name == '1_minus'
+    assert follow_imaginary_modes(start, single_point, evaluate).name == '1_minus'
     assert calls == ['1_plus', '1_minus']
 
     def timeout(*args):
         raise QCforeverTimeoutError('deadline')
 
-    with pytest.raises(QCforeverTimeoutError):
-        follow_imaginary_modes(start, timeout)
+    for scan, optimize in ((single_point, timeout), (timeout, evaluate)):
+        with pytest.raises(QCforeverTimeoutError):
+            follow_imaginary_modes(start, scan, optimize)
 
 
 def test_gaussian_single_mode_block():

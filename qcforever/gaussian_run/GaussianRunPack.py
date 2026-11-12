@@ -14,7 +14,7 @@ from qcforever import gaussian_run
 from qcforever.util import calculation_cache
 from qcforever.util.calculation_options import cden_fukui, excited_options, requires_hessian
 from qcforever.util.fukui import condensed_fukui
-from qcforever.util.imaginary_modes import StationaryPoint, follow_imaginary_modes
+from qcforever.util.imaginary_modes import NO_STABLE_MINIMUM, StationaryPoint, follow_imaginary_modes
 from qcforever.util import (
     read_mol_file,
     check_resource,
@@ -434,7 +434,7 @@ class GaussianDFTRun:
         scf='open', run_type=None, optoption='', Newinput=False, 
         Mol_atom=[], X=[], Y=[], Z=[], geom_spec=False,
         TDDFT=False, TDstate=None, target=1, nac=False,
-        readchk=None, oldchk=None, newchk=None, solvent=None):
+        readchk=None, oldchk=None, newchk=None, solvent=None, mode_scan=False):
 
         #Section for system control 
         line_system = ''
@@ -447,7 +447,9 @@ class GaussianDFTRun:
                 line_system += line_proc
 
         #Section for checkpoint files
-        if oldchk == None and newchk == None:
+        if mode_scan:
+            line_chk = ''
+        elif oldchk == None and newchk == None:
             line_chk = f'%chk={JobName}\n'
         elif oldchk == None and newchk != None:
             line_chk = f'%chk={newchk}\n'
@@ -530,6 +532,8 @@ class GaussianDFTRun:
             input_s += line_system
             input_s += line_chk
             input_s += line_method
+            if mode_scan:
+                input_s += 'NoSymm SCF=VeryTight\n'
 
             #For non SCF run_type
             if run_type == 'symm' or run_type == 'volume':
@@ -844,13 +848,18 @@ class GaussianDFTRun:
     def _stable_ground(self, name, charge, mult, read_from, atoms, x, y, z, optoption, stable_from=None):
         options = {'opt': True, 'freq': True, 'energy': True}
 
+        def execute(job, error=0):
+            status = gaussian_run.Exe_Gaussian.exe_Gaussian(job, self.timexe, error)
+            if status == 'timeout':
+                raise job_timeout.QCforeverTimeoutError(f'Gaussian timed out: {job}.log')
+            if status != 'normal':
+                raise RuntimeError(f'Gaussian ended with {status!r}: {job}.log')
+
         def calculate(job, source, elements, coordinates, optimizer):
             self.chain_job(job, True, options, charge, mult, 0, source, element=elements,
                            atomX=coordinates[0], atomY=coordinates[1], atomZ=coordinates[2],
                            optoption=optimizer)
-            status = gaussian_run.Exe_Gaussian.exe_Gaussian(job, self.timexe, self.error)
-            if status != 'normal':
-                raise RuntimeError(f'Gaussian ended with {status!r}: {job}.log')
+            execute(job, self.error)
             parsed = gaussian_run.parse_log.parse_log(job + '.log')
             index, links = parsed.Check_task()
             if 'freq_line' not in index or 'ts' not in index:
@@ -893,13 +902,25 @@ class GaussianDFTRun:
         if point is None:
             point = calculate(name, read_from, atoms, (x, y, z), optoption)
 
+        def single_point(label, elements, coordinates):
+            job = f'{name}_stable_{label}'
+            self.make_input(job, charge, mult, Newinput=True, Mol_atom=elements,
+                            X=coordinates[:, 0], Y=coordinates[:, 1], Z=coordinates[:, 2],
+                            solvent=self.solvent, mode_scan=True)
+            execute(job)
+            parsed = gaussian_run.parse_log.parse_log(job + '.log')
+            try:
+                return parsed.Extract_SCFEnergy(parsed.lines)[0]
+            except IndexError as exc:
+                raise ValueError(f'Missing single-point energy: {job}.log') from exc
+
         def evaluate(label, elements, coordinates):
             # A new input uses the displaced Cartesian geometry directly.
             return calculate(f'{name}_stable_{label}', 'xyz', elements, coordinates.T, '')
 
         reused_source = point.properties.get('stable_source')
         if not any(spec[1] == 'F' for spec in self.geom_spec.values()):
-            point = follow_imaginary_modes(point, evaluate)
+            point = follow_imaginary_modes(point, single_point, evaluate)
         if reused_source:
             point.properties['stable_source'] = reused_source
         if len(atoms) and not self.geom_spec:
@@ -1550,6 +1571,9 @@ class GaussianDFTRun:
                                          logfile=str(Path(JobNameState + '.log').resolve()))
                     break
                 output_dic[i].update(point.properties, stable_0=point.minimum_frequency >= 0)
+                if not output_dic[i]['stable_0']:
+                    output_dic[i].update(log_0='error', error_0=NO_STABLE_MINIMUM)
+                    break
                 for key in ('opt', 'freq', 'energy'):
                     job_thisstate.pop(key, None)
                 has_checkpoint = Path(Jobchk).is_file()
