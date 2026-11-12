@@ -302,19 +302,21 @@ class OrcaDFTRun:
             source = calculation_cache.previous_hessian('orca', jobname, '\n'.join(lines), self.executable)
             shutil.copyfile(source, f'{jobname}.readfc.hess')
 
-    def _calculate(self, name, atoms, xyz, charge, mult, *, moread=None, require_moread=False, **kwargs):
+    def _calculate(self, name, atoms, xyz, charge, mult, *, moread=None, require_moread=False,
+                   require_gbw=False, **kwargs):
         self._active_job = name
         source = Path(moread).name if moread else None
         if require_moread and (source is None or source == f'{name}.gbw' or not Path(source).is_file()):
-            raise ValueError('Missing imported FCHK orbitals')
+            raise ValueError(f'Missing ORCA orbital guess for {name}: {source}')
         if source == f'{name}.gbw' or (source and not Path(source).is_file()):
             source = None
+        required = {'required_outputs': (f'{name}.gbw',)} if require_gbw else {}
         for guess in (source, None):
             self.make_input(name, atoms, xyz, charge, mult, moread=guess, **kwargs)
             try:
                 calculation_cache.execute('orca', name, Path(f'{name}.inp').read_text(),
                                           lambda: Exe_Orca.exe_Orca(name, self.timexe, self.executable),
-                                          self.executable)
+                                          self.executable, **required)
             except Exe_Orca.OrcaExecutionError as exc:
                 if require_moread or guess is None or not re.search(
                         r'error termination in GUESS\b|no orbitals were found in the gbw file|orca_guess/guess_restart\.cpp',
@@ -325,6 +327,8 @@ class OrcaDFTRun:
                 continue
             parsed = parse_log(f'{name}.log')
             parsed.check(optimize=bool(kwargs.get('optimize')))
+            if require_gbw and not Path(f'{name}.gbw').is_file():
+                raise ValueError(f'ORCA did not write orbitals: {name}.gbw')
             return parsed
 
     def _ion_mult(self, key, mult):
@@ -492,6 +496,7 @@ class OrcaDFTRun:
             guess = self._fchk_orbitals.orca_gbw(self.executable, jobname+'_fchk_guess') if self._fchk_orbitals else None
             ground = self._calculate(jobname, atoms, xyz, charge, mult, moread=guess,
                                       require_moread=self._fchk_orbitals is not None,
+                                      require_gbw='stable' in options,
                                       optimize=options.get('opt'), fc=options.get('opt_fc', ''))
             ground_gbw = f'{jobname}.gbw'
             if 'opt' in options:
@@ -501,17 +506,22 @@ class OrcaDFTRun:
             stable_vibration = None
             if 'stable' in options:
                 def stationary(name, elements, coords, optimized):
-                    vibr = self._calculate(name + '_freq', elements, coords, charge, mult, freq=True).frequencies()
+                    vibr = self._calculate(name + '_freq', elements, coords, charge, mult, freq=True,
+                                           moread=name + '.gbw', require_moread=True).frequencies()
                     return StationaryPoint(name, elements, coords, optimized.energy()[0], vibr['freq'],
                                            vibr['freqmode'], {'ground': optimized, 'vibration': vibr})
 
-                def single_point(label, elements, coordinates):
+                def single_point(label, center, coordinates, reference_label):
                     name = f'{jobname}_stable_{label}'
-                    return self._calculate(name, elements, coordinates, charge, mult, mode_scan=True).energy()[0]
+                    guess = f'{jobname}_stable_{reference_label}' if reference_label else center.name
+                    return self._calculate(name, center.atoms, coordinates, charge, mult, mode_scan=True,
+                                           moread=guess + '.gbw', require_moread=True, require_gbw=True).energy()[0]
 
-                def evaluate(label, elements, coordinates):
+                def evaluate(label, elements, coordinates, guess_label):
                     name = f'{jobname}_stable_{label}'
-                    optimized = self._calculate(name, elements, coordinates, charge, mult, optimize=options['opt'])
+                    optimized = self._calculate(name, elements, coordinates, charge, mult, optimize=options['opt'],
+                                                moread=f'{jobname}_stable_{guess_label}.gbw',
+                                                require_moread=True, require_gbw=True)
                     final_elements, final_coords = optimized.coordinates()
                     if final_elements != elements:
                         raise ValueError('Optimized geometry changed atom order/composition')

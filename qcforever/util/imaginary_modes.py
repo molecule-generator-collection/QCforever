@@ -76,11 +76,12 @@ def displace_imaginary_mode(coordinates, frequencies, modes, distance=_MAX_DISPL
 
 
 def _scan_mode(single_point, point, xyz, mode, widths, iteration, reference, best):
+    reference_label, reference_energy = reference
     for index, width in enumerate(widths, 1):
         for sign, direction in (('plus', 1), ('minus', -1)):
             label = f'{iteration}_sp_{index}_{sign}'
             try:
-                energy = single_point(label, point.atoms, xyz + direction * width * mode)
+                energy = single_point(label, point, xyz + direction * width * mode, reference_label)
                 if not np.isfinite(energy):
                     raise ValueError('Invalid single-point energy')
             except QCforeverTimeoutError:
@@ -88,11 +89,11 @@ def _scan_mode(single_point, point, xyz, mode, widths, iteration, reference, bes
             except (OSError, ValueError, RuntimeError) as exc:
                 print(f'Imaginary-mode single point {label} failed: {exc}', flush=True)
                 continue
-            delta = energy - reference
+            delta = energy - reference_energy
             print(f'{point.name}: {label}, max displacement {width:.5f} Å per atom, '
                   f'ΔE={delta:+.3e} Eh', flush=True)
-            if delta < -_MIN_ENERGY_DROP and (sign not in best or (energy, width) < best[sign]):
-                best[sign] = energy, width
+            if delta < -_MIN_ENERGY_DROP and (sign not in best or (energy, width) < best[sign][:2]):
+                best[sign] = energy, width, label
 
 
 def follow_imaginary_modes(point, single_point, evaluate, max_steps=9):
@@ -109,9 +110,11 @@ def follow_imaginary_modes(point, single_point, evaluate, max_steps=9):
             initial = min(_INITIAL_MAX_DISPLACEMENT, _INITIAL_RMS_DISPLACEMENT / rms)
             widths = (initial / 2, initial, 2 * initial)
             print(f'{point.name}: imaginary frequency {point.minimum_frequency:.2f} cm^-1', flush=True)
-            reference = single_point(f'{iteration}_sp_reference', point.atoms, xyz)
-            if not np.isfinite(reference):
+            reference_label = f'{iteration}_sp_reference'
+            reference_energy = single_point(reference_label, point, xyz, None)
+            if not np.isfinite(reference_energy):
                 raise ValueError(f'Invalid reference single-point energy for {point.name}')
+            reference = reference_label, reference_energy
             best = {}
             optimized = set()
         else:
@@ -126,14 +129,14 @@ def follow_imaginary_modes(point, single_point, evaluate, max_steps=9):
 
         candidates = []
         for sign, direction in (('plus', 1), ('minus', -1)):
-            _, width = best[sign]
+            _, width, guess_label = best[sign]
             if (sign, width) in optimized:
                 continue
             optimized.add((sign, width))
             label = f'{iteration}_{sign}'
             print(f'{point.name}: optimizing {label} from {width:.5f} Å per atom', flush=True)
             try:
-                candidate = evaluate(label, point.atoms, xyz + direction * width * mode)
+                candidate = evaluate(label, point.atoms, xyz + direction * width * mode, guess_label)
                 if candidate.atoms != point.atoms or not np.isfinite(candidate.energy):
                     raise ValueError('Invalid atom order or energy after optimization')
                 candidate.minimum_frequency  # Validate before comparing the candidates.

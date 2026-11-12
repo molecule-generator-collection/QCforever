@@ -657,6 +657,12 @@ drop greater than 10⁻⁸ Hartree, only the lowest-energy sampled geometry in e
 direction is optimized and checked for imaginary frequencies. The workflow picks
 the lower electronic energy when both optimizations reach minima.
 
+The displaced single points reuse the undisplaced reference's converged orbitals.
+Each optimization starts with the orbitals from its selected single point.
+Gaussian uses `Guess=Read` with `%OldChk`, GAMESS reads `$VEC` with `GUESS=MOREAD`,
+and ORCA uses `MORead` and `%moinp`. The displaced Cartesian coordinates are
+written explicitly in every trial input.
+
 If an optimization reaches a new geometry with an imaginary mode, the search
 starts again along that mode. If either direction lacks a confirmed energy
 drop, or the optimizations fail to reach a new geometry, the search doubles
@@ -676,6 +682,10 @@ The method, basis, solvent, functional parameters, charge, multiplicity,
 and atom-ordered geometry must match. With reuse enabled, Gaussian also
 checks the preceding result in the same job directory. A saved stable result
 can be reused for the same starting geometry.
+When restarting from saved vibrations, Gaussian uses the frequency log's
+companion `.chk` or converts its `.fchk` with `unfchk` for the reference
+single point. If neither is usable, the reference generates an initial guess
+and its converged orbitals seed the displaced points.
 
 GAMESS uses numerical Hessians for these checks, including under PCM. Its
 separate Raman step is available with `stable freq` in vacuum.

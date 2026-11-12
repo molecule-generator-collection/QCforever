@@ -5,6 +5,7 @@ import sys
 import copy
 import shutil
 import pickle
+from subprocess import CalledProcessError
 
 import numpy as np
 
@@ -447,9 +448,7 @@ class GaussianDFTRun:
                 line_system += line_proc
 
         #Section for checkpoint files
-        if mode_scan:
-            line_chk = ''
-        elif oldchk == None and newchk == None:
+        if oldchk == None and newchk == None:
             line_chk = f'%chk={JobName}\n'
         elif oldchk == None and newchk != None:
             line_chk = f'%chk={newchk}\n'
@@ -615,7 +614,8 @@ class GaussianDFTRun:
             ofile.write(input_s)
 
     def chain_job(self, JobName, scf_need, job_dict, TotalCharge, SpinMulti, targetstate,
-                        ReadFrom, element=[], atomX=[], atomY=[], atomZ=[], optoption='', TDstate_info=[]):
+                        ReadFrom, element=[], atomX=[], atomY=[], atomZ=[], optoption='', TDstate_info=[],
+                        guess_chk=None):
 
         option_dict = copy.deepcopy(job_dict)
         # opt=... belongs to the ground-state optimization. An excited state
@@ -735,17 +735,13 @@ class GaussianDFTRun:
                                     Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
                                     geom_spec=Is_geom_spec, readchk='guess', solvent=self.solvent) 
             elif ReadFrom == 'sdf' or ReadFrom == 'xyz':
-                if optoption == '':
-                    self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
-                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate, Newinput=True, 
-                                    Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
-                                    geom_spec=Is_geom_spec, solvent=self.solvent) 
-                else:
-                    self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag, 
-                                    run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate, optoption=optoption, 
-                                    Newinput=True, 
-                                    Mol_atom=element, X=atomX, Y=atomY, Z=atomZ, 
-                                    geom_spec=Is_geom_spec, solvent=self.solvent) 
+                self.make_input(JobName, TotalCharge, SpinMulti, scf=scf_tag,
+                                run_type=run_opt, TDDFT=td_tag, TDstate=TDstate_tag, target=targetstate,
+                                optoption=optoption, Newinput=True,
+                                Mol_atom=element, X=atomX, Y=atomY, Z=atomZ,
+                                geom_spec=Is_geom_spec, solvent=self.solvent,
+                                readchk='guess' if guess_chk else None, oldchk=guess_chk,
+                                newchk=JobName if guess_chk else None)
 
         #The post job after getting wavefunction
             if 'symm' in option_dict:
@@ -855,10 +851,10 @@ class GaussianDFTRun:
             if status != 'normal':
                 raise RuntimeError(f'Gaussian ended with {status!r}: {job}.log')
 
-        def calculate(job, source, elements, coordinates, optimizer):
+        def calculate(job, source, elements, coordinates, optimizer, guess_chk=None):
             self.chain_job(job, True, options, charge, mult, 0, source, element=elements,
                            atomX=coordinates[0], atomY=coordinates[1], atomZ=coordinates[2],
-                           optoption=optimizer)
+                           optoption=optimizer, guess_chk=guess_chk)
             execute(job, self.error)
             parsed = gaussian_run.parse_log.parse_log(job + '.log')
             index, links = parsed.Check_task()
@@ -902,11 +898,41 @@ class GaussianDFTRun:
         if point is None:
             point = calculate(name, read_from, atoms, (x, y, z), optoption)
 
-        def single_point(label, elements, coordinates):
+        probe_checkpoints = set()
+
+        def reference_guess(center, job):
+            checkpoint = Path(center.name + '.chk')
+            if checkpoint.is_file():
+                return checkpoint.name
+            source = center.properties.get('stable_source')
+            if source:
+                native = Path(source).with_suffix('.chk')
+                formatted = native.with_suffix('.fchk')
+                has_native = native.is_file() and native.stat().st_size > 0
+                if has_native or formatted.is_file():
+                    local = Path(job + '_guess.chk')
+                    probe_checkpoints.add(local)
+                    try:
+                        if has_native:
+                            shutil.copyfile(native, local)
+                        else:
+                            gaussian_run.fchk2chk.convert(formatted, local)
+                        return local.name
+                    except job_timeout.QCforeverTimeoutError:
+                        raise
+                    except (OSError, CalledProcessError, RuntimeError) as exc:
+                        print(f'Could not prepare saved orbitals from {source}: {exc}')
+            print(f'{job}: starting the reference single point with a fresh orbital guess')
+            return None
+
+        def single_point(label, center, coordinates, reference_label):
             job = f'{name}_stable_{label}'
-            self.make_input(job, charge, mult, Newinput=True, Mol_atom=elements,
+            guess = (f'{name}_stable_{reference_label}.chk' if reference_label else reference_guess(center, job))
+            probe_checkpoints.add(Path(job + '.chk'))
+            self.make_input(job, charge, mult, run_type='', Newinput=True, Mol_atom=center.atoms,
                             X=coordinates[:, 0], Y=coordinates[:, 1], Z=coordinates[:, 2],
-                            solvent=self.solvent, mode_scan=True)
+                            solvent=self.solvent, mode_scan=True, readchk='guess' if guess else None,
+                            oldchk=guess, newchk=job if guess else None)
             execute(job)
             parsed = gaussian_run.parse_log.parse_log(job + '.log')
             try:
@@ -914,13 +940,19 @@ class GaussianDFTRun:
             except IndexError as exc:
                 raise ValueError(f'Missing single-point energy: {job}.log') from exc
 
-        def evaluate(label, elements, coordinates):
+        def evaluate(label, elements, coordinates, guess_label):
             # A new input uses the displaced Cartesian geometry directly.
-            return calculate(f'{name}_stable_{label}', 'xyz', elements, coordinates.T, '')
+            return calculate(f'{name}_stable_{label}', 'xyz', elements, coordinates.T, '',
+                             guess_chk=f'{name}_stable_{guess_label}.chk')
 
         reused_source = point.properties.get('stable_source')
-        if not any(spec[1] == 'F' for spec in self.geom_spec.values()):
-            point = follow_imaginary_modes(point, single_point, evaluate)
+        try:
+            if not any(spec[1] == 'F' for spec in self.geom_spec.values()):
+                point = follow_imaginary_modes(point, single_point, evaluate)
+        finally:
+            # The calculation cache retains successful probes for a restart.
+            for checkpoint in probe_checkpoints:
+                checkpoint.unlink(missing_ok=True)
         if reused_source:
             point.properties['stable_source'] = reused_source
         if len(atoms) and not self.geom_spec:

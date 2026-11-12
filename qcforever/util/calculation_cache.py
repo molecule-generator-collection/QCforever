@@ -227,7 +227,7 @@ class CalculationCache:
             return None
         return self.legacy
 
-    def run(self, name, text, execute, executable=None):
+    def run(self, name, text, execute, executable=None, *, required_outputs=()):
         if Path(name).name != name:
             raise ValueError('Calculation job names must not contain directory components')
         deps = dependencies(self.backend, text)
@@ -235,7 +235,7 @@ class CalculationCache:
                    'dependencies': deps, 'variant': self.variant}
         key = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
         program = _program(self.backend, executable)
-        required = _required(self.backend, name, text)
+        required = [*_required(self.backend, name, text), *required_outputs]
         entry = self.index['entries'].get(key)
         reason = 'no verified calculation with matching conditions'
         if self.enabled and entry:
@@ -351,11 +351,11 @@ def workflow(backend):
     return decorate
 
 
-def execute(backend, name, text, callback, executable=None):
+def execute(backend, name, text, callback, executable=None, *, required_outputs=()):
     session = _active.get()
     if session is None or session.backend != backend or session.directory != Path.cwd():
         return callback()
-    return session.run(name, text, callback, executable)
+    return session.run(name, text, callback, executable, required_outputs=required_outputs)
 
 
 def previous_hessian(backend, name, text, executable=None):

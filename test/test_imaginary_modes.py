@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from qcforever.gamess_run.parse_log import parse_log as GamessLog
+from qcforever.gamess_run.GamessRunPack import GamessDFTRun
 from qcforever.gaussian_run.Get_FreqPro import Extract_vibvec
 from qcforever.util.imaginary_modes import StationaryPoint, displace_imaginary_mode, follow_imaginary_modes
 from qcforever.util.job_timeout import QCforeverTimeoutError
@@ -19,11 +20,15 @@ def test_follow_modes_checks_both_signs_and_selects_a_minimum():
         '1_sp_3_plus': -1.1, '1_sp_3_minus': -1.02,
     }
 
-    def single_point(label, atoms, xyz):
+    def single_point(label, center, xyz, reference):
+        assert center is start
+        assert reference == (None if label.endswith('_reference') else '1_sp_reference')
         attempts[label] = xyz
         return energies[label]
 
-    def evaluate(label, atoms, xyz):
+    def evaluate(label, atoms, xyz, guess):
+        np.testing.assert_array_equal(xyz, attempts[guess])
+        assert guess == ('1_sp_2_plus' if label.endswith('_plus') else '1_sp_3_minus')
         attempts[label] = xyz
         if label.endswith('_plus'):
             return StationaryPoint(label, atoms, xyz, -2, [5], [], {})
@@ -47,11 +52,14 @@ def test_follow_modes_widens_when_optimization_returns_to_a_previous_geometry():
     next_xyz[1, 0] += 0.1
     attempts = {}
 
-    def single_point(label, atoms, coords):
+    def single_point(label, point, coords, reference):
         center = next_xyz if label.startswith('3_') else xyz
+        expected_reference = '3_sp_reference' if label.startswith('3_') else '1_sp_reference'
+        assert reference == (None if label.endswith('_reference') else expected_reference)
+        np.testing.assert_array_equal(point.coordinates, center)
         return -1. - np.linalg.norm(coords - center)
 
-    def evaluate(label, atoms, coords):
+    def evaluate(label, atoms, coords, guess):
         attempts[label] = coords
         if label.startswith('1_'):
             return StationaryPoint(label, atoms, xyz + 1., -1, [-10], mode, {})
@@ -74,12 +82,12 @@ def test_follow_modes_caps_displacement_for_a_localized_mode():
     attempts = []
     samples = []
 
-    def single_point(label, atoms, coords):
+    def single_point(label, center, coords, reference):
         distance = np.linalg.norm(coords - xyz, axis=1).max()
         samples.append(distance)
         return -1. - distance
 
-    def evaluate(label, atoms, coords):
+    def evaluate(label, atoms, coords, guess):
         attempts.append(np.linalg.norm(coords - xyz, axis=1).max())
         return start
 
@@ -91,7 +99,7 @@ def test_follow_modes_caps_displacement_for_a_localized_mode():
 def test_follow_modes_needs_a_resolved_energy_drop_in_both_directions():
     start = StationaryPoint('ground', ['H'], np.zeros((1, 3)), -1, [-5], [[[1]], [[0]], [[0]]], {})
 
-    def single_point(label, atoms, coords):
+    def single_point(label, center, coords, reference):
         x = coords[0, 0]
         return -1. - x if x > 0 else -1. - 1e-9 * abs(x)
 
@@ -105,10 +113,10 @@ def test_follow_modes_can_recover_from_one_failed_branch():
     start = StationaryPoint('ground', ['H'], np.zeros((1, 3)), -1, [-5], [[[1]], [[0]], [[0]]], {})
     calls = []
 
-    def single_point(label, atoms, xyz):
+    def single_point(label, center, xyz, reference):
         return -1. - abs(xyz[0, 0])
 
-    def evaluate(label, atoms, xyz):
+    def evaluate(label, atoms, xyz, guess):
         calls.append(label)
         if label.endswith('_plus'):
             raise RuntimeError('SCF failed')
@@ -153,6 +161,19 @@ def test_gamess_imaginary_mode_precedes_rigid_modes(tmp_path):
     assert displace_imaginary_mode(np.zeros((2, 3)), frequencies, modes) is not None
 
 
+def test_gamess_displaced_input_reads_vec_with_explicit_coordinates(tmp_path):
+    source = tmp_path / 'reference.dat'
+    orbitals = ' 1  1 0.12345678E+00\n 1  1 0.23456789E+00\n'
+    source.write_text(' $VEC\n' + orbitals + ' $END\n')
+    path = tmp_path / 'displaced.inp'
+    job = GamessDFTRun('B3LYP', 'STO-3G', 1, 'stable', 'test.xyz')
+    job.make_input('ENERGY', 0, 2, path, ['H'], [0.01], [0.02], [0.03], datfile=source)
+    deck = path.read_text()
+    assert 'GUESS=MOREAD NORB=1' in deck
+    assert ' $VEC\n' + orbitals + ' $END\n' in deck
+    assert 'H   1.0   0.0100000000   0.0200000000   0.0300000000' in deck
+
+
 def test_gaussian_seed_pickle_uses_its_cartesian_frame_and_validates_input(tmp_path):
     import pickle
     from qcforever.gaussian_run.frequency_seed import FREQUENCY_KEYS, load
@@ -166,7 +187,10 @@ def test_gaussian_seed_pickle_uses_its_cartesian_frame_and_validates_input(tmp_p
                    energy=[-98., 0.])
     result = dict.fromkeys(FREQUENCY_KEYS, 0.)
     result.update(frequency_context=context, freq=[1500.], freqmode=[[[0., 0.]], [[0., 0.]], [[1., -1.]]],
-                  stable_input_geometry=start, stable_0=True)
+                  stable_input_geometry=start, stable_0=True, gaussian_log='subdir/saved.log')
+    log = tmp_path / result['gaussian_log']
+    log.parent.mkdir()
+    log.touch()
     path.write_bytes(pickle.dumps(result))
     options = dict(atoms=atoms, charge=0, mult=1, method='uhf/sto-3g',
                    solvent_route='', solvent_read='', parameter_route='')
@@ -175,5 +199,6 @@ def test_gaussian_seed_pickle_uses_its_cartesian_frame_and_validates_input(tmp_p
     saved = load(path, 'molecule', coordinates=start, allow_completed_stable=True, **options)
     np.testing.assert_array_equal(saved.coordinates, optimized)
     assert saved.minimum_frequency == 1500.
+    assert saved.properties['stable_source'] == str(log.resolve())
     with pytest.raises(ValueError, match='solvent differs'):
         load(path, 'molecule', coordinates=optimized, **dict(options, solvent_route='SCRF=(PCM,solvent=Water)'))

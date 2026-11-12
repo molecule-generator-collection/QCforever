@@ -24,17 +24,9 @@ def read_dat(datfile):
 #    return count
 
 def count_orbital(lines):
-    last_number = None
-    block_count = 0
-    for l in lines:
-        columns = l.strip().split()
-#        print(columns)
-        current_number = columns[0]
-        if current_number != last_number:
-            block_count += 1
-        last_number = current_number
-
-    return block_count/2
+    # $VEC records begin with an I2 orbital number and an I3 row number.
+    # Row 1 marks each orbital, even when alpha and beta use the same number.
+    return sum(line[2:5].strip() == '1' for line in lines) / 2
 
 
 def getMolBlock(lines, label):

@@ -311,16 +311,22 @@ class GamessDFTRun:
         if not imported:
             GBASIS, NGAUSS, NDFUNC = gamess_run.make_basis.basis_dissection(self.basis)
 
-        if datfile != None and Mol_atom == []:
+        if datfile is not None:
             datlines = gamess_run.read_dat.read_dat(datfile)
+            if not len(Mol_atom):
+                try:
+                    cc = gamess_run.read_dat.getMolBlock(datlines, "COORDINATES OF SYMMETRY UNIQUE ATOMS")
+                except IndexError:
+                    cc = gamess_run.read_dat.get_dataBlock(datlines, "DATA")
             try:
-                cc = gamess_run.read_dat.getMolBlock(datlines,"COORDINATES OF SYMMETRY UNIQUE ATOMS")
-            except:
-                cc = gamess_run.read_dat.get_dataBlock(datlines, "DATA")
-            orb_bb = gamess_run.read_dat.get_dataBlock(datlines, "VEC")
+                orb_bb = gamess_run.read_dat.get_dataBlock(datlines, "VEC")
+            except IndexError as exc:
+                raise ValueError(f'Missing GAMESS $VEC orbitals in {datfile}') from exc
             Norb = gamess_run.read_dat.count_orbital(orb_bb)
             if imported:
                 Norb = imported.nmo
+            if not orb_bb or Norb < 1:
+                raise ValueError(f'No usable GAMESS $VEC orbitals in {datfile}')
 
         if run_type == 'RAMAN':
             hess_bb = gamess_run.read_dat.get_dataBlock(datlines, "HESS")
@@ -409,16 +415,13 @@ class GamessDFTRun:
             line_input += ' $DATA\n'
             line_input += f'{GamInputName} {self.functional}/{self.basis}\n'
             line_input += 'C1\n'
-            if datfile == None and Mol_atom != []:
+            if len(Mol_atom):
                 if imported:
                     line_input += imported.gamess_coordinates(Mol_atom, np.column_stack((X, Y, Z)))
                 else:
                     for i in range(len(Mol_atom)):
                         AtomicNum = float(gamess_run.AtomInfo.AtomicNumElec(Mol_atom[i]))
                         line_input += f'{Mol_atom[i]}   {AtomicNum:.1f}   {X[i]:.10f}   {Y[i]:.10f}   {Z[i]:.10f}\n'
-                line_input += ' $END\n'
-                if imported:
-                    line_input += imported.gamess_vec()
             else:
                 if imported:
                     rows = [row.split() for row in cc if len(row.split()) == 5]
@@ -429,16 +432,13 @@ class GamessDFTRun:
                     for i in range(len(cc)):
                         if len(cc[i].split()) == 5:
                             line_input += cc[i]
-                line_input += ' $END\n'
-                line_input += ' $VEC\n'
-                for i in range(len(orb_bb)):
-                    line_input += orb_bb[i]
-                line_input += ' $END\n'
-                if run_type == 'RAMAN':
-                    line_input += ' $HESS\n'
-                    for i in range(len(hess_bb)):
-                        line_input += hess_bb[i]
-                    line_input += ' $END\n'
+            line_input += ' $END\n'
+            if datfile is not None:
+                line_input += ' $VEC\n' + ''.join(orb_bb) + ' $END\n'
+            elif imported:
+                line_input += imported.gamess_vec()
+            if run_type == 'RAMAN':
+                line_input += ' $HESS\n' + ''.join(hess_bb) + ' $END\n'
 
             if fc == 'ReadFC':
                 from qcforever.util.optimization_hessian import gamess_block
@@ -651,10 +651,11 @@ class GamessDFTRun:
             frequencies, modes = vibration.normal_modes(blocks[-1], len(elements))
             return StationaryPoint(name, elements, xyz, optimized.getEnergy()[0], frequencies, modes, {})
 
-        def single_point(label, elements, coordinates):
+        def single_point(label, center, coordinates, reference_label):
             name = f'{jobname}_stable_{label}'
-            self.make_input('ENERGY', charge, mult, name + '.inp', elements, *coordinates.T,
-                            solvent=self.solvent, moments=False, mode_scan=True)
+            guess = f'{jobname}_stable_{reference_label}' if reference_label else center.name
+            self.make_input('ENERGY', charge, mult, name + '.inp', center.atoms, *coordinates.T,
+                            datfile=guess + '.dat', solvent=self.solvent, moments=False, mode_scan=True)
             gamess_run.Exe_Gamess.exe_Gamess(name, self.gamessversion, self.nproc)
             parsed = gamess_run.parse_log.parse_log(name + '.log')
             if (parsed.Check_SCF() is not True
@@ -665,10 +666,10 @@ class GamessDFTRun:
             except IndexError as exc:
                 raise ValueError(f'Missing single-point energy: {name}.log') from exc
 
-        def evaluate(label, elements, coordinates):
+        def evaluate(label, elements, coordinates, guess_label):
             name = f'{jobname}_stable_{label}'
             self.make_input('OPTIMIZE', charge, mult, name + '.inp', elements, *coordinates.T,
-                            solvent=self.solvent)
+                            datfile=f'{jobname}_stable_{guess_label}.dat', solvent=self.solvent)
             gamess_run.Exe_Gamess.exe_Gamess(name, self.gamessversion, self.nproc)
             return stationary(name, elements)
 

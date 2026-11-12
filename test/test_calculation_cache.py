@@ -156,6 +156,26 @@ def test_gaussian_checkpoint_dependency_invalidates_downstream(tmp_path):
     assert len(calls)==2
 
 
+def test_orca_recomputes_a_cached_step_when_its_orbitals_are_required(tmp_path):
+    folder = tmp_path / 'job'
+    calls = []
+
+    def run():
+        calls.append(1)
+        if len(calls) == 2:
+            Path('mol.gbw').write_bytes(b'converged orbitals')
+        return complete('orca')
+
+    with session(folder, 'orca'):
+        cache.execute('orca', 'mol', example('orca'), run)
+    for action in ('executed', 'reused'):
+        with session(folder, 'orca') as current:
+            cache.execute('orca', 'mol', example('orca'), run, required_outputs=('mol.gbw',))
+            assert current.steps[0]['action'] == action
+            assert Path('mol.gbw').read_bytes() == b'converged orbitals'
+    assert len(calls) == 2
+
+
 def test_reuse_false_forces_fresh_work(tmp_path):
     calls=[]
     def run():

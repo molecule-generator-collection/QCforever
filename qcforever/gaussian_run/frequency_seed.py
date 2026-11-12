@@ -58,14 +58,14 @@ def load(path, name, *, atoms, coordinates, charge, mult, method, solvent_route,
         with path.open('rb') as stream:
             result = pickle.load(stream)
         result = result.get('s0_vibration', result)
+        log = result.get('gaussian_log')
+        adjacent = path.with_suffix('.log')
+        seed_log = path.parent / log if log else (
+            adjacent if adjacent.is_file() or companion is None else Path(companion))
         if not result.get('frequency_context'):
-            log = result.get('gaussian_log')
-            adjacent = path.with_suffix('.log')
-            if log:
-                path = path.parent / log
-            else:
-                path = adjacent if adjacent.is_file() or companion is None else companion
-            result = _from_log(path)
+            result = _from_log(seed_log)
+        if seed_log.is_file():
+            path = seed_log
     else:
         result = _from_log(path)
     context = result['frequency_context']
