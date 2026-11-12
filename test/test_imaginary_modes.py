@@ -96,17 +96,47 @@ def test_follow_modes_caps_displacement_for_a_localized_mode():
     assert attempts == pytest.approx([0.03, 0.03, 0.05, 0.05])
 
 
-def test_follow_modes_needs_a_resolved_energy_drop_in_both_directions():
+@pytest.mark.parametrize(('sign', 'direction'), [('plus', 1), ('minus', -1)])
+def test_follow_modes_optimizes_the_best_seed_when_only_one_direction_is_downhill(sign, direction):
+    start = StationaryPoint('ground', ['H'], np.zeros((1, 3)), -1, [-5], [[[1]], [[0]], [[0]]], {})
+    samples = {}
+    attempts = []
+
+    def single_point(label, center, coords, reference):
+        samples[label] = coords
+        if label.endswith('_reference'):
+            return -1.
+        if label.endswith(sign):
+            return -1.2 if label == f'1_sp_2_{sign}' else -1.1
+        return -0.9
+
+    def evaluate(label, atoms, coords, guess):
+        attempts.append((label, guess))
+        np.testing.assert_array_equal(coords, samples[guess])
+        assert coords[0, 0] == pytest.approx(direction * 0.003)
+        return StationaryPoint(label, atoms, coords, -2, [5], [], {})
+
+    result = follow_imaginary_modes(start, single_point, evaluate)
+    assert result.minimum_frequency == 5
+    assert attempts == [(f'1_{sign}', f'1_sp_2_{sign}')]
+    assert len(samples) == 7
+
+
+def test_follow_modes_reports_each_direction_when_neither_is_downhill():
     start = StationaryPoint('ground', ['H'], np.zeros((1, 3)), -1, [-5], [[[1]], [[0]], [[0]]], {})
 
     def single_point(label, center, coords, reference):
         x = coords[0, 0]
-        return -1. - x if x > 0 else -1. - 1e-9 * abs(x)
+        return -1. + x if x > 0 else -1. - 1e-9 * abs(x)
 
     def evaluate(*args):
-        pytest.fail('Optimization started before confirming a downhill seed in both directions')
+        pytest.fail('Optimization started without a resolved energy drop')
 
     assert follow_imaginary_modes(start, single_point, evaluate) is start
+    error = start.properties['stable_error']
+    assert 'Neither direction showed an energy drop greater than 1e-08 Eh' in error
+    assert 'plus ΔE=+1.500e-03 Eh at 0.00150 Å' in error
+    assert 'minus ΔE=-5.000e-11 Eh at 0.05000 Å' in error
 
 
 def test_follow_modes_can_recover_from_one_failed_branch():

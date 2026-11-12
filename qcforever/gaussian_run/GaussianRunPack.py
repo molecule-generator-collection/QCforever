@@ -1604,7 +1604,7 @@ class GaussianDFTRun:
                     break
                 output_dic[i].update(point.properties, stable_0=point.minimum_frequency >= 0)
                 if not output_dic[i]['stable_0']:
-                    output_dic[i].update(log_0='error', error_0=NO_STABLE_MINIMUM)
+                    output_dic[i].update(log_0='error', error_0=point.properties.get('stable_error', NO_STABLE_MINIMUM))
                     break
                 for key in ('opt', 'freq', 'energy'):
                     job_thisstate.pop(key, None)

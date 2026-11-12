@@ -532,7 +532,7 @@ class OrcaDFTRun:
                 if not output['stable_0']:
                     output.update(point.properties['vibration'])
                     self._active_job = point.name + '_freq'
-                    raise ValueError(NO_STABLE_MINIMUM)
+                    raise ValueError(point.properties.get('stable_error', NO_STABLE_MINIMUM))
                 xyz, ground = point.coordinates, point.properties['ground']
                 if point.name != jobname:
                     for suffix in ('.inp', '.log', '.gbw'):

@@ -866,7 +866,7 @@ class GamessDFTRun:
             except (OSError, ValueError, RuntimeError) as exc:
                 return {'log': 'error', 'error': str(exc)}
             if point.minimum_frequency < 0:
-                output = dict(log='error', error=NO_STABLE_MINIMUM, stable_0=False,
+                output = dict(log='error', error=point.properties.get('stable_error', NO_STABLE_MINIMUM), stable_0=False,
                               freq=point.frequencies, freqmode=point.modes)
                 if self.pklsave:
                     with open(jobname + '.pkl', 'wb') as stream:

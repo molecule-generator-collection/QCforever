@@ -92,12 +92,24 @@ def _scan_mode(single_point, point, xyz, mode, widths, iteration, reference, bes
             delta = energy - reference_energy
             print(f'{point.name}: {label}, max displacement {width:.5f} Å per atom, '
                   f'ΔE={delta:+.3e} Eh', flush=True)
-            if delta < -_MIN_ENERGY_DROP and (sign not in best or (energy, width) < best[sign][:2]):
+            if sign not in best or (energy, width) < best[sign][:2]:
                 best[sign] = energy, width, label
 
 
+def _scan_failure(reference_energy, best):
+    directions = []
+    for sign in ('plus', 'minus'):
+        if sign in best:
+            energy, width, _ = best[sign]
+            directions.append(f'{sign} ΔE={energy - reference_energy:+.3e} Eh at {width:.5f} Å')
+        else:
+            directions.append(f'{sign} has no converged single point')
+    return (f'Neither direction showed an energy drop greater than {_MIN_ENERGY_DROP:.0e} Eh. '
+            f'Lowest sampled values relative to the reference are {", ".join(directions)}.')
+
+
 def follow_imaginary_modes(point, single_point, evaluate, max_steps=9):
-    """Scan both signs at fixed geometries, then optimize the best seed in each sign."""
+    """Scan both signs at fixed geometries, then optimize the best seed in each downhill direction."""
     visited = []
     distance = None
     for iteration in range(1, max_steps + 1):
@@ -121,15 +133,20 @@ def follow_imaginary_modes(point, single_point, evaluate, max_steps=9):
             widths = (min(2 * distance, _MAX_DISPLACEMENT),)
         distance = widths[-1]
         _scan_mode(single_point, point, xyz, mode, widths, iteration, reference, best)
-        if len(best) < 2:
-            if distance >= _MAX_DISPLACEMENT:
-                print(f'{point.name}: energy decrease was not confirmed in both directions', flush=True)
+        downhill = {sign: sample for sign, sample in best.items()
+                    if sample[0] - reference_energy < -_MIN_ENERGY_DROP}
+        if not downhill:
+            if distance >= _MAX_DISPLACEMENT or iteration == max_steps:
+                point.properties['stable_error'] = _scan_failure(reference_energy, best)
+                print(f'{point.name}: {point.properties["stable_error"]}', flush=True)
                 break
             continue
 
         candidates = []
         for sign, direction in (('plus', 1), ('minus', -1)):
-            _, width, guess_label = best[sign]
+            if sign not in downhill:
+                continue
+            _, width, guess_label = downhill[sign]
             if (sign, width) in optimized:
                 continue
             optimized.add((sign, width))

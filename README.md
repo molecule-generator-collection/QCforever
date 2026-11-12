@@ -652,10 +652,11 @@ an imaginary frequency, it displaces the optimized geometry along the most
 negative Cartesian normal mode in both directions. It starts with single-point
 calculations at half, one and twice a displacement scaled to 0.003 Å RMS
 across atoms and capped at 0.015 Å for any atom. The undisplaced geometry is
-evaluated with the same single-point settings. Once both signs have an energy
-drop greater than 10⁻⁸ Hartree, only the lowest-energy sampled geometry in each
-direction is optimized and checked for imaginary frequencies. The workflow picks
-the lower electronic energy when both optimizations reach minima.
+evaluated with the same single-point settings. Each direction with an energy
+drop greater than 10⁻⁸ Hartree is eligible independently. The lowest-energy
+sampled geometry in each eligible direction is optimized and checked for
+imaginary frequencies. The workflow picks the lower electronic energy when
+both optimizations reach minima.
 
 The displaced single points reuse the undisplaced reference's converged orbitals.
 Each optimization starts with the orbitals from its selected single point.
@@ -664,12 +665,14 @@ and ORCA uses `MORead` and `%moinp`. The displaced Cartesian coordinates are
 written explicitly in every trial input.
 
 If an optimization reaches a new geometry with an imaginary mode, the search
-starts again along that mode. If either direction lacks a confirmed energy
+starts again along that mode. If neither direction shows a confirmed energy
 drop, or the optimizations fail to reach a new geometry, the search doubles
 the scan width up to 0.05 Å per atom. It compares geometries after alignment
 with a tolerance of 0.001 Å per atom and limits the search to nine scan rounds.
-The log reports each displacement and relative single-point energy. If the
-search ends without a verified minimum, `stable_0` is false and the job stops
+The log reports each displacement and relative single-point energy. When the
+energy criterion stops the search, the error gives the best sampled energy
+change and displacement for each direction. If the search ends without a
+verified minimum, `stable_0` is false and the job stops
 before the requested property calculations. Otherwise, subsequent properties
 use the selected geometry.
 
