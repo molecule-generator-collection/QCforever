@@ -292,14 +292,33 @@ class CalculationCache:
                                           files=files, snapshot=str(snapshot), created_ns=time.time_ns())
         _json(self.state / 'index.json', self.index)
 
-    def finish(self):
+    def _clear_cache(self):
+        root = self.state / 'cache'
+        if root.exists() or root.is_symlink():
+            shutil.rmtree(root)
+        if self.index['entries']:
+            self.index['entries'].clear()
+            _json(self.state / 'index.json', self.index)
+
+    def finish(self, result=None, *, pickle_name=None, cleanup_cache=False):
         report = {'policy': 'reuse' if self.enabled else 'fresh', 'backend': self.backend,
                   'reused': sum(s['action'] == 'reused' for s in self.steps),
                   'executed': sum(s['action'] == 'executed' for s in self.steps),
                   'failed': sum(s['action'] == 'failed' for s in self.steps), 'steps': self.steps}
         try:
+            if isinstance(result, dict):
+                result['reuse_report'] = report
             if self.directory is not None:
                 _json(self.state / 'reuse-report.json', report)
+                if isinstance(result, dict) and pickle_name is not None:
+                    with (self.directory / pickle_name).open('wb') as stream:
+                        pickle.dump(result, stream)
+                if (cleanup_cache and isinstance(result, dict) and result.get('log') == 'normal'
+                        and report['failed'] == 0):
+                    try:
+                        self._clear_cache()
+                    except OSError as exc:
+                        print(f'Could not remove calculation cache in {self.state}: {exc}', flush=True)
         finally:
             if self.lock is not None:
                 self.lock.unlink(missing_ok=True)
@@ -329,6 +348,11 @@ def workflow(backend):
     def decorate(method):
         @wraps(method)
         def run(owner, *args, **kwargs):
+            cleanup_cache = getattr(owner, 'cleanup_cache', None)
+            if cleanup_cache is None:
+                cleanup_cache = os.environ.get('QCFOREVER_CLEANUP_CACHE') == '1'
+            if type(cleanup_cache) is not bool:
+                raise ValueError('cleanup_cache must be True, False or None')
             session = CalculationCache(backend, getattr(owner, 'reuse', True),
                                        getattr(owner, 'gamessversion', None) if backend == 'gamess' else None)
             token = _active.set(session)
@@ -338,13 +362,10 @@ def workflow(backend):
                 return result
             finally:
                 try:
-                    report = session.finish()
-                    if isinstance(result, dict):
-                        result['reuse_report'] = report
-                        if getattr(owner, 'pklsave', False) and session.directory:
-                            name = Path(owner.in_file).stem + '.pkl'
-                            with (session.directory / name).open('wb') as stream:
-                                pickle.dump(result, stream)
+                    pickle_name = None
+                    if isinstance(result, dict) and getattr(owner, 'pklsave', False) and session.directory:
+                        pickle_name = Path(owner.in_file).stem + '.pkl'
+                    session.finish(result, pickle_name=pickle_name, cleanup_cache=cleanup_cache)
                 finally:
                     _active.reset(token)
         return run

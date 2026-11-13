@@ -71,6 +71,7 @@ class GaussianDFTRun:
         self.functional_parameter_optimization = None
         self.functional_parameter_prediction = None
         self.reuse = True
+        self.cleanup_cache = None
         self.stable_from = None
 
     def check_scf_need(self, option):

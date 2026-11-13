@@ -88,6 +88,7 @@ class OrcaDFTRun:
         self.nmr_reference = {}
         self.ion_multiplicities = {}
         self.reuse = True
+        self.cleanup_cache = None
         self.fchk_angular = 'auto'
         self._fchk_orbitals = None
 

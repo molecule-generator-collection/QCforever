@@ -501,10 +501,19 @@ The returned `reuse_report` lists each stage's `job`, `action` (`reused`,
 identifies its cache entry and is a SHA-256 hash of its normalized inputs and
 dependencies. The report is also
 saved to `.qcforever/reuse-report.json`; `.qcforever/index.json` records the input
-and output provenance. The cache holds wavefunctions and restart files needed for
-later stages. With Gaussian `restart=False`, cleanup removes checkpoints from
+and output provenance. `.qcforever/cache/` holds copies of completed stage logs,
+wavefunctions and other restart files. With Gaussian `restart=False`, cleanup removes checkpoints from
 the cache and history, so stages requiring those checkpoints are recomputed on
 the next run. Logs, records and histories still consume additional disk space.
+
+On systems with a file count limit, set `QCFOREVER_CLEANUP_CACHE=1` in the batch
+script or set `job.cleanup_cache = True` before running. After the workflow
+reports normal completion with no failed stages and saves its results, QCforever
+removes `.qcforever/cache/` and clears its index. It keeps the calculation outputs,
+history and reuse report. Failed or interrupted runs retain their cache for
+retry. By default, the cache is retained for later reuse. Use
+`job.cleanup_cache = False` to retain it even if the environment setting is
+enabled, for example when preparing a Hessian for a later `ReadFC` job.
 
 Results produced before this feature lack this execution record. An old ORCA or
 GAMESS result is imported only if its complete executed input can be recovered

@@ -65,6 +65,7 @@ class GamessDFTRun:
         self.para_functional = []
         self.functional_parameter_optimization = None
         self.reuse = True
+        self.cleanup_cache = None
         self.fchk_angular = 'auto'
         self._fchk_orbitals = None
 

@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 import json
 from pathlib import Path
+import pickle
 import runpy
 from types import SimpleNamespace
 
@@ -70,6 +71,42 @@ def test_matching_stage_is_reused_and_old_files_are_preserved(tmp_path, backend)
         assert list(Path('.qcforever/history').glob('*/notes.txt'))[0].read_text() == 'user data'
     assert len(calls) == 1
     assert json.loads((folder/'.qcforever/reuse-report.json').read_text())['reused'] == 1
+
+
+@pytest.mark.parametrize('incomplete_status', ['timeout', 'normal'])
+def test_cache_cleanup_keeps_completed_stages_until_the_workflow_succeeds(tmp_path, monkeypatch, incomplete_status):
+    monkeypatch.setenv('QCFOREVER_CLEANUP_CACHE', '1')
+    folder = tmp_path / 'job'
+    calls = []
+
+    def complete_stage(name):
+        calls.append(name)
+        return complete('gaussian', name)
+
+    @cache.workflow('gaussian')
+    def run(owner, retry):
+        cache.prepare_directory(folder)
+        monkeypatch.chdir(folder)
+        cache.execute('gaussian', 'mol', example('gaussian'), lambda: complete_stage('mol'))
+        if not retry and incomplete_status == 'timeout':
+            return {'log': 'timeout'}
+        cache.execute('gaussian', 'freq', example('gaussian').replace('%chk=mol', '%chk=freq'),
+                      lambda: complete_stage('freq') if retry else 'abnormal')
+        return {'log': 'normal', 'Energy': [-1, 0]}
+
+    owner = SimpleNamespace(in_file='mol.xyz', pklsave=True)
+    run(owner, retry=False)
+    state = folder / '.qcforever'
+    assert list((state / 'cache').glob('*/mol.chk'))
+
+    result = run(owner, retry=True)
+    assert calls == ['mol', 'freq']
+    assert result['reuse_report']['reused'] == 1
+    assert not (state / 'cache').exists()
+    assert json.loads((state / 'index.json').read_text())['entries'] == {}
+    assert json.loads((state / 'reuse-report.json').read_text()) == result['reuse_report']
+    assert pickle.loads((folder / 'mol.pkl').read_bytes()) == result
+    assert (folder / 'mol.chk').is_file() and (folder / 'freq.log').is_file()
 
 
 @pytest.mark.parametrize('backend', ['gaussian', 'gamess', 'orca'])
