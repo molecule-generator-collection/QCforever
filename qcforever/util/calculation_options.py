@@ -13,7 +13,7 @@ def split_options(text):
     """Keep recognized parenthesized option groups together, including spaces.
 
     Spectrum paths and all other existing scalar tokens retain their spelling.
-    This handles opt, fluor, tadf and cden groups. The caller expands optconf first.
+    The caller expands optconf first.
     """
     result = []
     position = 0
@@ -22,7 +22,7 @@ def split_options(text):
             position += 1
             continue
         start = position
-        group = re.match(r'(fluor|tadf|opt|cden)\s*=\s*\(', text[start:], re.I)
+        group = re.match(r'(fluor|tadf|opt|cden|dipole)\s*=\s*\(', text[start:], re.I)
         if group:
             opening = start + group.end() - 1
             position, depth = opening + 1, 1
@@ -47,6 +47,26 @@ def cden_fukui(token):
     if not re.fullmatch(r'\(\s*fukui\s*\)', argument, re.I):
         raise ValueError('Use cden or cden=(fukui)')
     return True
+
+
+def parse_excited_dipole(token):
+    """Read the target singlet root and geometry for a Gaussian dipole job."""
+    match = re.fullmatch(r'dipole=\(([^()]*)\)', token, re.I)
+    if not match:
+        raise ValueError('Use dipole=(state=1, geom=input) or dipole=(state=1, geom=fluor)')
+    fields = {}
+    for item in match[1].lower().split(','):
+        key, _, value = (part.strip() for part in item.partition('='))
+        if key not in ('state', 'geom') or not value or key in fields:
+            raise ValueError('Specify state and geom at most once in dipole=(...)')
+        fields[key] = value
+    state = fields.get('state', '1')
+    geometry = fields.get('geom', 'input')
+    if not re.fullmatch(r'[1-9]\d*', state):
+        raise ValueError('Excited dipole state must be a positive integer')
+    if geometry not in ('input', 'fluor'):
+        raise ValueError('Excited dipole geom must be input or fluor')
+    return int(state), geometry
 
 
 def parse_excited_optimization(token, backend='gaussian'):

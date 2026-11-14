@@ -4,14 +4,14 @@ import os
 from qcforever.util import job_timeout
 
 
-def Get_chklist(remove):
+def Get_chklist(remove, *, keep=None):
     for f in glob.glob('./*.chk'):
         print(f)
         try:
             job_timeout.run(['formchk', f], check=True)
         except:
             print("Failed converting chk to fchk!")            
-        if remove == 1:
+        if remove == 1 and os.path.basename(f) != keep:
             os.remove(os.path.join('.', f))
         else:
             pass

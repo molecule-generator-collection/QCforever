@@ -98,7 +98,20 @@ def successful(backend, text, log):
     if backend == 'gaussian':
         if 'Normal termination of Gaussian' not in log[-4000:]:
             return False
-        return not re.search(r'Error termination|Convergence failure', log, re.I)
+        if re.search(r'Error termination|Convergence failure', log, re.I):
+            return False
+        density = re.search(r'\bDensity\s*=\s*(Current|SCF)\b', text, re.I)
+        if density:
+            root = re.search(r'\bTD\s*=?\s*\([^)]*\broot\s*=\s*(\d+)', text, re.I)
+            from qcforever.gaussian_run.parse_log import parse_log
+            try:
+                if density[1].lower() == 'scf':
+                    parse_log.Extract_PopulationDipole(log.splitlines(), 'SCF')
+                elif root:
+                    parse_log.Extract_PopulationDipole(log.splitlines(), 'CI', state=int(root[1]))
+            except ValueError:
+                return False
+        return True
     if 'EXECUTION OF GAMESS TERMINATED NORMALLY' not in log:
         return False
     if re.search(r'SCF IS UNCONVERGED|VIBRATIONAL ANALYSIS IS NOT VALID|ABNORMALLY', log, re.I):

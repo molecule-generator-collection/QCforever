@@ -37,13 +37,40 @@ class parse_log:
             raise ValueError("No dipole/quadrupole population-analysis block")
         return starts[-1]
 
-    def Extract_DipoleMoment(self, lines):
+    @classmethod
+    def Extract_DipoleMoment(cls, lines):
         """Retain the historical [X, Y, Z, total] result in the native frame."""
-        start = self._last_gaussian_dipole(lines)
-        values = self._assignments(lines[start + 1:start + 2], ("X", "Y", "Z", "Tot"))
+        start = cls._last_gaussian_dipole(lines)
+        values = cls._assignments(lines[start + 1:start + 2], ("X", "Y", "Z", "Tot"))
         if set(values) != {"X", "Y", "Z", "Tot"}:
             raise ValueError("Incomplete dipole in the final population-analysis block")
         return [values[key] for key in ("X", "Y", "Z", "Tot")]
+
+    @classmethod
+    def Extract_PopulationDipole(cls, lines, density, *, state=None):
+        """Select the final population block for a verified density and TD root."""
+        blocks = [(i, match[1].lower()) for i, line in enumerate(lines)
+                  if (match := re.search(r'Population analysis using the (.+?) density\b', line, re.I))]
+        for index in range(len(blocks) - 1, -1, -1):
+            start, label = blocks[index]
+            if label != density.lower():
+                continue
+            if state is not None:
+                candidate = root = None
+                for line in lines[:start]:
+                    match = re.match(r'\s*Excited State\s+(\d+):', line, re.I)
+                    if match:
+                        candidate = int(match[1])
+                    elif 'This state for optimization and/or second-order correction' in line:
+                        root = candidate
+                if root != state:
+                    raise ValueError(f'Expected Gaussian TD root {state}, found {root}')
+            end = blocks[index+1][0] if index+1 < len(blocks) else len(lines)
+            moments = cls.Extract_DipoleMoment(lines[start:end])
+            if not np.isfinite(moments).all():
+                raise ValueError(f'Non-finite Gaussian dipole for the {density} density')
+            return moments
+        raise ValueError(f'Missing Gaussian population analysis for the {density} density')
 
     @staticmethod
     def _gaussian_geometry(lines):

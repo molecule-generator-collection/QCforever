@@ -10,10 +10,11 @@ from subprocess import CalledProcessError
 import numpy as np
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from qcforever import gaussian_run
 from qcforever.util import calculation_cache
-from qcforever.util.calculation_options import cden_fukui, excited_options, requires_hessian
+from qcforever.util.calculation_options import cden_fukui, excited_options, parse_excited_dipole, requires_hessian
 from qcforever.util.fukui import condensed_fukui
 from qcforever.util.imaginary_modes import NO_STABLE_MINIMUM, StationaryPoint, follow_imaginary_modes
 from qcforever.util import (
@@ -436,7 +437,7 @@ class GaussianDFTRun:
         scf='open', run_type=None, optoption='', Newinput=False, 
         Mol_atom=[], X=[], Y=[], Z=[], geom_spec=False,
         TDDFT=False, TDstate=None, target=1, nac=False,
-        readchk=None, oldchk=None, newchk=None, solvent=None, mode_scan=False):
+        readchk=None, oldchk=None, newchk=None, solvent=None, mode_scan=False, dipole_density=None):
 
         #Section for system control 
         line_system = ''
@@ -477,12 +478,14 @@ class GaussianDFTRun:
             line_method = f'#{self.functional}{method_basis} test {line_iop_functional}\n'
 
         if TDDFT:
-            NState = target+4 if (run_type == 'opt' or run_type == 'freq') else 20
+            NState = target+4 if run_type in ('opt', 'freq') or dipole_density else 20
             td_options = f'NStates={NState},root={target}'
             if TDstate is not None:
                 td_options = f'NStates={NState},{TDstate},root={target}'
             if nac:
                 td_options += ',NAC'
+            if dipole_density == 'Current' and solvent not in (None, '0'):
+                td_options += ',EqSolv'
             line_method += f'TD({td_options})\n'
 #            line_method += f'TD(Nstate={NState}, root={target})\n'if TDstate == None else f'TD(Nstate={NState}, {TDstate}, root={target})\n'
         
@@ -532,6 +535,8 @@ class GaussianDFTRun:
             input_s += line_system
             input_s += line_chk
             input_s += line_method
+            if dipole_density:
+                input_s += f'Density={dipole_density} NoSymm\n'
             if mode_scan:
                 input_s += 'NoSymm SCF=VeryTight\n'
 
@@ -841,6 +846,47 @@ class GaussianDFTRun:
                 solvent=self.solvent,
                 )
 
+
+    def _run_excited_dipole(self, job, state, geometry, source, charge, coordinates, checkpoint, output, first_index):
+        """Compute both permanent dipoles at one geometry in separate cacheable jobs."""
+        atoms, x, y, z = coordinates
+        results = {}
+        checkpoints = []
+        for offset, (root, density, label) in enumerate(((0, 'SCF', 'SCF'), (state, 'Current', 'CI'))):
+            name = f'{job}_Dipole_{geometry}_S{root}'
+            index = first_index + offset
+            logfile = Path(name + '.log').resolve()
+            launcher_status = 'error'
+            try:
+                self.make_input(
+                    name, charge, 1, scf='close', Newinput=True, run_type='dipole',
+                    Mol_atom=atoms, X=x, Y=y, Z=z, TDDFT=bool(root), TDstate='Singlet',
+                    target=root, readchk='geomguess' if checkpoint else None, oldchk=checkpoint,
+                    newchk=name if checkpoint else None, solvent=self.solvent, dipole_density=density,
+                )
+                launcher_status = gaussian_run.Exe_Gaussian.exe_Gaussian(name, self.timexe) or 'abnormal'
+                if launcher_status != 'normal':
+                    raise ValueError(f'Gaussian calculation ended with {launcher_status}')
+                parser = gaussian_run.parse_log.parse_log(logfile)
+                results[label] = parser.Extract_PopulationDipole(parser.lines, label, state=root or None)
+                output[f'log_{index}'] = 'normal'
+                checkpoints.append(Path(name + '.chk'))
+            except job_timeout.QCforeverTimeoutError:
+                raise
+            except (OSError, ValueError) as exc:
+                status = 'error' if launcher_status == 'normal' else launcher_status
+                output.update({f'log_{index}': status, f'error_{index}': f'{exc}; see {logfile}',
+                               'failed_job': name, 'logfile': str(logfile)})
+                return
+        solvent = self.solvent if self.solvent not in (None, '0') else None
+        output['excited_dipole'] = {
+            'state': state, 'geometry': geometry, 'geometry_source': str(source), 'unit': 'Debye',
+            'excited': results['CI'], 'ground': results['SCF'], 'solvent': solvent,
+            'solvent_response': 'equilibrium' if solvent else 'vacuum',
+        }
+        if not self.restart:
+            for path in checkpoints:
+                path.unlink(missing_ok=True)
 
     def _stable_ground(self, name, charge, mult, read_from, atoms, x, y, z, optoption, stable_from=None):
         options = {'opt': True, 'freq': True, 'energy': True}
@@ -1166,6 +1212,12 @@ class GaussianDFTRun:
         option_line = self.value    
         from qcforever.conformer_search.settings import calculation_tokens
         options = calculation_tokens(option_line)
+        dipole_tokens = [option for option in options if option.lower().startswith('dipole=')]
+        if len(dipole_tokens) > 1:
+            raise ValueError('Specify the excited dipole option only once')
+        dipole_spec = parse_excited_dipole(dipole_tokens[0]) if dipole_tokens else None
+        if dipole_spec:
+            options.remove(dipole_tokens[0])
         job_eachState = []
         job_eachState.append({})
         option_dict = {}
@@ -1192,7 +1244,12 @@ class GaussianDFTRun:
             ReadFrom = 'xyz' 
             atm, X, Y, Z, TotalCharge, SpinMulti = read_mol_file.read_xyz(infilename)
         elif JobNameSuffix == ".chk":
-            ReadFrom = 'chk' 
+            ReadFrom = 'chk'
+            if dipole_spec:
+                with TemporaryDirectory() as folder:
+                    formatted = Path(folder) / 'input.fchk'
+                    job_timeout.run(['formchk', infilename, str(formatted)], check=True)
+                    TotalCharge, SpinMulti = gaussian_run.fchk2chk.ChargeSpin_fchk(formatted)
         elif JobNameSuffix in ('.fchk', '.fch'):
             TotalCharge, SpinMulti = gaussian_run.fchk2chk.ChargeSpin_fchk(infilename)
             ReadFrom = 'chk' 
@@ -1210,6 +1267,10 @@ class GaussianDFTRun:
             Is_SpinMultiSpec = True
             SpinMulti = self.SpecSpinMulti
 
+        input_coordinates = (atm, X, Y, Z)
+        if dipole_spec and SpinMulti != 1:
+            raise ValueError('Excited dipoles currently require a closed-shell singlet reference')
+
         if self.functional == 'ktlc-blyp-pred':
             from qcforever.gaussian_run.predict_ktlc_mu import predict_ktlc_mu
             self.functional_parameter_prediction = predict_ktlc_mu(
@@ -1225,6 +1286,11 @@ class GaussianDFTRun:
         # Setting options
         optoption = ''
         options, excited_specs = excited_options(options, 'gaussian')
+        if dipole_spec and dipole_spec[1] == 'fluor':
+            fluor_spec = excited_specs.get('fluor')
+            if fluor_spec is None or fluor_spec['state'] not in (-1, dipole_spec[0]):
+                raise ValueError('dipole=(..., geom=fluor) requires fluor for the same state')
+
         for i in range(len(options)):
             option = options[i]
             if re.match(r'^opt(?:=|$)',  option.lower()):
@@ -1405,7 +1471,9 @@ class GaussianDFTRun:
         print(f'Current dir: {pwd}')
         calculation_cache.prepare_directory(JobName, infilename)
         self._active_job_directory = Path(pwd) / JobName
-        if ReadFrom == 'chk':
+        dipole_only = dipole_spec is not None and not option_dict
+        functional_para_opt = self.functional in ('ktlc-blyp-bo', 'ktlc-wpbe-bo', 'ktlc-whpbe-bo')
+        if ReadFrom == 'chk' and (not dipole_only or functional_para_opt):
             inchkfile = JobName + '.chk'
             if JobNameSuffix in ('.fchk', '.fch'):
                 gaussian_run.fchk2chk.convert(infilename, Path(JobName) / inchkfile)
@@ -1425,9 +1493,7 @@ class GaussianDFTRun:
         job_state = ""
 
         # Setting the KTLC functionals
-        functional_para_opt = False
-        if self.functional == 'ktlc-blyp-bo' or  self.functional == 'ktlc-wpbe-bo' or self.functional == 'ktlc-whpbe-bo':
-            functional_para_opt = True
+        if functional_para_opt:
             if self.functional == 'ktlc-blyp-bo':
                 self.functional = 'lc-blyp' 
             elif self.functional == 'ktlc-wpbe-bo':
@@ -1504,7 +1570,9 @@ class GaussianDFTRun:
         else:
             pass
 
-        for i in range(len(TargetStates)):
+        fluor_checkpoint = None
+        scf_need = False
+        for i in range(0 if dipole_only else len(TargetStates)):
 
             print (f'~~~~~~~~~~~~~Computing the state/species {i}~~~~~~~~~~~~~~~~~~~')
 
@@ -1516,6 +1584,11 @@ class GaussianDFTRun:
                 targetstate = np.argmax(output_dic[0]["uv"][1]) + 1
             else:
                 targetstate = TargetStates[i]
+            if (dipole_spec and dipole_spec[1] == 'fluor' and 'fluor' in job_thisstate
+                    and targetstate != dipole_spec[0]):
+                output_dic[i].update({f'log_{i}': 'error',
+                                      f'error_{i}': 'The selected fluor state differs from the requested dipole state'})
+                break
             SpinMulti = TargetSpinMulti[i]
             TotalCharge = TargetTotalCharge[i]
             if 'pka' in job_thisstate:
@@ -1647,7 +1720,20 @@ class GaussianDFTRun:
             # When the scf is performed, the obtained wavefunction is saved to chk file.
             # But for 'symm' and 'volume' that information is emply except for when the input is chk or fchk files.
             if scf_need or ReadFrom=='chk':
-                gaussian_run.chk2fchk.Get_chklist(1)
+                if dipole_spec and dipole_spec[1] == 'fluor' and 'fluor' in job_thisstate:
+                    with Path(JobNameState + '.log').open(errors='replace') as stream:
+                        optimized = any('Optimization completed.' in line for line in stream)
+                    if not optimized:
+                        output_dic[i].update({f'log_{i}': 'error',
+                                              f'error_{i}': 'The fluorescence geometry optimization did not converge',
+                                              'failed_job': JobNameState,
+                                              'logfile': str(Path(JobNameState + '.log').resolve())})
+                        break
+                    fluor_checkpoint = Jobchk
+                if fluor_checkpoint is None:
+                    gaussian_run.chk2fchk.Get_chklist(1)
+                else:
+                    gaussian_run.chk2fchk.Get_chklist(1, keep=fluor_checkpoint)
             elif scf_need != True and ReadFrom != 'chk':
                 for f in glob.glob('./*.chk'):
                     #os.remove(os.path.join('.', f))
@@ -1702,6 +1788,36 @@ class GaussianDFTRun:
             for k in output_dic[i].keys():
                 output_sum.setdefault(k, output_dic[i][k])
             #for k in range(len(option_dict)):
+
+        if dipole_spec and all(output_sum.get(f'log_{i}') == 'normal' for i in range(len(output_dic))):
+            state, geometry = dipole_spec
+            coordinates, source, checkpoint = input_coordinates, infilename, None
+            first_index = len(TargetStates) if output_dic else 0
+            try:
+                if TargetSpinMulti[0] != 1:
+                    raise ValueError('Excited dipoles currently require a closed-shell singlet reference')
+                if geometry == 'fluor':
+                    checkpoint = fluor_checkpoint
+                    if not checkpoint or not Path(checkpoint).is_file():
+                        raise ValueError('The optimized fluorescence checkpoint is missing')
+                    coordinates, source = ([], [], [], []), Path(checkpoint).with_suffix('.log').resolve()
+                elif JobNameSuffix in ('.chk', '.fchk', '.fch'):
+                    checkpoint = f'{JobName}_Dipole_input_seed.chk'
+                    if JobNameSuffix == '.chk':
+                        shutil.copyfile(infilename, checkpoint)
+                    else:
+                        gaussian_run.fchk2chk.convert(infilename, checkpoint)
+            except job_timeout.QCforeverTimeoutError:
+                raise
+            except (OSError, ValueError, RuntimeError, CalledProcessError) as exc:
+                output_sum.update({f'log_{first_index}': 'error', f'error_{first_index}': str(exc)})
+            else:
+                self._run_excited_dipole(JobName, state, geometry, source, TargetTotalCharge[0],
+                                         coordinates, checkpoint, output_sum, first_index)
+            if geometry == 'input' and checkpoint:
+                Path(checkpoint).unlink(missing_ok=True)
+        if fluor_checkpoint and Path(fluor_checkpoint).with_suffix('.fchk').is_file():
+            Path(fluor_checkpoint).unlink(missing_ok=True)
 
         if 'optspin' in option_dict:
             output_sum['spinmulti'] = ReSpinMulti

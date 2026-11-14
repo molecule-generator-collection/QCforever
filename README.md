@@ -776,6 +776,26 @@ a console warning; the warning is also recorded in the returned summary.
 For advanced settings, set `job.conformer_config = "conformer.yaml"`;
 see [defaults.yaml](qcforever/conformer_search/defaults.yaml).
 
+### Excited-state permanent dipoles in Gaussian
+
+`dipole=(state=1, geom=input)` evaluates the S₀ and S₁ permanent dipoles
+at the supplied geometry. For example, pass a saved S₁-optimized XYZ and
+reuse its functional, basis, range-separation parameter and solvent. The
+grouped option alone runs two single-point jobs.
+
+`fluor=1 dipole=(state=1, geom=fluor)` evaluates the same pair at the
+optimized fluorescence geometry. Use the same positive root for both options.
+For a named solvent, the dipoles describe the respective equilibrium PCM
+states at the same geometry. The fluorescence and NAC jobs keep their own
+solvent settings. The excited-state single point uses `Density=Current`
+to evaluate the dipole from the relaxed TD-DFT density.
+
+The output `excited_dipole` contains `state`, `geometry`, `geometry_source`,
+`solvent`, `solvent_response`, and `unit`. Its `ground` and `excited` values
+are each `[X, Y, Z, total]` in Debye in the calculation's common coordinate
+frame. For charged molecules, individual dipoles depend on the origin.
+The grouped option currently supports a closed-shell singlet reference.
+
 ### Quadrupole output with `dipole`
 
 The `dipole` option also extracts quadrupole properties. The existing `dipole`
