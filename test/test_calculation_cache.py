@@ -2,6 +2,7 @@
 
 from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
 import pickle
 import runpy
@@ -375,7 +376,8 @@ def test_gaussian_failed_link_is_retried_without_repeating_completed_link(tmp_pa
 
 
 @pytest.mark.parametrize('backend',['gaussian','gamess'])
-def test_real_workflow_reuses_base_and_adds_only_new_stage(tmp_path,monkeypatch,backend):
+@pytest.mark.parametrize('functional', ['B3LYP', 'KTLC-BLYP-BO'])
+def test_real_workflow_reuses_base_and_adds_only_new_stage(tmp_path,monkeypatch,backend,functional):
     monkeypatch.chdir(tmp_path)
     Path('mol.xyz').write_text('2\n0 1\nH 0 0 0\nH 0 0 .74\n')
     monkeypatch.setattr(OrcaRunPack.check_resource,'respec_cores',lambda count:count)
@@ -397,12 +399,124 @@ def test_real_workflow_reuses_base_and_adds_only_new_stage(tmp_path,monkeypatch,
         monkeypatch.setattr(Exe_Gamess,'_exe_Gamess',fake)
         options=('energy','energy uv','energy uv dipole','energy uv dipole')
     monkeypatch.setattr(klass,'Extract_values',lambda *args:{'energy':[-1,0]})
+    selections = []
+
+    def tune(job, *args):
+        selections.append(1)
+        job.functional_parameter_optimization = dict(
+            state='converged', selected_mu=.35, error_ev=.005, valid_evaluations=3)
+        return [.35]
+
+    monkeypatch.setattr(klass, 'LC_para_BOopt', tune)
     for option in options:
-        job=klass('B3LYP','STO-3G',1,option,'mol.xyz')
+        job=klass(functional,'STO-3G',1,option,'mol.xyz')
         result=getattr(job,method)()
         assert result['log']=='normal',result
+        assert Path('mol/mol.pkl').is_file()
+        assert Path('mol/.qcforever').exists() == (functional == 'B3LYP')
     assert len(calls)==(2 if backend=='gaussian' else 3)
-    assert result['reuse_report']['reused']==(2 if backend=='gaussian' else 3)
+    assert len(selections) == (functional != 'B3LYP')
+    assert result['reuse_report']['reused'] == (2 if backend=='gaussian' else 3) + len(selections)
+
+
+@pytest.mark.parametrize('restart', [True, False])
+def test_gaussian_ktlc_uses_saved_checkpoint_or_rebuilds_scf(tmp_path, monkeypatch, restart):
+    monkeypatch.chdir(tmp_path)
+    Path('mol.xyz').write_text('2\n0 1\nH 0 0 0\nH 0 0 .74\n')
+    monkeypatch.setattr(GaussianRunPack.check_resource, 'respec_cores', lambda n: n)
+    monkeypatch.setattr(GaussianRunPack.check_resource, 'respec_memory', lambda **kwargs: '1GB')
+    fixture = (
+        'test\nopt lcblyp\nNumber of atoms I 2\nCharge I 0\nMultiplicity I 1\n'
+        'Atomic numbers I N= 2\n1 1\nCurrent cartesian coordinates R N= 6\n0 0 0 0 0 1.6\n'
+    )
+    calls = []
+
+    def execute(name, *args):
+        text = Path(name + '.com').read_text()
+        calls.append(text)
+        complete('gaussian', name)
+        if 'Opt=' in text:
+            path = Path(name + '.log')
+            path.write_text(' -- Stationary point found.\n' + path.read_text())
+        Path(name + '.fchk').write_text(fixture)
+        return 'normal'
+
+    monkeypatch.setattr(Exe_Gaussian, '_exe_Gaussian', execute)
+    monkeypatch.setattr(GaussianRunPack.gaussian_run.chk2fchk.job_timeout, 'run', lambda *args, **kwargs: None)
+    monkeypatch.setattr(GaussianRunPack.gaussian_run.Get_MolCoordinate_fchk, 'Get_fchklist2xyz', lambda: None)
+    monkeypatch.setattr(GaussianRunPack.GaussianDFTRun, 'Extract_values', lambda *args: {'Energy': [-1, 0]})
+    job = GaussianRunPack.GaussianDFTRun('KTLC-BLYP-BO', 'STO-3G', 1,
+                                        'opt energy', 'mol.xyz', restart=restart)
+
+    def tune(*args):
+        job.functional_parameter_optimization = dict(
+            state='converged', selected_mu=.35, error_ev=.005, valid_evaluations=3)
+        return [.35]
+
+    monkeypatch.setattr(job, 'LC_para_BOopt', tune)
+    assert job.run_gaussian()['log'] == 'normal'
+    assert bool(list(Path('mol').rglob('*.chk'))) == restart
+    assert not Path('mol/.qcforever').exists()
+    monkeypatch.setattr(job, 'LC_para_BOopt', lambda *args: pytest.fail('μ was already selected'))
+    job.value += ' uv'
+    result = job.run_gaussian()
+    assert result['log'] == 'normal'
+    assert len(calls) == (2 if restart else 3)
+    assert 'Opt=' in calls[0] and all('Opt=' not in call for call in calls[1:])
+    if not restart:
+        assert '0.846683' in calls[1]
+    assert 'TD(' in calls[-1]
+    assert not Path('mol/.qcforever').exists()
+    for path in Path('mol').glob('*.log'):
+        path.unlink()
+    assert job.run_gaussian()['reuse_report']['executed'] == 0
+    assert len(calls) == (2 if restart else 3)
+
+
+def test_ktlc_can_reopen_an_abandoned_advisory_lock(tmp_path):
+    folder = tmp_path / 'mol'
+    first = cache.CalculationCache('orca', ktlc_job='mol')
+    first.prepare(folder)
+    first.save_ktlc('tuning', {'verified': {'selected_mu': .35}})
+    # Closing the descriptor without unlinking the file simulates a killed worker.
+    os.close(first.lock_descriptor)
+    retry = cache.CalculationCache('orca', ktlc_job='mol')
+    retry.prepare(folder)
+    try:
+        assert retry.ktlc['tuning']['verified']['selected_mu'] == .35
+    finally:
+        retry.finish()
+
+
+@pytest.mark.parametrize('has_tuning_record', [True, False])
+def test_legacy_lc_stage_needs_ktlc_selection_evidence(tmp_path, monkeypatch, has_tuning_record):
+    monkeypatch.chdir(tmp_path)
+    Path('mol.xyz').write_text('2\n0 1\nH 0 0 0\nH 0 0 .74\n')
+    monkeypatch.setattr(GamessRunPack.check_resource, 'respec_cores', lambda n: n)
+    monkeypatch.setattr(GamessRunPack.check_resource, 'respec_memory', lambda **kwargs: '1GB')
+    monkeypatch.setattr(Exe_Gamess, '_exe_Gamess', lambda name, *args: complete('gamess', name))
+    monkeypatch.setattr(GamessRunPack.GamessDFTRun, 'Extract_values', lambda *args: {'energy': [-1, 0]})
+    legacy = GamessRunPack.GamessDFTRun('LC-BLYP', 'STO-3G', 1, 'energy', 'mol.xyz')
+    legacy.para_functional = [.35]
+    result = legacy.run_gamess()
+    selection = dict(state='converged', selected_mu=.35, error_ev=.005, valid_evaluations=3)
+    if has_tuning_record:
+        result['functional_parameter_optimization'] = selection
+        Path('mol/mol.pkl').write_bytes(pickle.dumps(result))
+
+    job = GamessRunPack.GamessDFTRun('KTLC-BLYP-BO', 'STO-3G', 1, 'energy uv', 'mol.xyz')
+
+    def tune(*args):
+        assert not has_tuning_record
+        job.functional_parameter_optimization = selection
+
+    monkeypatch.setattr(job, 'LC_para_BOopt', tune)
+    result = job.run_gamess()
+    assert result['log'] == 'normal'
+    steps = {step['job']: step['action'] for step in result['reuse_report']['steps']}
+    assert steps['ktlc'] == ('reused' if has_tuning_record else 'executed')
+    assert steps['mol_TD'] == 'executed'
+    assert not Path('mol/.qcforever').exists()
 
 
 def test_orca_new_property_and_failed_stage_do_not_repeat_optimization(tmp_path,monkeypatch):

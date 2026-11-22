@@ -7,7 +7,6 @@ QCforever backends, uses a process-local working directory.
 from contextlib import chdir
 import math
 from pathlib import Path
-import pickle
 import re
 import shutil
 from tempfile import TemporaryDirectory
@@ -20,7 +19,7 @@ from qcforever.conformer_search.settings import calculation_tokens, parse_confor
 from qcforever.util import check_resource, job_cleanup, job_timeout, Spectrum_similarity, UV_similarity
 from . import Exe_Orca
 from .parse_log import EH_TO_EV, parse_log
-from qcforever.util import calculation_cache
+from qcforever.util import calculation_cache, ktlc_reuse
 from qcforever.util import read_mol_file, fchk_orbitals
 from qcforever.util.calculation_options import (
     cden_fukui, ground_optimization, parse_excited_optimization, requires_hessian,
@@ -62,7 +61,7 @@ def memory_per_core(memory, nproc):
 
 class OrcaDFTRun:
     def __init__(self, functional, basis, nproc, value, in_file, solvent='0',
-                 error=0, pklsave=False, restart=True):
+                 error=0, pklsave=True, restart=True):
         self.functional = functional
         self.basis = basis
         self.nproc = check_resource.respec_cores(_integer(nproc, 'nproc', 1))
@@ -338,6 +337,13 @@ class OrcaDFTRun:
         return _integer(self.ion_multiplicities.get(key, 2 if mult == 1 else mult - 1),
                         f'{key} multiplicity', 1)
 
+    def _koopmans_trial(self, name, atoms, xyz, charge, mult, ion_mult, mu):
+        with TemporaryDirectory(prefix='trial-', dir=calculation_cache.ktlc_scratch_root()) as scratch, chdir(scratch):
+            parent = self._calculate(name, atoms, xyz, charge, mult, orbitals=True, range_mu=mu)
+            cation = self._calculate(name + '_VIP', atoms, xyz, charge + 1,
+                                     ion_mult, range_mu=mu, moread=f'{name}.gbw')
+            return (cation.energy()[0] - parent.energy()[0]) * EH_TO_EV, parent.homo() * EH_TO_EV
+
     def _tune_koopmans(self, name, atoms, xyz, charge, mult):
         """Minimize the vertical IP minus the negative HOMO at fixed geometry."""
         from bayes_opt import BayesianOptimization, UtilityFunction
@@ -354,12 +360,7 @@ class OrcaDFTRun:
             trial = {'mu': float(mu), 'jobname': trial_name}
             trials.append(trial)
             try:
-                parent = self._calculate(trial_name, atoms, xyz, charge, mult,
-                                         orbitals=True, range_mu=mu)
-                homo_ev = parent.homo() * EH_TO_EV
-                cation = self._calculate(trial_name + '_VIP', atoms, xyz, charge + 1,
-                                         ion_mult, range_mu=mu, moread=f'{trial_name}.gbw')
-                vip_ev = (cation.energy()[0] - parent.energy()[0]) * EH_TO_EV
+                vip_ev, homo_ev = self._koopmans_trial(trial_name, atoms, xyz, charge, mult, ion_mult, mu)
                 residual = vip_ev + homo_ev
                 score = -(residual ** 2)
                 if not math.isfinite(score):
@@ -477,14 +478,57 @@ class OrcaDFTRun:
                     output['conformer_search'] = {'state': 'failed', 'error': str(exc)}
                     raise RuntimeError('xTB conformer search failed: ' + str(exc)) from exc
             if str(self.functional).strip().upper() in _KTLC_FUNCTIONALS:
+                if 'optconf' not in options:
+                    summary = calculation_cache.selected_ktlc_conformer(self.in_file, charge, mult)
+                    if summary:
+                        from qcforever.conformer_search.conformer_search import read_selected_structure
+                        selected, x, y, z, *_ = read_selected_structure(summary)
+                        if selected != atoms:
+                            raise ValueError('Selected conformer atom order/composition changed')
+                        xyz = np.column_stack((x, y, z))
+                        output.update(optconf=True, conformer_search=summary)
                 tuning = {'state': 'failed', 'selection_reason': 'execution_error',
                           'selected_mu': None, 'error_ev': None}
                 output['functional_parameter_optimization'] = tuning
+
+                ion_mult = self._ion_mult('vip', mult)
+
+                def legacy(result):
+                    def render(mu):
+                        with TemporaryDirectory(prefix='ktlc-', dir=calculation_cache.ktlc_scratch_root()) as scratch, chdir(scratch):
+                            self.make_input(jobname, atoms, xyz, charge, mult, range_mu=mu,
+                                            optimize=options.get('opt'), fc=options.get('opt_fc', ''))
+                            return calculation_cache.canonical_input('orca', Path(jobname + '.inp').read_text())
+
+                    def verify(inputs, selection):
+                        vip_inputs = [text for name, text in inputs if name == jobname + '_VIP']
+                        if vip_inputs:
+                            return any(re.search(rf'^\s*\*\s*xyz\s+{charge + 1}\s+{ion_mult}\s*$',
+                                                 text, re.M | re.I) for text in vip_inputs)
+                        # Older ORCA results did not record the tuning ion's multiplicity.
+                        # Verify the selected converged point before accepting that record.
+                        mu = selection['selected_mu']
+                        trial = next((trial for trial in selection.get('trials', ())
+                                      if trial.get('mu') == mu and 'vip_ev' in trial and 'homo_ev' in trial), None)
+                        if selection['state'] != 'converged' or trial is None:
+                            return False
+                        try:
+                            vip, homo = self._koopmans_trial(jobname + '_KTLC_verify', atoms, xyz,
+                                                            charge, mult, ion_mult, mu)
+                        except (Exe_Orca.OrcaExecutionError, ValueError):
+                            return False
+                        return (abs(vip - trial['vip_ev']) <= 1e-5
+                                and abs(homo - trial['homo_ev']) <= 1e-5
+                                and abs(vip + homo) <= .01)
+
+                    return ktlc_reuse.legacy_selection(result, self, jobname, render, verify=verify)
+
                 try:
-                    # A separate working directory keeps the trial files out
-                    # of the persistent calculation cache.
-                    with TemporaryDirectory(prefix='ktlc-', dir='.') as scratch, chdir(scratch):
-                        tuning.update(self._tune_koopmans(jobname, atoms, xyz, charge, mult))
+                    tuning.update(ktlc_reuse.tune(self, str(self.functional).strip(), atoms,
+                                                  xyz, charge, mult,
+                                                  lambda: self._tune_koopmans(jobname, atoms, xyz, charge, mult),
+                                                  settings=ion_mult,
+                                                  legacy=legacy if options.get('opt_fc') != 'ReadFC' else None))
                 except job_timeout.QCforeverTimeoutError as exc:
                     tuning.update(state='timeout', selection_reason='time_limit')
                     raise job_timeout.QCforeverTimeoutError('ORCA KTLC parameter optimization timed out') from exc
@@ -652,10 +696,7 @@ class OrcaDFTRun:
                 output['jobname'] = self._active_job
                 output.setdefault('logfile', str(self._active_directory / f'{self._active_job}.log'))
             if self._active_directory:
-                if self.pklsave:
-                    with (self._active_directory / (self._jobname + '.pkl')).open('wb') as stream:
-                        pickle.dump(output, stream)
                 job_cleanup.cleanup_orca(self._active_directory, preserve_pickle=self.pklsave,
                                          preserve_restart=self.restart,
-                                         preserve_conformers=self._search_config is not None)
+                                         preserve_conformers=self._search_config is not None or output.get('optconf', False))
         return output

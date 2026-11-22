@@ -6,6 +6,7 @@ import pickle
 import re
 import shutil
 import sys
+from contextlib import chdir
 
 import numpy as np
 import pytest
@@ -249,8 +250,133 @@ def test_ktlc_uses_selected_conformer_then_applies_mu_to_properties(job, launche
     assert Path('water/water.log').is_file()
     assert not list(Path('water').rglob('*_KTLC_*'))
     assert not list(Path('water').glob('ktlc-*'))
-    assert {step['job'] for step in result['reuse_report']['steps']} == set(inputs) - {
-        name for name in inputs if '_KTLC_' in name}
+    assert {step['job'] for step in result['reuse_report']['steps']} == {
+        'ktlc', *(name for name in inputs if '_KTLC_' not in name)}
+
+
+def test_ktlc_reuses_saved_mu_and_only_runs_the_added_property(job, launcher, monkeypatch):
+    selections = []
+
+    def tune(*args):
+        selections.append(args)
+        return dict(state='converged', selected_mu=.35, error_ev=.005, valid_evaluations=3)
+
+    monkeypatch.setattr(job, '_tune_koopmans', tune)
+    job.functional = 'KTLC-PBE-BO'
+    job.value = 'opt energy'
+    initial = job.run_orca()
+    assert initial['log'] == 'normal'
+    assert not Path('water/.qcforever').exists()
+    assert Path('water/water.pkl').is_file()
+    Path('water/water_notes.log').write_text('user notes')
+
+    job.value += ' uv'
+    result = job.run_orca()
+    assert result['log'] == 'normal'
+    assert len(selections) == 1
+    assert [name for name, _ in launcher] == ['water', 'water_TD']
+    assert {s['job'] for s in result['reuse_report']['steps'] if s['action'] == 'reused'} == {'ktlc', 'water'}
+    assert not Path('water/.qcforever').exists()
+    assert Path('water/water_notes.log').read_text() == 'user notes'
+
+    job.ion_multiplicities['vip'] = 4
+    result = job.run_orca()
+    assert result['log'] == 'normal'
+    assert len(selections) == 2
+
+
+def test_ktlc_preserves_successful_pickle_during_failed_extension(job, launcher, monkeypatch):
+    monkeypatch.setattr(job, '_tune_koopmans', lambda *args: dict(
+        state='converged', selected_mu=.35, error_ev=.005, valid_evaluations=3))
+    job.functional = 'KTLC-PBE-BO'
+    assert job.run_orca()['log'] == 'normal'
+    path = Path('water/water.pkl')
+    previous = path.read_bytes()
+    original = Exe_Orca.exe_Orca
+
+    def fail(name, *args):
+        if name.endswith('_TD'):
+            raise job_timeout.QCforeverTimeoutError('Stopped during UV')
+        return original(name, *args)
+
+    monkeypatch.setattr(Exe_Orca, 'exe_Orca', fail)
+    job.value = 'energy uv'
+    assert job.run_orca()['log'] == 'timeout'
+    assert path.read_bytes() == previous
+    assert Path('water/.qcforever/ktlc.json').is_file()
+
+    monkeypatch.setattr(Exe_Orca, 'exe_Orca', original)
+    monkeypatch.setattr(job, '_tune_koopmans', lambda *args: pytest.fail('μ was already selected'))
+    assert job.run_orca()['log'] == 'normal'
+    assert [name for name, _ in launcher] == ['water', 'water_TD']
+    assert not Path('water/.qcforever').exists()
+
+
+def test_ktlc_tunes_again_after_new_conformer_and_inherits_it(job, launcher, monkeypatch):
+    from rdkit import Chem
+    from qcforever.conformer_search import conformer_search
+    from qcforever.util.calculation_cache import conformer_workflow
+
+    search_calls, tuned = [], []
+
+    @conformer_workflow
+    def search(*args):
+        search_calls.append(1)
+        water = Chem.AddHs(Chem.MolFromSmiles('O'))
+        geometry = Chem.Conformer(3)
+        for index, row in enumerate([(0, 0, 0), (0, 0, 1.02), (.92, 0, -.24)]):
+            geometry.SetAtomPosition(index, row)
+        water.AddConformer(geometry)
+        Chem.MolToMolFile(water, 'optimized_structures.sdf')
+        return {'state': 'succeeded'}
+
+    def tune(name, atoms, xyz, *args):
+        tuned.append(xyz[1, 2])
+        return dict(state='converged', selected_mu=.35, error_ev=.005, valid_evaluations=3)
+
+    monkeypatch.setattr(conformer_search, 'run_conformer_search', search)
+    monkeypatch.setattr(job, '_tune_koopmans', tune)
+    job.functional = 'KTLC-PBE-BO'
+    assert job.run_orca()['log'] == 'normal'
+    job.value = 'optconf energy uv'
+    assert job.run_orca()['log'] == 'normal'
+    job.value = 'energy uv polar'
+    result = job.run_orca()
+    assert result['log'] == 'normal' and result['optconf']
+    assert tuned == [.96, 1.02]
+    assert search_calls == [1]
+    assert [name for name, _ in launcher] == ['water', 'water', 'water_TD', 'water_polar']
+
+
+def test_ktlc_can_verify_old_orca_mu_without_a_saved_vip_stage(job, launcher, monkeypatch):
+    from qcforever.util.calculation_cache import CalculationCache
+
+    job.functional = 'KTLC-PBE-BO'
+    atoms, xyz, charge, mult = job._read_structure()
+    old = CalculationCache('orca')
+    old.prepare('water', job.in_file)
+    with chdir('water'):
+        job.make_input('water', atoms, xyz, charge, mult, optimize='normal', range_mu=.35)
+        old.run('water', Path('water.inp').read_text(),
+                lambda: Exe_Orca.exe_Orca('water'), job.executable)
+    old.finish({'log': 'normal', 'functional_parameter_optimization': dict(
+        state='converged', selected_mu=.35, error_ev=.005, valid_evaluations=3,
+        trials=[{'mu': .35, 'vip_ev': 10.005, 'homo_ev': -10.0}])}, pickle_name='water.pkl')
+
+    probes = []
+
+    def probe(name, atoms, xyz, charge, mult, ion_mult, mu):
+        probes.append((ion_mult, mu))
+        return 10.005, -10.0
+
+    monkeypatch.setattr(job, '_koopmans_trial', probe)
+    monkeypatch.setattr(job, '_tune_koopmans', lambda *args: pytest.fail('Selected μ was validated'))
+    job.value = 'opt energy uv'
+    result = job.run_orca()
+    assert result['log'] == 'normal'
+    assert probes == [(2, .35)]
+    assert [name for name, _ in launcher] == ['water', 'water_TD']
+    assert result['functional_param'] == [.35]
 
 
 def test_orca_retries_with_default_guess_when_gbw_read_fails(job, launcher, monkeypatch):

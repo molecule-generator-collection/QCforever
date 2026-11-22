@@ -5,6 +5,7 @@ import sys
 import copy
 import shutil
 import pickle
+from contextlib import chdir
 from subprocess import CalledProcessError
 
 import numpy as np
@@ -13,7 +14,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from qcforever import gaussian_run
-from qcforever.util import calculation_cache
+from qcforever.util import calculation_cache, ktlc_reuse
 from qcforever.util.calculation_options import cden_fukui, excited_options, parse_excited_dipole, requires_hessian
 from qcforever.util.fukui import condensed_fukui
 from qcforever.util.imaginary_modes import NO_STABLE_MINIMUM, StationaryPoint, follow_imaginary_modes
@@ -44,7 +45,7 @@ class GaussianDFTRun:
                 solvent=None,
                 error=0, 
                 restart=True, 
-                pklsave=False):
+                pklsave=True):
         self.in_file = str(Path(in_file).expanduser().absolute())
         self.functional = functional.lower()
         self.basis = basis.lower()
@@ -437,7 +438,8 @@ class GaussianDFTRun:
         scf='open', run_type=None, optoption='', Newinput=False, 
         Mol_atom=[], X=[], Y=[], Z=[], geom_spec=False,
         TDDFT=False, TDstate=None, target=1, nac=False,
-        readchk=None, oldchk=None, newchk=None, solvent=None, mode_scan=False, dipole_density=None):
+        readchk=None, oldchk=None, newchk=None, solvent=None, mode_scan=False, dipole_density=None,
+        precise_geometry=False):
 
         #Section for system control 
         line_system = ''
@@ -608,8 +610,10 @@ class GaussianDFTRun:
 
             if len(Mol_atom) != 0 or readchk != 'all':
                 input_s += f'{TotalCharge: 5d} {SpinMulti: 5d} \n'
+                precision = 12 if precise_geometry else 5
                 for j in range(len(Mol_atom)):
-                    input_s += f'{Mol_atom[j]:4s} {X[j]: 10.5f}  {Y[j]: 10.5f} {Z[j]: 10.5f}\n'
+                    input_s += (f'{Mol_atom[j]:4s} {X[j]: 10.{precision}f}  '
+                                f'{Y[j]: 10.{precision}f} {Z[j]: 10.{precision}f}\n')
                 input_s += '\n'
             if solvent is not None and solvent != '0':
                 input_s += SCRF_read
@@ -1079,6 +1083,24 @@ class GaussianDFTRun:
 
         return SpinMulti
 
+    def _reseed_ktlc_geometry(self, job, geometry, remaining):
+        """Rebuild the ground-state checkpoint without repeating optimization."""
+        charge, mult = geometry['charge'], geometry['multiplicity']
+        x, y, z = zip(*geometry['coordinates'])
+        destination = Path(job + '.chk').resolve()
+        with TemporaryDirectory(prefix='ktlc-scf-', dir=calculation_cache.ktlc_scratch_root()) as scratch, chdir(scratch):
+            self.make_input(job, charge, mult, run_type='', Newinput=True,
+                            Mol_atom=geometry['atoms'], X=x, Y=y, Z=z,
+                            solvent=self.solvent, precise_geometry=True)
+            status = gaussian_run.Exe_Gaussian.exe_Gaussian(job, remaining, self.error)
+            if status == 'timeout':
+                raise job_timeout.QCforeverTimeoutError(f'Gaussian timed out rebuilding {job}.chk')
+            checkpoint = Path(job + '.chk')
+            if status != 'normal' or not checkpoint.is_file():
+                return False
+            shutil.copyfile(checkpoint, destination)
+        return True
+
     def LC_para_BOopt(self, JobName, ReadFrom, atm, X, Y, Z, TotalCharge, SpinMulti):
         """Tune mu using the IP residual (eV), retaining the best valid trial."""
         from bayes_opt import BayesianOptimization
@@ -1187,11 +1209,14 @@ class GaussianDFTRun:
         self._conformer_settings = parse_conformer_options(getattr(self, 'value', ''), getattr(self, 'conformer_config', None))
         self._conformer_summary = None
         self.functional_parameter_optimization = None
+        self.functional_parameter_prediction = None
         original_directory = os.getcwd()
         self._active_job_directory = None
+        result = None
         try:
             with job_timeout.overall_timeout(self.timejob):
-                return self._run_gaussian()
+                result = self._run_gaussian()
+                return result
         except job_timeout.QCforeverTimeoutError as exc:
             print(exc)
             return {"log": "timeout", "error": str(exc)}
@@ -1201,13 +1226,16 @@ class GaussianDFTRun:
                 job_cleanup.cleanup_gaussian(
                     self._active_job_directory,
                     preserve_pickle=self.pklsave,
-                    preserve_conformers=self._conformer_settings is not None,
+                    preserve_conformers=self._conformer_summary is not None,
                     preserve_xyz=not self.restart,
+                    preserve_recovery=self.functional_parameter_optimization is not None
+                    and (result is None or result.get('log') != 'normal'),
                 )
             self._active_job_directory = None
 
     def _run_gaussian(self):
         infilename = self.in_file
+        preserve_ktlc_checkpoints = self.restart and self.functional.startswith('ktlc-')
         stable_from = Path(self.stable_from).expanduser().resolve() if self.stable_from else None
         option_line = self.value    
         from qcforever.conformer_search.settings import calculation_tokens
@@ -1492,18 +1520,10 @@ class GaussianDFTRun:
 
         job_state = ""
 
-        # Setting the KTLC functionals
+        # Keep the requested name for tuning provenance.
+        requested_functional = self.functional
         if functional_para_opt:
-            if self.functional == 'ktlc-blyp-bo':
-                self.functional = 'lc-blyp' 
-            elif self.functional == 'ktlc-wpbe-bo':
-                self.functional = 'lc-wpbe' 
-            elif self.functional == 'ktlc-whpbe-bo':
-                self.functional = 'lc-whpbe' 
-            else:
-                print('Your specified functional is not avaiable!')
-                print('Instead, we set KTLC-BLYP-BO.')
-                self.functional = 'lc-blyp' 
+            self.functional = 'lc-' + requested_functional.split('-')[1]
 
         #Scaning spin state
         if 'optspin' in option_dict:
@@ -1563,12 +1583,40 @@ class GaussianDFTRun:
                 reconf = False
                 pass
 
-        #When ktlc-blyp-bo is specified as a functionl, try to optimize mu prameter with BO
+        elif functional_para_opt:
+            self._conformer_summary = calculation_cache.selected_ktlc_conformer(
+                infilename, TotalCharge, SpinMulti)
+            if self._conformer_summary:
+                from qcforever.conformer_search.conformer_search import read_selected_structure
+                atm, X, Y, Z, _, _, Bondpair1, Bondpair2 = read_selected_structure(self._conformer_summary)
+                option_dict['optconf'] = reconf = True
+
         if functional_para_opt:
-            self.para_functional = self.LC_para_BOopt(JobName, ReadFrom, atm, X, Y, Z, TotalCharge, SpinMulti)
-            ReadFrom = 'chk'
-        else:
-            pass
+            checkpoint = Path(JobName + '.chk').resolve() if ReadFrom == 'chk' else None
+
+            def search():
+                with TemporaryDirectory(prefix='ktlc-', dir=calculation_cache.ktlc_scratch_root()) as scratch, chdir(scratch):
+                    if checkpoint is not None:
+                        shutil.copyfile(checkpoint, checkpoint.name)
+                    parameters = self.LC_para_BOopt(JobName, ReadFrom, atm, X, Y, Z, TotalCharge, SpinMulti)
+                    return ktlc_reuse.selection_from_parameters(parameters, self.functional_parameter_optimization)
+
+            def legacy(result):
+                def render(mu):
+                    with TemporaryDirectory(prefix='ktlc-', dir=calculation_cache.ktlc_scratch_root()) as scratch, chdir(scratch):
+                        self.para_functional = [mu]
+                        self.chain_job(JobName, True, {}, TotalCharge, SpinMulti, 0, ReadFrom,
+                                       element=atm, atomX=X, atomY=Y, atomZ=Z)
+                        return calculation_cache.canonical_input('gaussian', Path(JobName + '.com').read_text())
+
+                return ktlc_reuse.legacy_selection(result, self, JobName, render)
+
+            self.functional_parameter_optimization = ktlc_reuse.tune(
+                self, requested_functional, atm, zip(X, Y, Z), TotalCharge, SpinMulti, search,
+                settings=gaussian_run.ConstrainInfo_line.get_IntCoorddata(self.geom_spec) if self.geom_spec else None,
+                checkpoint=checkpoint, legacy=legacy if checkpoint is None else None)
+            mu = self.functional_parameter_optimization['selected_mu']
+            self.para_functional = [] if mu is None else [mu]
 
         fluor_checkpoint = None
         scf_need = False
@@ -1686,7 +1734,7 @@ class GaussianDFTRun:
                 if not job_thisstate:
                     scf_need = has_checkpoint
                     if has_checkpoint:
-                        gaussian_run.chk2fchk.Get_chklist(1)
+                        gaussian_run.chk2fchk.Get_chklist(0 if preserve_ktlc_checkpoints else 1)
                     output_dic[i]['log_0'] = 'normal'
                     continue
                 if has_checkpoint:
@@ -1705,7 +1753,14 @@ class GaussianDFTRun:
                                 element=atm, atomX=X, atomY=Y, atomZ=Z,
                                 optoption=optoption if i == 0 else '', TDstate_info=TDstate_info)
 
-            job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(JobNameState, self.timexe, self.error)
+            execution_options = {}
+            is_ground_optimization = (i == 0 and targetstate == 0 and 'opt' in job_thisstate
+                                      and not self.geom_spec and self.basis != 'fchk')
+            if is_ground_optimization and calculation_cache.has_gaussian_geometry():
+                execution_options['reseed'] = lambda geometry, remaining: self._reseed_ktlc_geometry(
+                    JobNameState, geometry, remaining)
+            job_state = gaussian_run.Exe_Gaussian.exe_Gaussian(
+                JobNameState, self.timexe, self.error, **execution_options)
             if job_state != 'normal':
                 logfile = str(Path(JobNameState + '.log').resolve())
                 output_dic[i].update({
@@ -1730,10 +1785,14 @@ class GaussianDFTRun:
                                               'logfile': str(Path(JobNameState + '.log').resolve())})
                         break
                     fluor_checkpoint = Jobchk
-                if fluor_checkpoint is None:
+                if preserve_ktlc_checkpoints:
+                    gaussian_run.chk2fchk.Get_chklist(0)
+                elif fluor_checkpoint is None:
                     gaussian_run.chk2fchk.Get_chklist(1)
                 else:
                     gaussian_run.chk2fchk.Get_chklist(1, keep=fluor_checkpoint)
+                if is_ground_optimization:
+                    calculation_cache.remember_gaussian_geometry(JobNameState, JobNameState + '.fchk')
             elif scf_need != True and ReadFrom != 'chk':
                 for f in glob.glob('./*.chk'):
                     #os.remove(os.path.join('.', f))
@@ -1911,12 +1970,6 @@ class GaussianDFTRun:
                     output_sum["MinEtarget"]
                     - output_sum["Energy"][0]
                 )
-
-        #Save as pickle
-        if self.pklsave:
-            result_dic = JobName+".pkl"
-            with open(result_dic, 'wb') as f:
-                pickle.dump(output_sum, f)
 
         # Convert fchk to xyz 
         if self.restart == False and scf_need == True and output_sum['log'] == 'normal':

@@ -152,9 +152,8 @@ with a budget of 52 trials in the range 0.01–1.0 bohr⁻¹. If the target is n
 reached, the best valid trial is used. If all trials fail, the workflow returns an
 error. The selected μ appears in `functional_param`, and the residual and trials
 appear in `functional_parameter_optimization`. Trial inputs, logs and restart
-files are temporary and are removed when tuning finishes or fails. Rerunning the
-workflow repeats the tuning while completed property stages remain eligible for
-reuse.
+files are temporary. The saved selection can be reused as described under
+[KTLC calculation reuse](#ktlc-calculation-reuse).
 
 The selected μ is fixed for the following structure optimizations and property
 calculations. ORCA receives it as `%method RangeSepMu`. For LC-BLYP, the LibXC
@@ -222,8 +221,8 @@ Inputs, logs, XYZ geometries, `.hess` frequency data, property text and citation
 are retained. `restart=True` (default) also retains `.gbw` orbitals;
 `restart=False` retains geometry instead. This flag controls retention, not
 optimizer resumption. The separate reuse cache retains restart data needed to
-reconstruct completed stages even when `restart=False`. `pklsave=True`
-preserves the result pickle. Errors and timeouts return `log="error"` or
+reconstruct completed stages while the cache is retained. `pklsave=True` is the
+default and preserves the result pickle. Errors and timeouts return `log="error"` or
 `log="timeout"`, partial results, and the failed/active job's diagnostic log.
 Independent molecules should run in separate Python processes.
 
@@ -330,11 +329,12 @@ must be updated. No separate model installation is needed.
   calculation directory is cleaned automatically. Gaussian keeps `.chk` and
   `.fchk` restart files together with `.com`/`.gjf` input and `.log`/`.out` output
   files. With `restart=False`, Gaussian keeps available `.xyz` output and removes
-  `.chk` and `.fchk` files from the job directory, reuse cache and job history
-  after both successful and failed runs. GAMESS first moves matching `.dat`
+  `.chk` and `.fchk` files from the job directory. Interrupted KTLC runs can
+  retain verified checkpoints in the recovery cache. GAMESS first moves matching `.dat`
   restart files from SCR/USERSCR into the calculation directory and keeps them together with `.inp` input and
   `.log`/`.out` output files.
-  If `pklsave=True`, the explicitly requested `.pkl` result is also retained.
+  All three backends save results to `.pkl` by default. Set `pklsave=False` to
+  skip writing the result pickle.
 
 - ***option*** is a string for specifying molecular properties as explained later.
 
@@ -506,7 +506,7 @@ wavefunctions and other restart files. With Gaussian `restart=False`, cleanup re
 the cache and history, so stages requiring those checkpoints are recomputed on
 the next run. Logs, records and histories still consume additional disk space.
 
-On systems with a file count limit, set `QCFOREVER_CLEANUP_CACHE=1` in the batch
+For runs that use the general calculation cache, set `QCFOREVER_CLEANUP_CACHE=1` in the batch
 script or set `job.cleanup_cache = True` before running. After the workflow
 reports normal completion with no failed stages and saves its results, QCforever
 removes `.qcforever/cache/` and clears its index. It keeps the calculation outputs,
@@ -525,8 +525,43 @@ sufficient. Records are specific to a backend; Gaussian results are never used
 as ORCA/GAMESS numerical results.
 
 Independent jobs must not write to the same molecule directory concurrently.
-`.qcforever/running.lock` records the active process. After an unclean process
-termination, check that process before removing a stale lock and retrying.
+QCforever takes a filesystem lock on `.qcforever/running.lock`, which the OS
+releases if the process exits unexpectedly. When upgrading from an older
+version with a PID-only lock, check the recorded process before removing it.
+
+#### KTLC calculation reuse
+
+Gaussian, GAMESS and ORCA can reuse a previously selected Koopmans tuning
+parameter μ. QCforever compares the requested KTLC variant, tuning geometry,
+charge, multiplicity, basis, solvent and engine settings. A converged or
+best valid evaluated μ is reused. For older runs, the saved tuning result
+must agree with a verified executed input. An LC functional and μ in a program
+log alone are insufficient to establish that a Koopmans search selected it.
+If an older ORCA result lacks the vertical ion spin multiplicity, QCforever
+can verify a converged selection with one fresh evaluation at the saved μ.
+
+After a successful KTLC workflow, the result pickle holds the tuning and
+conformer selections, physical results and references to verified stage logs
+and restart files. QCforever writes the pickle atomically and removes the
+entire `.qcforever/` working directory. The stage references do not duplicate
+wavefunction files. With `pklsave=False`, the working directory is still
+removed on success and no new result pickle is available for later reuse.
+After an error or timeout, QCforever keeps recovery data in `.qcforever/`
+and preserves the last successful result pickle.
+
+For example, change `"opt energy"` to `"opt energy uv"` on the same input to add
+UV without retuning μ. An unchanged completed request can return the saved
+physical results directly. If Gaussian checkpoints were removed with
+`restart=False`, a verified optimized geometry can seed the SCF needed by
+the additional property. Other stages are rerun when their required
+restart data cannot be verified.
+
+A completed `optconf` selection is reused for the same source and search
+settings. When extending a calculation with `reuse=True`, omitting
+`optconf` carries forward its saved selection. Adding `optconf` or changing
+its search settings runs the search before tuning; if the resulting
+geometry changes, QCforever tunes μ again. Set `job.reuse = False` for a
+fresh calculation.
 
 ### Options
 

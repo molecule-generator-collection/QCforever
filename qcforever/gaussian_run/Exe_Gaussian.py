@@ -61,7 +61,7 @@ def job_termination(proc):
         Path(f).unlink(missing_ok=True)
 
 
-def exe_Gaussian(jobname, exe_time, error=0):
+def exe_Gaussian(jobname, exe_time, error=0, *, reseed=None):
     """Execute Link1 stages separately so completed prefixes can be reused."""
     path = Path(jobname + '.com')
     original = path.read_text()
@@ -76,7 +76,7 @@ def exe_Gaussian(jobname, exe_time, error=0):
     started = time.monotonic()
     status = 'normal'
     try:
-        for part in parts:
+        for index, part in enumerate(parts):
             part = part.lstrip('\n')
             if not part.strip():
                 continue
@@ -86,9 +86,10 @@ def exe_Gaussian(jobname, exe_time, error=0):
                 break
             path.write_text(part)
             try:
+                recover = (lambda geometry: reseed(geometry, remaining)) if index == 0 and reseed else None
                 status = calculation_cache.execute(
                     'gaussian', jobname, part,
-                    lambda: _exe_Gaussian(jobname, remaining, error))
+                    lambda: _exe_Gaussian(jobname, remaining, error), recover=recover)
             finally:
                 logfile = Path(jobname + '.log')
                 if logfile.exists():

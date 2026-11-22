@@ -6,6 +6,7 @@ files are checked independently; mere file existence never establishes success.
 """
 
 from contextvars import ContextVar
+import fcntl
 from functools import wraps
 import hashlib
 import json
@@ -20,6 +21,7 @@ import uuid
 
 _active = ContextVar('qcforever_calculation_cache', default=None)
 DIRECTORY = '.qcforever'
+_KTLC_RECORD = 'ktlc_reuse'
 
 
 def _hash(path):
@@ -38,6 +40,48 @@ def _json(path, value):
         temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _pickle(path, value):
+    temporary = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
+    try:
+        with temporary.open('wb') as stream:
+            pickle.dump(value, stream, protocol=pickle.HIGHEST_PROTOCOL)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(path)
+        descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+class _ResultUnpickler(pickle.Unpickler):
+    """Read QCforever result data without instantiating arbitrary classes."""
+
+    def find_class(self, module, name):
+        original = module.replace('numpy._core.', 'numpy.core.', 1)
+        if (original, name) in {
+            ('numpy', 'dtype'), ('numpy', 'ndarray'),
+            ('numpy.core.multiarray', '_reconstruct'), ('numpy.core.multiarray', 'scalar'),
+            ('numpy.core.numeric', '_frombuffer'),
+        }:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(f'Unsupported result type {module}.{name}')
+
+
+def _read_result(path):
+    if not path.is_file() or path.is_symlink():
+        return {}
+    try:
+        with path.open('rb') as stream:
+            result = _ResultUnpickler(stream).load()
+    except (OSError, ValueError, ImportError, AttributeError, EOFError, pickle.UnpicklingError):
+        return {}
+    return result if isinstance(result, dict) else {}
 
 
 def canonical_input(backend, text):
@@ -144,7 +188,7 @@ def _required(backend, name, text):
 
 
 class CalculationCache:
-    def __init__(self, backend, enabled=True, variant=None):
+    def __init__(self, backend, enabled=True, variant=None, *, ktlc_job=None):
         if type(enabled) is not bool:
             raise ValueError('reuse must be True or False')
         self.backend, self.enabled = backend, enabled
@@ -153,7 +197,14 @@ class CalculationCache:
         self.steps = []
         self.protected = set()
         self.lock = None
+        self.lock_descriptor = None
         self.index = {'schema': 1, 'entries': {}}
+        self.ktlc_job = ktlc_job
+        self.ktlc = {}
+        self.previous_ktlc = {}
+        self.previous_result = {}
+        self.completed = {}
+        self.request_key = None
 
     def prepare(self, directory, source=None):
         directory = Path(directory).absolute()
@@ -170,14 +221,7 @@ class CalculationCache:
         state.mkdir(exist_ok=True)
         _json(marker, {'application': 'QCforever', 'schema': 1})
         lock = state / 'running.lock'
-        # Never modify a directory which may still have a running calculation.
-        try:
-            descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError as exc:
-            raise RuntimeError(f'Calculation lock exists: {lock}; check the recorded process before removing a stale lock') from exc
-        with os.fdopen(descriptor, 'w') as stream:
-            stream.write(str(os.getpid()))
-        self.lock = lock
+        self._lock_directory(lock)
         self.directory = directory
         self.state = state
         index = state / 'index.json'
@@ -191,6 +235,20 @@ class CalculationCache:
                 self.protected.add(Path(source).resolve().relative_to(directory).parts[0])
             except (ValueError, IndexError):
                 pass
+        if self.ktlc_job:
+            self.protected.add(self.ktlc_job + '.pkl')
+            self.protected.add('qcforever-history')
+            if self.enabled:
+                self.previous_result = _read_result(directory / (self.ktlc_job + '.pkl'))
+                previous = self.previous_result.get(_KTLC_RECORD)
+                if (self.previous_result.get('log') == 'normal' and isinstance(previous, dict)
+                        and previous.get('schema') == 1 and previous.get('backend') == self.backend):
+                    self.previous_ktlc = previous
+                record = state / 'ktlc.json'
+                if record.is_file():
+                    saved = json.loads(record.read_text())
+                    if saved.get('backend') == self.backend:
+                        self.ktlc = saved
         previous = [p for p in directory.iterdir() if p.name != DIRECTORY and p.name not in self.protected]
         self.legacy = None
         if previous:
@@ -200,6 +258,142 @@ class CalculationCache:
                 shutil.move(str(path), history / path.name)
             self.legacy = history
         return directory
+
+    def _lock_directory(self, path):
+        # An advisory lock is released by the OS even on scheduler cancellation.
+        # Check for a legacy PID-only lock before taking over an older directory.
+        descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if not os.path.samestat(os.fstat(descriptor), path.stat()):
+                raise BlockingIOError('Calculation directory changed while taking the lock')
+            record = os.read(descriptor, 128)
+            if record and not record.startswith(b'flock '):
+                raise BlockingIOError('Legacy PID-only lock')
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            os.write(descriptor, f'flock {os.getpid()}\n'.encode())
+            os.ftruncate(descriptor, os.lseek(descriptor, 0, os.SEEK_CUR))
+        except (BlockingIOError, FileNotFoundError) as exc:
+            os.close(descriptor)
+            raise RuntimeError(f'Calculation lock exists: {path}; check the recorded process for a legacy lock') from exc
+        except BaseException:
+            os.close(descriptor)
+            raise
+        self.lock_descriptor = descriptor
+        self.lock = path
+
+    def save_ktlc(self, section, data):
+        self.ktlc.update(schema=1, backend=self.backend)
+        self.ktlc[section] = data
+        _json(self.state / 'ktlc.json', self.ktlc)
+
+    def selected_conformer(self, source, charge, multiplicity, identity=None):
+        if not self.ktlc_job or not self.enabled:
+            return None
+        source_key = [_hash(source), int(charge), int(multiplicity)]
+        for results in (self.ktlc, self.previous_ktlc):
+            saved = results.get('conformer', {})
+            if (saved.get('source') != source_key
+                    or (identity is not None and saved['identity'] != identity)):
+                continue
+            Path('optimized_structures.sdf').write_text(saved['structure'])
+            for root in self._history_roots():
+                selected = root / 'optimized_structures.sdf'
+                details = root / 'conformer_search'
+                if (selected.is_file() and details.is_dir() and not details.is_symlink()
+                        and selected.read_text() == saved['structure']):
+                    shutil.move(details, Path.cwd() / details.name)
+                    break
+            self.save_ktlc('conformer', saved)
+            self.steps.append(dict(job='optconf', action='reused',
+                                   reason='verified KTLC conformer selection', key=saved['identity']))
+            return saved['summary'].copy()
+
+    def _saved_stage(self, key, program, required):
+        entry = self.previous_ktlc.get('stages', {}).get(key)
+        if not entry or entry['program'] != program:
+            return None
+        logfile = required[0]
+        if entry['logfile'] != logfile:
+            return None
+        for root in self._history_roots():
+            log = self._saved_log(entry, root)
+            if log is None:
+                continue
+            files = {}
+            for name, digest in entry['files'].items():
+                artifact = root / name
+                if Path(name).name == name and artifact.is_file() and _hash(artifact) == digest:
+                    files[name] = artifact
+            if all(name in files for name in required[1:]):
+                return log, files
+
+    def _history_roots(self):
+        if self.legacy is not None:
+            yield self.legacy
+        history = self.state / 'history'
+        if history.is_dir():
+            yield from (root for root in sorted(history.iterdir(), reverse=True)
+                        if root != self.legacy and root.is_dir() and not root.is_symlink())
+
+    def _saved_log(self, entry, root):
+        name = entry['logfile']
+        path = root / name
+        if Path(name).name != name or not path.is_file():
+            return None
+        with path.open('rb') as stream:
+            start, size = entry['log_range']
+            stream.seek(start)
+            log = stream.read(size)
+        if hashlib.sha256(log).hexdigest() != entry['log_hash']:
+            return None
+        if successful(self.backend, entry['input'], log.decode(errors='replace')):
+            return log
+
+    def _gaussian_reseed(self, key, program, logfile, recover):
+        entry = self.previous_ktlc.get('stages', {}).get(key)
+        geometry = self.previous_ktlc.get('gaussian_geometries', {}).get(key)
+        if geometry is None or not entry or entry['program'] != program or entry['logfile'] != logfile:
+            return None
+        for root in self._history_roots():
+            log = self._saved_log(entry, root)
+            if log is not None and b'Stationary point found' in log:
+                if recover(geometry):
+                    self.save_ktlc('gaussian_geometries', dict(
+                        self.ktlc.get('gaussian_geometries', {}), **{key: geometry}))
+                    return log
+                return None
+
+    def _finished_stages(self):
+        records = {}
+        last_logfile, combined_log = None, b''
+        artifact_hashes = {}
+        for key, (name, entry) in sorted(self.completed.items(), key=lambda stage: stage[1][0]):
+            root = self.state / entry['snapshot']
+            logfile = name + '.log'
+            saved = root / logfile
+            current = self.directory / logfile
+            if not saved.is_file() or not current.is_file():
+                continue
+            log = saved.read_bytes()
+            if logfile != last_logfile:
+                last_logfile, combined_log = logfile, current.read_bytes()
+            start = combined_log.find(log)
+            if start < 0:
+                continue
+            files = {}
+            for filename, digest in entry['files'].items():
+                artifact = self.directory / filename
+                if filename == logfile or not artifact.is_file():
+                    continue
+                if filename not in artifact_hashes:
+                    artifact_hashes[filename] = _hash(artifact)
+                if artifact_hashes[filename] == digest:
+                    files[filename] = digest
+            records[key] = dict(input=entry['input'], program=entry['program'],
+                                logfile=logfile, log_range=(start, len(log)),
+                                log_hash=entry['files'][logfile], files=files)
+        return records
 
     def _entry_ok(self, entry, program, required):
         if program is not None and entry.get('program') != program:
@@ -240,7 +434,7 @@ class CalculationCache:
             return None
         return self.legacy
 
-    def run(self, name, text, execute, executable=None, *, required_outputs=()):
+    def run(self, name, text, execute, executable=None, *, required_outputs=(), recover=None):
         if Path(name).name != name:
             raise ValueError('Calculation job names must not contain directory components')
         deps = dependencies(self.backend, text)
@@ -257,7 +451,26 @@ class CalculationCache:
                 for filename in entry['files']:
                     shutil.copyfile(self.state / entry['snapshot'] / filename, filename)
                 self.steps.append(dict(job=name, action='reused', reason=reason, key=key))
+                self.completed[key] = (name, entry)
                 return 'normal' if self.backend != 'gamess' else ''
+        if self.enabled and self.previous_ktlc:
+            saved = self._saved_stage(key, program, required)
+            if saved is not None:
+                log, files = saved
+                Path(required[0]).write_bytes(log)
+                for filename, source in files.items():
+                    shutil.copyfile(source, filename)
+                self.steps.append(dict(job=name, action='reused', reason='verified stage from the completed KTLC result', key=key))
+                self._store(key, text, program, name, required)
+                return 'normal' if self.backend != 'gamess' else ''
+            if recover is not None:
+                log = self._gaussian_reseed(key, program, required[0], recover)
+                if log is not None and all(Path(path).is_file() for path in required[1:]):
+                    Path(required[0]).write_bytes(log)
+                    self.steps.append(dict(job=name, action='reused', key=key,
+                                           reason='restored optimized geometry and rebuilt Gaussian SCF'))
+                    self._store(key, text, program, name, required)
+                    return 'normal'
         if self.enabled and entry is None:
             legacy = self._legacy_candidate(name, text, deps, required)
             if legacy is not None:
@@ -294,6 +507,7 @@ class CalculationCache:
                 and (path.name in required or (path.name.startswith(name + '.') and path.suffix in allowed))]
 
     def _store(self, key, text, program, name, required):
+        previous = self.index['entries'].get(key)
         snapshot = Path('cache') / (key + '-' + uuid.uuid4().hex[:8])
         root = self.state / snapshot
         root.mkdir(parents=True)
@@ -303,7 +517,12 @@ class CalculationCache:
             files[path.name] = _hash(root / path.name)
         self.index['entries'][key] = dict(input=text, program=program, variant=self.variant,
                                           files=files, snapshot=str(snapshot), created_ns=time.time_ns())
+        self.completed[key] = (name, self.index['entries'][key])
         _json(self.state / 'index.json', self.index)
+        if self.ktlc_job and previous:
+            old = self.state / previous['snapshot']
+            if old.resolve().is_relative_to((self.state / 'cache').resolve()) and old.is_dir():
+                shutil.rmtree(old)
 
     def _clear_cache(self):
         root = self.state / 'cache'
@@ -312,6 +531,56 @@ class CalculationCache:
         if self.index['entries']:
             self.index['entries'].clear()
             _json(self.state / 'index.json', self.index)
+
+    def _finish_ktlc(self, result, pickle_name):
+        path = self.directory / pickle_name if pickle_name else None
+        if not isinstance(result, dict):
+            return
+        last_steps = {step['job']: step['action'] for step in self.steps}
+        if (result.get('log') != 'normal' or result.get('optconf') is False
+                or 'failed' in last_steps.values()):
+            if path is not None and not path.exists():
+                _pickle(path, result)
+            return
+        if path is not None:
+            result[_KTLC_RECORD] = dict(self.ktlc, schema=1, backend=self.backend,
+                                        stages=self._finished_stages(),
+                                        request_key=self.request_key if self.ktlc.get('tuning') else None)
+            _pickle(path, result)
+        try:
+            self._preserve_history_files()
+            obsolete = self.state.with_name(DIRECTORY + '-' + uuid.uuid4().hex)
+            self.state.rename(obsolete)
+            self.lock = None
+            shutil.rmtree(obsolete)
+        except OSError as exc:
+            print(f'Could not remove KTLC recovery data in {self.directory}: {exc}', flush=True)
+
+    def _preserve_history_files(self):
+        """Keep other files a user may have placed in an existing job directory."""
+        history = self.state / 'history'
+        outputs = {'.com', '.gjf', '.inp', '.log', '.out', '.chk', '.fchk',
+                   '.xyz', '.gbw', '.hess', '.dat', '.pkl'}
+        jobs = {self.ktlc_job}
+        for entry in self.index['entries'].values():
+            jobs.update(Path(name).stem for name in entry.get('files', {}) if Path(name).suffix.lower() in outputs)
+        for entry in self.previous_ktlc.get('stages', {}).values():
+            jobs.add(Path(entry['logfile']).stem)
+            jobs.update(Path(name).stem for name in entry['files'])
+        jobs.update(job + '.readfc' for job in tuple(jobs))
+        for folder in history.iterdir() if history.is_dir() else ():
+            for path in folder.iterdir():
+                if (path.name in {'conformer_search', 'optimized_structures.sdf'}
+                        and not path.is_symlink()):
+                    continue
+                if (path.is_file() and not path.is_symlink() and path.suffix.lower() in outputs
+                        and path.stem in jobs):
+                    continue
+                destination = self.directory / path.name
+                if destination.exists() or destination.is_symlink():
+                    destination = self.directory / 'qcforever-history' / folder.name / path.name
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(path, destination)
 
     def finish(self, result=None, *, pickle_name=None, cleanup_cache=False):
         report = {'policy': 'reuse' if self.enabled else 'fresh', 'backend': self.backend,
@@ -323,10 +592,11 @@ class CalculationCache:
                 result['reuse_report'] = report
             if self.directory is not None:
                 _json(self.state / 'reuse-report.json', report)
-                if isinstance(result, dict) and pickle_name is not None:
-                    with (self.directory / pickle_name).open('wb') as stream:
-                        pickle.dump(result, stream)
-                if (cleanup_cache and isinstance(result, dict) and result.get('log') == 'normal'
+                if self.ktlc_job:
+                    self._finish_ktlc(result, pickle_name)
+                elif isinstance(result, dict) and pickle_name is not None:
+                    _pickle(self.directory / pickle_name, result)
+                if (not self.ktlc_job and cleanup_cache and isinstance(result, dict) and result.get('log') == 'normal'
                         and report['failed'] == 0):
                     try:
                         self._clear_cache()
@@ -335,6 +605,8 @@ class CalculationCache:
         finally:
             if self.lock is not None:
                 self.lock.unlink(missing_ok=True)
+            if self.lock_descriptor is not None:
+                os.close(self.lock_descriptor)
         return report
 
 
@@ -366,8 +638,19 @@ def workflow(backend):
                 cleanup_cache = os.environ.get('QCFOREVER_CLEANUP_CACHE') == '1'
             if type(cleanup_cache) is not bool:
                 raise ValueError('cleanup_cache must be True, False or None')
+            original_functional = getattr(owner, 'functional', '')
+            original_parameters = getattr(owner, 'para_functional', None)
+            functional = str(original_functional).strip().upper()
+            ktlc_job = Path(owner.in_file).stem if functional.startswith('KTLC-') else None
             session = CalculationCache(backend, getattr(owner, 'reuse', True),
-                                       getattr(owner, 'gamessversion', None) if backend == 'gamess' else None)
+                                       getattr(owner, 'gamessversion', None) if backend == 'gamess' else None,
+                                       ktlc_job=ktlc_job)
+            if ktlc_job:
+                from .ktlc_reuse import request_key, unchanged_result
+                session.request_key = request_key(owner, session)
+                saved = unchanged_result(session)
+                if saved is not None:
+                    return saved
             token = _active.set(session)
             result = None
             try:
@@ -380,16 +663,45 @@ def workflow(backend):
                         pickle_name = Path(owner.in_file).stem + '.pkl'
                     session.finish(result, pickle_name=pickle_name, cleanup_cache=cleanup_cache)
                 finally:
+                    if ktlc_job:
+                        owner.functional = original_functional
+                        owner.para_functional = original_parameters
                     _active.reset(token)
         return run
     return decorate
 
 
-def execute(backend, name, text, callback, executable=None, *, required_outputs=()):
+def execute(backend, name, text, callback, executable=None, *, required_outputs=(), recover=None):
     session = _active.get()
     if session is None or session.backend != backend or session.directory != Path.cwd():
         return callback()
-    return session.run(name, text, callback, executable, required_outputs=required_outputs)
+    return session.run(name, text, callback, executable, required_outputs=required_outputs, recover=recover)
+
+
+def remember_gaussian_geometry(name, formatted_checkpoint):
+    """Save full-precision coordinates independently of restart file retention."""
+    session = _active.get()
+    if session is None or not session.ktlc_job:
+        return
+    matches = [key for key, (job, entry) in session.completed.items()
+               if job == name and re.search(r'^\s*Opt=\(', entry['input'], re.I | re.M)]
+    if len(matches) != 1:
+        return
+    from .read_mol_file import read_fchk
+    try:
+        atoms, x, y, z, charge, mult = read_fchk(formatted_checkpoint)
+    except (OSError, ValueError):
+        return
+    geometry = dict(atoms=list(atoms), coordinates=[[float(v) for v in row] for row in zip(x, y, z)],
+                    charge=int(charge), multiplicity=int(mult))
+    geometries = session.ktlc.get('gaussian_geometries', {}).copy()
+    geometries[matches[0]] = geometry
+    session.save_ktlc('gaussian_geometries', geometries)
+
+
+def has_gaussian_geometry():
+    session = _active.get()
+    return bool(session and session.enabled and session.previous_ktlc.get('gaussian_geometries'))
 
 
 def previous_hessian(backend, name, text, executable=None):
@@ -418,15 +730,43 @@ def previous_hessian(backend, name, text, executable=None):
                 except ValueError:
                     continue
             return path
+        for entry in session.previous_ktlc.get('stages', {}).values():
+            old = entry['input']
+            artifact = name + ('.hess' if backend == 'orca' else '.dat')
+            digest = entry['files'].get(artifact)
+            if (not digest or entry['program'] != program or not calculates_hessian(backend, old)
+                    or recipe(backend, old) != expected):
+                continue
+            for root in session._history_roots():
+                path = root / artifact
+                if not path.is_file() or _hash(path) != digest or session._saved_log(entry, root) is None:
+                    continue
+                if backend == 'gamess':
+                    try:
+                        gamess_block(path.read_text())
+                    except ValueError:
+                        continue
+                return path
     raise ValueError(f'{backend} ReadFC: no verified Hessian for {name} with matching atom order, '
                      'method, basis, charge, multiplicity, solvent and excited state. '
-                     'Run this stage with FC=CalcFC or CalcAll first; keep its .qcforever directory.')
+                     'Run this stage with FC=CalcFC or CalcAll first and retain its restart files.')
 
 
 def preserve_path(directory, path):
     session = _active.get()
     return path.name == DIRECTORY or bool(session and session.directory == Path(directory).absolute()
                                           and path.name in session.protected)
+
+
+def selected_ktlc_conformer(source, charge, multiplicity):
+    session = _active.get()
+    if session is not None:
+        return session.selected_conformer(source, charge, multiplicity)
+
+
+def ktlc_scratch_root():
+    session = _active.get()
+    return session.state if session and session.ktlc_job else Path.cwd()
 
 
 def conformer_workflow(method):
@@ -443,6 +783,9 @@ def conformer_workflow(method):
                     'backend': backend, 'config': config.to_mapping(),
                     'program': _program('orca', config.relaxation.get('xtb_executable', 'xtb')) if backend == 'xtb' else _program('gaussian')}
         key = 'conformer-' + hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+        summary = session.selected_conformer(infilename, charge, multiplicity, key)
+        if summary is not None:
+            return summary
         entry = session.index['entries'].get(key)
         reason = 'no completed search with matching structure, state and settings'
         if session.enabled and entry:
@@ -460,6 +803,8 @@ def conformer_workflow(method):
                     shutil.copyfile(root / name, destination)
                 result = json.loads(Path('conformer_search/summary.json').read_text())
                 if str(result.get('state', '')).startswith('succeeded'):
+                    if session.ktlc_job:
+                        _store_ktlc_conformer(session, infilename, charge, multiplicity, key, result)
                     session.steps.append(dict(job='optconf', action='reused', reason='verified completed conformer search', key=key))
                     return result
             reason = 'conformer search outputs are incomplete or were modified'
@@ -472,6 +817,9 @@ def conformer_workflow(method):
             raise
         selected = Path('optimized_structures.sdf')
         if str(result.get('state', '')).startswith('succeeded') and selected.is_file():
+            if session.ktlc_job:
+                _store_ktlc_conformer(session, infilename, charge, multiplicity, key, result)
+                return result
             snapshot = Path('cache') / (key + '-' + uuid.uuid4().hex[:8])
             root = session.state / snapshot
             files = {}
@@ -487,3 +835,10 @@ def conformer_workflow(method):
             step['action'] = 'failed'
         return result
     return run
+
+
+def _store_ktlc_conformer(session, source, charge, multiplicity, key, summary):
+    session.save_ktlc('conformer', dict(
+        source=[_hash(source), int(charge), int(multiplicity)], identity=key,
+        structure=Path('optimized_structures.sdf').read_text(), summary=summary,
+    ))

@@ -3,14 +3,15 @@ import re
 import sys
 import math
 import shutil
-import pickle
+from contextlib import chdir
 
 import numpy as np
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from qcforever import gamess_run
-from qcforever.util import calculation_cache
+from qcforever.util import calculation_cache, ktlc_reuse
 from qcforever.util import fchk_orbitals
 from qcforever.util.calculation_options import cden_fukui, excited_options, ground_optimization, requires_hessian
 from qcforever.util.fukui import condensed_fukui
@@ -41,7 +42,7 @@ class GamessDFTRun:
                 in_file, 
                 solvent="0",
                 error=0, 
-                pklsave=False):
+                pklsave=True):
         #self.in_file = os.path.basename(in_file)
         self.in_file = str(Path(in_file).expanduser().absolute())
         self.functional = functional
@@ -622,7 +623,7 @@ class GamessDFTRun:
                     self._active_job_directory,
                     self._active_job_name,
                     preserve_pickle=self.pklsave,
-                    preserve_conformers=self._conformer_settings is not None,
+                    preserve_conformers=self._conformer_summary is not None,
                 )
             self._active_job_directory = None
             self._active_job_name = None
@@ -844,11 +845,37 @@ class GamessDFTRun:
                 reconf = False
                 pass
 
-#setting for KTLC-functional
-        if re.match('KTLC-', self.functional):
-            base_functional = self.functional.split('-')
-            self.functional = "LC-" + base_functional[1]
-            self.para_functional = self.LC_para_BOopt(jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti)
+        requested_functional = self.functional.upper()
+        if requested_functional.startswith('KTLC-'):
+            if 'optconf' not in option_dict:
+                self._conformer_summary = calculation_cache.selected_ktlc_conformer(
+                    infilename, TotalCharge, SpinMulti)
+                if self._conformer_summary:
+                    from qcforever.conformer_search.conformer_search import read_selected_structure
+                    Mol_atom, X, Y, Z, _, _, Bondpair1, Bondpair2 = read_selected_structure(self._conformer_summary)
+                    option_dict['optconf'] = reconf = True
+            self.functional = 'LC-' + requested_functional.split('-')[1]
+
+            def search():
+                with TemporaryDirectory(prefix='ktlc-', dir=calculation_cache.ktlc_scratch_root()) as scratch, chdir(scratch):
+                    parameters = self.LC_para_BOopt(jobname, Mol_atom, X, Y, Z, TotalCharge, SpinMulti)
+                    return ktlc_reuse.selection_from_parameters(parameters, self.functional_parameter_optimization)
+
+            def legacy(result):
+                def render(mu):
+                    with TemporaryDirectory(prefix='ktlc-', dir=calculation_cache.ktlc_scratch_root()) as scratch, chdir(scratch):
+                        self.para_functional = [] if mu is None else [mu]
+                        self.make_input('ENERGY', TotalCharge, SpinMulti, GamInputName,
+                                        Mol_atom, X, Y, Z, solvent=self.solvent)
+                        return calculation_cache.canonical_input('gamess', Path(GamInputName).read_text())
+
+                return ktlc_reuse.legacy_selection(result, self, jobname, render)
+
+            self.functional_parameter_optimization = ktlc_reuse.tune(
+                self, requested_functional, Mol_atom, zip(X, Y, Z), TotalCharge, SpinMulti, search,
+                legacy=legacy)
+            mu = self.functional_parameter_optimization['selected_mu']
+            self.para_functional = [] if mu is None else [mu]
 
 #setting of run type for the ground state
         if 'opt' in  option_dict:
@@ -869,9 +896,6 @@ class GamessDFTRun:
             if point.minimum_frequency < 0:
                 output = dict(log='error', error=point.properties.get('stable_error', NO_STABLE_MINIMUM), stable_0=False,
                               freq=point.frequencies, freqmode=point.modes)
-                if self.pklsave:
-                    with open(jobname + '.pkl', 'wb') as stream:
-                        pickle.dump(output, stream)
                 return output
             option_dict['energy'] = True
 
@@ -999,12 +1023,6 @@ class GamessDFTRun:
                 output_dic["log"] = 'normal' 
             else:
                 output_dic["log"] = job_state
-
-        #Save as pickle
-        if self.pklsave:
-            result_dic = jobname+".pkl"
-            with open(result_dic, 'wb') as f:
-                pickle.dump(output_dic, f)
 
         os.chdir(pwd)
 

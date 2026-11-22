@@ -37,7 +37,8 @@ def _clean_job_directory(job_directory, restart_suffixes, preserve_pickle=False,
         _remove_path(path)
 
 
-def cleanup_gaussian(job_directory, preserve_pickle=False, preserve_xyz=False, preserve_conformers=False):
+def cleanup_gaussian(job_directory, preserve_pickle=False, preserve_xyz=False,
+                     preserve_conformers=False, preserve_recovery=False):
     """Keep Gaussian inputs, logs and the selected restart format."""
     from .calculation_cache import DIRECTORY, preserve_path
 
@@ -54,7 +55,7 @@ def cleanup_gaussian(job_directory, preserve_pickle=False, preserve_xyz=False, p
         preserve_pickle=preserve_pickle,
         preserve_conformers=preserve_conformers,
     )
-    if preserve_xyz:
+    if preserve_xyz and not preserve_recovery:
         # Remove copies in retained workflow data too. Cache validation will
         # reject entries whose checkpoint files are gone.
         for name in (DIRECTORY, "conformer_search"):
