@@ -144,6 +144,10 @@ def successful(backend, text, log):
             return False
         if re.search(r'Error termination|Convergence failure', log, re.I):
             return False
+        if re.search(r'\bTD\s*=?\s*\([^)]*\bNAC\b', text, re.I):
+            from qcforever.gaussian_run.parse_log import parse_log
+            if None in parse_log.Extract_NAC(log.splitlines()):
+                return False
         density = re.search(r'\bDensity\s*=\s*(Current|SCF)\b', text, re.I)
         if density:
             root = re.search(r'\bTD\s*=?\s*\([^)]*\broot\s*=\s*(\d+)', text, re.I)

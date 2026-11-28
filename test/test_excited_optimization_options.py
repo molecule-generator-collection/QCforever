@@ -26,6 +26,24 @@ def test_excited_group_parser(token,state,fc):
     assert parse_excited_optimization(token)=={'state':state,'fc':fc}
 
 
+def test_gaussian_fluor_group_parses_nac_flag():
+    assert parse_excited_optimization('fluor=(FC=calcall, state=2, NAC)') == {
+        'state': 2, 'fc': 'CalcAll', 'nac': True,
+    }
+
+
+@pytest.mark.parametrize('token, backend', [
+    ('fluor=(nac, nac)', 'gaussian'),
+    ('fluor=(nac=true)', 'gaussian'),
+    ('tadf=(nac)', 'gaussian'),
+    ('fluor=(nac)', 'gamess'),
+    ('fluor=(nac)', 'orca'),
+])
+def test_nac_flag_requires_gaussian_fluor_group(token, backend):
+    with pytest.raises(ValueError, match='nac'):
+        parse_excited_optimization(token, backend)
+
+
 @pytest.mark.parametrize('token', [
     'fluor=', 'fluor=0', 'fluor=-2', 'fluor=1.5', 'fluor=(state=1 2)',
     'fluor=(FC=)', 'fluor=(state=)', 'fluor=(state=1,state=2)',
@@ -67,10 +85,13 @@ def gaussian_workflow(tmp_path,monkeypatch):
     def launch(name,*args):
         calls.append((name,Path(name+'.com').read_text()))
         Path(name+'.log').write_text('Normal termination of Gaussian 16\n')
+        Path(name+'.chk').write_text(name)
         return 'normal'
     monkeypatch.setattr(Exe_Gaussian,'exe_Gaussian',launch)
-    monkeypatch.setattr(chk2fchk,'Get_chklist',lambda *args:None)
+    monkeypatch.setattr(chk2fchk,'Get_chklist',lambda *args, **kwargs:None)
     def extract(self,name,options,*args):
+        if 'nac' in options:
+            return {'NAC': [.4, .1]}
         if 'fluor' in options:
             return {'MinEtarget':-74.0,'fluor':[[400],[.1]]}
         if 'tadf' in options:
@@ -120,10 +141,32 @@ def test_fc_without_ground_opt_and_out_of_order_tadf_fluor(gaussian_workflow):
     assert '_State1_3_0' in calls[2][0] and 'Opt=(CalcAll,' in calls[2][1]
 
 
-def test_nac_is_attached_to_fluor_even_after_tadf(gaussian_workflow):
-    calls=gaussian_workflow('opt=calcall fluor=(FC=CalcFC,state=2) tadf nac')
-    assert ',NAC)' in calls[1][1]
-    assert ',NAC)' not in calls[0][1]+calls[2][1]
+@pytest.mark.parametrize('options, fc', [
+    ('nac opt=calcall fluor=(FC=CalcFC,state=2) tadf', 'CalcFC'),
+    ('opt=calcfc fluor=(FC=calcall, state=2, nac) tadf', 'CalcAll'),
+    ('fluor=(FC=calcall, state=-1, NAC) nac tadf', 'CalcAll'),
+])
+def test_nac_uses_fluor_checkpoint_in_separate_job(gaussian_workflow, options, fc):
+    ground, fluor, triplet, nac = gaussian_workflow(options)
+    assert all(',NAC)' not in route for _, route in (ground, fluor, triplet))
+    assert fluor[0] == 'water_State2_1_0' and f'Opt=({fc},' in fluor[1]
+    assert nac[0] == fluor[0] + '_nac'
+    assert f'%Oldchk={fluor[0]}.chk' in nac[1]
+    assert f'%chk={nac[0]}.chk' in nac[1]
+    assert 'TD(NStates=20,Singlet,root=2,NAC)' in nac[1]
+    assert 'Geom=AllCheck Guess=Read' in nac[1]
+    assert '--Link1--' not in nac[1] and 'Opt=' not in nac[1]
+
+
+@pytest.mark.parametrize('option', ['nac', 'opt nac'])
+def test_nac_without_fluor_uses_ground_checkpoint(gaussian_workflow, option):
+    ground, nac = gaussian_workflow(option)
+    assert ground[0] == 'water_State0_1_0'
+    assert ('Opt=' in ground[1]) == option.startswith('opt')
+    assert nac[0] == 'water_State0_1_0_nac'
+    assert '%Oldchk=water_State0_1_0.chk' in nac[1]
+    assert 'Geom=AllCheck Guess=Read' in nac[1]
+    assert 'TD(NStates=20,Singlet,root=1,NAC)' in nac[1]
 
 
 @pytest.fixture
@@ -142,6 +185,8 @@ def gaussian_dipole(tmp_path, monkeypatch):
         log += 'Dipole moment (field-independent basis, Debye):\n X=1.0 Y=0.0 Z=0.0 Tot=1.0\n'
         if 'Opt=' in route:
             log += ' Optimization completed.\n'
+        if ',NAC)' in route:
+            log += ' Cartesian Nonad. Coup.: Max 0.4 RMS 0.1\n'
         if 'Density=Current' in route and name not in invalid_density:
             root = int(re.search(r'root=(\d+)', route)[1])
             log += (f' Excited State   {root}: Singlet-A\n'
@@ -171,8 +216,12 @@ def gaussian_dipole(tmp_path, monkeypatch):
     monkeypatch.setattr(chk2fchk, 'Get_chklist', format_checkpoints)
     monkeypatch.setattr(GaussianRunPack.gaussian_run.fchk2chk, 'convert', from_fchk)
     monkeypatch.setattr(GaussianRunPack.gaussian_run.fchk2chk, 'Get_fchk', restore_checkpoint)
-    monkeypatch.setattr(GaussianRunPack.GaussianDFTRun, 'Extract_values', lambda *args:
-                        {'state_index': [[1, 2], []], 'fluor': [[400], [.1]], 'NAC': [.4, .1]})
+    def extract(self, name, options, *args):
+        if 'nac' in options:
+            return {'NAC': [.4, .1]}
+        return {'state_index': [[1, 2], []], 'fluor': [[400], [.1]]}
+
+    monkeypatch.setattr(GaussianRunPack.GaussianDFTRun, 'Extract_values', extract)
 
     def run(options, solvent=None, filename='water.xyz'):
         job = GaussianRunPack.GaussianDFTRun('B3LYP', 'STO-3G', 1, options, filename,
@@ -180,6 +229,20 @@ def gaussian_dipole(tmp_path, monkeypatch):
         return job.run_gaussian()
 
     return run, calls, invalid_density
+
+
+def test_nac_alone_reads_supplied_formatted_checkpoint(gaussian_dipole):
+    run, calls, _ = gaussian_dipole
+    checkpoint = Path('Molecule_State1_1_2.fchk')
+    original = 'Charge     I   2\nMultiplicity      I   1\n'
+    checkpoint.write_text(original)
+    result = run('nac', filename=checkpoint)
+    assert result['log'] == 'normal' and result['NAC'] == [.4, .1]
+    (name, route), = calls
+    assert name == 'Molecule_State1_1_2_nac'
+    assert '%Oldchk=Molecule_State1_1_2.chk' in route
+    assert 'Geom=AllCheck Guess=Read' in route
+    assert checkpoint.read_text() == original
 
 
 def test_excited_dipole_at_saved_input_retries_missing_relaxed_density(gaussian_dipole):

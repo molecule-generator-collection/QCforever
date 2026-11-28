@@ -29,6 +29,8 @@ def request_key(owner, session):
                     variant=session.variant,
                     program=calculation_cache._program(session.backend, getattr(owner, 'executable', None)),
                     settings={name: repr(getattr(owner, name, None)) for name in names})
+    if session.backend == 'gaussian' and 'nac' in options.lower().split():
+        identity['nac_separate_job'] = True
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
 
 

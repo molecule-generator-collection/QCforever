@@ -676,20 +676,16 @@ class parse_log:
     
         return polar_tens, iso_values, aniso_values
 
-    def Extract_NAC(self, lines):
-    
-        pattern = r"Cartesian Nonad\. Coup\.\s*:\s*Max\s+([0-9.]+)\s+RMS\s+([0-9.]+)"
+    @staticmethod
+    def Extract_NAC(lines):
+        pattern = re.compile(rf"Cartesian Nonad\. Coup\.\s*:\s*Max\s+({_MOMENT_NUMBER})\s+RMS\s+({_MOMENT_NUMBER})")
 
         max_val = None
         rms_val = None
         for line in lines:
-            match = re.search(pattern, line)
+            match = pattern.search(line)
             if match:
-                print('NAC information was found!')
-                max_val = float(match.group(1))
-                rms_val = float(match.group(2))
-            else:
-                pass
+                max_val, rms_val = map(_moment_float, match.groups())
 
         return max_val, rms_val
 

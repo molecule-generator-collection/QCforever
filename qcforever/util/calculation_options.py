@@ -70,7 +70,7 @@ def parse_excited_dipole(token):
 
 
 def parse_excited_optimization(token, backend='gaussian'):
-    """Read fluor[=N] / fluor=(FC=CalcFC,state=N), likewise for tadf."""
+    """Read per-state optimization controls and Gaussian fluorescence's NAC flag."""
     key, separator, argument = token.partition('=')
     key = key.strip().lower()
     if key not in ('fluor', 'tadf'):
@@ -83,11 +83,16 @@ def parse_excited_optimization(token, backend='gaussian'):
             for item in body.split(',') if body else []:
                 field, equal, value = item.partition('=')
                 field, value = field.strip().lower(), value.strip()
-                if not equal or not value or field not in ('fc', 'state'):
-                    raise ValueError(f'Use {key}=(FC=CalcFC, state=1); supported fields are FC and state')
                 if field in values:
                     raise ValueError(f'Duplicate {key} field: {field}')
-                values[field] = value
+                if field == 'nac':
+                    if equal or key != 'fluor' or backend != 'gaussian':
+                        raise ValueError('Use bare nac in Gaussian fluor=(...)')
+                    values['nac'] = True
+                elif equal and value and field in ('fc', 'state'):
+                    values[field] = value
+                else:
+                    raise ValueError(f'Use {key}=(FC=CalcFC, state=1); supported fields are FC and state')
         else:
             values['state'] = argument
     state_text = values.get('state', '1')
@@ -109,7 +114,10 @@ def parse_excited_optimization(token, backend='gaussian'):
                          'use CalcFC, CalcAll, ReadFC, RCFC, RecalcFC=N, default or none')
     if fc == 'RCFC' and backend != 'gaussian':
         raise ValueError(f'{backend} does not support Gaussian RCFC; use ReadFC')
-    return {'state': state, 'fc': fc}
+    spec = {'state': state, 'fc': fc}
+    if 'nac' in values:
+        spec['nac'] = True
+    return spec
 
 
 def ground_optimization(argument, backend):

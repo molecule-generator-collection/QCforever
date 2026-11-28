@@ -133,6 +133,14 @@ class GaussianDFTRun:
         output = {}
 
         parse_log = gaussian_run.parse_log.parse_log(infilename)
+        if is_nac:
+            nac_max, nac_rms = parse_log.Extract_NAC(parse_log.lines)
+            if nac_max is None or nac_rms is None:
+                output['NAC_error'] = 'NAC values were not found in the Gaussian output.'
+            else:
+                output['NAC'] = [nac_max, nac_rms]
+            if len(option_dict) == 1:
+                return output
         job_index, Links_split = parse_log.Check_task()
 
         # For extracting properties of molecule after SCF        
@@ -401,19 +409,6 @@ class GaussianDFTRun:
             #   TADF_Eng = S_Eext - T_Eext
             #output["Delta(S-T)"] = TADF_Eng
 
-        if is_nac:
-            # parse_log.classify_task stores the final NAC Link1 under the
-            # uppercase ``NAC`` key and Extract_NAC returns (max, rms).
-            # Keep errors local so the fluorescence data remains serializable.
-            try:
-                nac_lines = Links_split[job_index['NAC']]
-                nac_max, nac_rms = parse_log.Extract_NAC(nac_lines)
-                if nac_max is None or nac_rms is None:
-                    raise ValueError('NAC values were not found in the NAC Link1 output.')
-                output['NAC'] = [nac_max, nac_rms]
-            except (AttributeError, IndexError, KeyError, ValueError) as error:
-                output['NAC_error'] = str(error)
-
         return output
 
     def MakeSolventLine(self):
@@ -481,6 +476,8 @@ class GaussianDFTRun:
 
         if TDDFT:
             NState = target+4 if run_type in ('opt', 'freq') or dipole_density else 20
+            if nac:
+                NState = max(NState, target)
             td_options = f'NStates={NState},root={target}'
             if TDstate is not None:
                 td_options = f'NStates={NState},{TDstate},root={target}'
@@ -623,6 +620,17 @@ class GaussianDFTRun:
 
             ofile.write(input_s)
 
+    @staticmethod
+    def _excited_state_parameters(target, multiplicity, state_indices):
+        if multiplicity == 1:
+            return 'close', 1, 'Singlet', target
+        if multiplicity == 3:
+            return 'close', 1, 'Triplet', target
+        if len(state_indices):
+            return 'open', multiplicity, None, state_indices[int(target) - 1]
+        print('No information about the target state, we set the first excited state the target.')
+        return 'open', multiplicity, None, 1
+
     def chain_job(self, JobName, scf_need, job_dict, TotalCharge, SpinMulti, targetstate,
                         ReadFrom, element=[], atomX=[], atomY=[], atomZ=[], optoption='', TDstate_info=[],
                         guess_chk=None):
@@ -655,32 +663,15 @@ class GaussianDFTRun:
 
         #For setting TD-DFT
         scf_tag='open'
-        td_tag = False
-        TDstate_tag = None 
-        run_nac = False
-        if targetstate != 0:
-            td_tag = True
-            if SpinMulti == 1:
-                TDstate_tag = 'Singlet'
-                scf_tag='close'
-            elif SpinMulti == 3:
-                SpinMulti = 1
-                TDstate_tag = 'Triplet'
-                scf_tag='close'
-            else:
-                if TDstate_info != []:
-                    targetstate =  TDstate_info[int(targetstate)-1]
-                    TDstate_tag = None 
-                else:
-                    print('No information about the target state, we set the first excited state the target.')
-                    targetstate = 1
+        td_tag = targetstate != 0
+        TDstate_tag = None
+        if td_tag:
+            scf_tag, SpinMulti, TDstate_tag, targetstate = self._excited_state_parameters(
+                targetstate, SpinMulti, TDstate_info)
 
         if 'fluor' in option_dict:
                del option_dict['fluor'] 
                option_dict['opt'] = True
-        if 'nac' in option_dict:
-                del option_dict['nac']
-                run_nac = True
         if 'tadf' in option_dict:
                del option_dict['tadf'] 
                option_dict['opt'] = True
@@ -840,15 +831,43 @@ class GaussianDFTRun:
                                 run_type='', TDDFT=True, 
                                 readchk='all', solvent=self.solvent) 
 
-            if run_nac:
-                self.make_input(
-                JobName, TotalCharge, SpinMulti, scf=scf_tag,
-                run_type='nac',
-                TDDFT=True, TDstate=TDstate_tag, target=targetstate,
-                nac=True,
-                Newinput=False, readchk='all',
-                solvent=self.solvent,
-                )
+    def _run_nac(self, checkpoint, charge, multiplicity, target, state_indices, output, index,
+                 *, override_electronic_state=False):
+        name = f'{Path(checkpoint).stem}_nac'
+        logfile = Path(name + '.log').resolve()
+        status = 'error'
+        try:
+            if not Path(checkpoint).is_file():
+                raise ValueError(f'The source checkpoint {checkpoint} is missing')
+            if target:
+                scf, multiplicity, td_state, target = self._excited_state_parameters(
+                    target, multiplicity, state_indices)
+            elif multiplicity == 1:
+                scf, td_state, target = 'close', 'Singlet', 1
+            else:
+                scf, td_state, target = 'open', None, 1
+            self.make_input(
+                name, charge, multiplicity, scf=scf, run_type='nac', TDDFT=True,
+                TDstate=td_state, target=target, nac=True, Newinput=True,
+                readchk='geomguess' if override_electronic_state else 'all',
+                oldchk=checkpoint, newchk=name + '.chk', solvent=self.solvent,
+            )
+            status = gaussian_run.Exe_Gaussian.exe_Gaussian(name, self.timexe) or 'abnormal'
+            if status != 'normal':
+                raise ValueError(f'Gaussian calculation ended with {status}')
+            result = self.Extract_values(name, {'nac': True}, [], [])
+            if 'NAC' not in result:
+                raise ValueError(result.get('NAC_error', 'NAC values were not found in the Gaussian output.'))
+            output['NAC'] = result['NAC']
+            output[f'log_{index}'] = 'normal'
+        except job_timeout.QCforeverTimeoutError:
+            raise
+        except (OSError, ValueError, IndexError) as exc:
+            message = f'{exc}; see {logfile}'
+            output.update({f'log_{index}': 'error' if status == 'normal' else status,
+                           f'error_{index}': message, 'NAC_error': message})
+            output.setdefault('failed_job', name)
+            output.setdefault('logfile', str(logfile))
 
 
     def _run_excited_dipole(self, job, state, geometry, source, charge, coordinates, checkpoint, output, first_index):
@@ -1239,7 +1258,10 @@ class GaussianDFTRun:
         stable_from = Path(self.stable_from).expanduser().resolve() if self.stable_from else None
         option_line = self.value    
         from qcforever.conformer_search.settings import calculation_tokens
-        options = calculation_tokens(option_line)
+        options, excited_specs = excited_options(calculation_tokens(option_line), 'gaussian')
+        run_nac = (excited_specs.get('fluor', {}).get('nac', False)
+                   or any(option.lower() == 'nac' for option in options))
+        options = [option for option in options if option.lower() != 'nac']
         dipole_tokens = [option for option in options if option.lower().startswith('dipole=')]
         if len(dipole_tokens) > 1:
             raise ValueError('Specify the excited dipole option only once')
@@ -1248,7 +1270,7 @@ class GaussianDFTRun:
             options.remove(dipole_tokens[0])
         job_eachState = []
         job_eachState.append({})
-        option_dict = {}
+        option_dict = {'nac': True} if run_nac else {}
         TargetStates = [0]
         TargetSpinMulti = []
         TargetTotalCharge = []
@@ -1273,7 +1295,7 @@ class GaussianDFTRun:
             atm, X, Y, Z, TotalCharge, SpinMulti = read_mol_file.read_xyz(infilename)
         elif JobNameSuffix == ".chk":
             ReadFrom = 'chk'
-            if dipole_spec:
+            if dipole_spec or run_nac:
                 with TemporaryDirectory() as folder:
                     formatted = Path(folder) / 'input.fchk'
                     job_timeout.run(['formchk', infilename, str(formatted)], check=True)
@@ -1313,7 +1335,6 @@ class GaussianDFTRun:
 
         # Setting options
         optoption = ''
-        options, excited_specs = excited_options(options, 'gaussian')
         if dipole_spec and dipole_spec[1] == 'fluor':
             fluor_spec = excited_specs.get('fluor')
             if fluor_spec is None or fluor_spec['state'] not in (-1, dipole_spec[0]):
@@ -1408,12 +1429,6 @@ class GaussianDFTRun:
                 TargetStates.append(excited_specs['fluor']['state'])
                 TargetSpinMulti.append(SpinMulti)
                 TargetTotalCharge.append(TotalCharge)
-            elif option.lower() == 'nac':
-                option_dict['nac'] = True
-                fluor_job = next((job for job in job_eachState if 'fluor' in job), None)
-                if fluor_job is None:
-                    raise ValueError("'nac' requires 'fluor' (e.g. fluor=1 nac).")
-                fluor_job['nac'] = True
             elif re.match(r'^tadf(?:=|$)', option.lower()):
                 option_dict['uv'] = True
                 job_eachState[0]['uv'] = True
@@ -1502,11 +1517,11 @@ class GaussianDFTRun:
         dipole_only = dipole_spec is not None and not option_dict
         functional_para_opt = self.functional in ('ktlc-blyp-bo', 'ktlc-wpbe-bo', 'ktlc-whpbe-bo')
         if ReadFrom == 'chk' and (not dipole_only or functional_para_opt):
-            inchkfile = JobName + '.chk'
+            working_checkpoint = Path(JobName) / (JobName + '.chk')
             if JobNameSuffix in ('.fchk', '.fch'):
-                gaussian_run.fchk2chk.convert(infilename, Path(JobName) / inchkfile)
-            else:
-                shutil.copy2(infilename, Path(JobName) / inchkfile)
+                gaussian_run.fchk2chk.convert(infilename, working_checkpoint)
+            elif p.resolve() != working_checkpoint.resolve():
+                shutil.copy2(infilename, working_checkpoint)
         os.chdir(JobName)
         print(f'Calculation dir: {os.getcwd()}')
 
@@ -1619,8 +1634,14 @@ class GaussianDFTRun:
             self.para_functional = [] if mu is None else [mu]
 
         fluor_checkpoint = None
+        nac_source = None
+        nac_at_ground_geometry = run_nac and 'fluor' not in option_dict
+        use_input_checkpoint = (nac_at_ground_geometry and ReadFrom == 'chk'
+                                and not job_eachState[0] and 'stable' not in option_dict)
+        if use_input_checkpoint:
+            nac_source = (JobName + '.chk', TotalCharge, SpinMulti, 0, [])
         scf_need = False
-        for i in range(0 if dipole_only else len(TargetStates)):
+        for i in range(0 if dipole_only or use_input_checkpoint else len(TargetStates)):
 
             print (f'~~~~~~~~~~~~~Computing the state/species {i}~~~~~~~~~~~~~~~~~~~')
 
@@ -1661,13 +1682,17 @@ class GaussianDFTRun:
             '''
 
             Jobchk = JobNameState  + '.chk' 
+            is_nac_source = run_nac and ('fluor' in job_thisstate or (i == 0 and nac_at_ground_geometry))
 
             if ReadFrom == 'chk' and i == 0:
                 inchkfile = JobName + '.chk'
                 for f in glob.glob('./*.chk'):
                     File_name = f.replace('./','')
                     if File_name == inchkfile:
-                        shutil.move(File_name, Jobchk) 
+                        if Path(File_name).resolve() == p.resolve():
+                            shutil.copy2(File_name, Jobchk)
+                        else:
+                            shutil.move(File_name, Jobchk)
                         print (f'Get the information from {File_name}')
                     else:
                         print (f'{File_name} is not suitable for this job!')
@@ -1731,10 +1756,15 @@ class GaussianDFTRun:
                 for key in ('opt', 'freq', 'energy'):
                     job_thisstate.pop(key, None)
                 has_checkpoint = Path(Jobchk).is_file()
-                if not job_thisstate:
+                if not job_thisstate and (has_checkpoint or not is_nac_source):
                     scf_need = has_checkpoint
                     if has_checkpoint:
-                        gaussian_run.chk2fchk.Get_chklist(0 if preserve_ktlc_checkpoints else 1)
+                        if is_nac_source:
+                            nac_source = (Jobchk, TotalCharge, SpinMulti, targetstate, TDstate_info)
+                        if is_nac_source and not preserve_ktlc_checkpoints:
+                            gaussian_run.chk2fchk.Get_chklist(1, keep=Jobchk)
+                        else:
+                            gaussian_run.chk2fchk.Get_chklist(0 if preserve_ktlc_checkpoints else 1)
                     output_dic[i]['log_0'] = 'normal'
                     continue
                 if has_checkpoint:
@@ -1746,7 +1776,7 @@ class GaussianDFTRun:
                     X, Y, Z = point.coordinates.T
 
             check_logfile = JobName+'.log'
-            scf_need = self.check_scf_need(job_thisstate)
+            scf_need = self.check_scf_need(job_thisstate) or is_nac_source
 
             self.chain_job(JobNameState, scf_need, job_thisstate, TotalCharge, SpinMulti,
                                 targetstate, ReadFrom,
@@ -1785,12 +1815,15 @@ class GaussianDFTRun:
                                               'logfile': str(Path(JobNameState + '.log').resolve())})
                         break
                     fluor_checkpoint = Jobchk
+                if is_nac_source:
+                    nac_source = (Jobchk, TotalCharge, SpinMulti, targetstate, TDstate_info)
+                kept_checkpoint = fluor_checkpoint or (nac_source[0] if nac_source else None)
                 if preserve_ktlc_checkpoints:
                     gaussian_run.chk2fchk.Get_chklist(0)
-                elif fluor_checkpoint is None:
+                elif kept_checkpoint is None:
                     gaussian_run.chk2fchk.Get_chklist(1)
                 else:
-                    gaussian_run.chk2fchk.Get_chklist(1, keep=fluor_checkpoint)
+                    gaussian_run.chk2fchk.Get_chklist(1, keep=kept_checkpoint)
                 if is_ground_optimization:
                     calculation_cache.remember_gaussian_geometry(JobNameState, JobNameState + '.fchk')
             elif scf_need != True and ReadFrom != 'chk':
@@ -1848,10 +1881,15 @@ class GaussianDFTRun:
                 output_sum.setdefault(k, output_dic[i][k])
             #for k in range(len(option_dict)):
 
+        first_index = len(output_dic)
+        if nac_source:
+            self._run_nac(*nac_source, output_sum, first_index,
+                          override_electronic_state=use_input_checkpoint and (Is_ChargeSpec or Is_SpinMultiSpec))
+            first_index += 1
+
         if dipole_spec and all(output_sum.get(f'log_{i}') == 'normal' for i in range(len(output_dic))):
             state, geometry = dipole_spec
             coordinates, source, checkpoint = input_coordinates, infilename, None
-            first_index = len(TargetStates) if output_dic else 0
             try:
                 if TargetSpinMulti[0] != 1:
                     raise ValueError('Excited dipoles currently require a closed-shell singlet reference')
@@ -1875,7 +1913,7 @@ class GaussianDFTRun:
                                          coordinates, checkpoint, output_sum, first_index)
             if geometry == 'input' and checkpoint:
                 Path(checkpoint).unlink(missing_ok=True)
-        if fluor_checkpoint and Path(fluor_checkpoint).with_suffix('.fchk').is_file():
+        if fluor_checkpoint and nac_source is None and Path(fluor_checkpoint).with_suffix('.fchk').is_file():
             Path(fluor_checkpoint).unlink(missing_ok=True)
 
         if 'optspin' in option_dict:

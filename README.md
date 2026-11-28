@@ -591,7 +591,7 @@ Following options are currently available:
 |aip| adiabatic ionization energy (in eV)|:white_check_mark:|:white_check_mark:|:white_check_mark:|
 |aea| adiabatic electronic affinity (in eV)|:white_check_mark:|:white_check_mark:|:white_check_mark:|
 |fluor| Fluorescence wavelengths (nm). Select a state with `fluor=N` or `fluor=(state=N)`. Gaussian also accepts independent force-constant controls, e.g. `fluor=(FC=CalcFC, state=2)`; see below.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
-|nac| Max and rms values of non adiabatic coupling vector (use with fluor option) |:white_check_mark:|||
+|nac| Maximum and RMS of the nonadiabatic coupling vector |:white_check_mark:|||
 |tadf| Compute the energy gap (in Eh) between minima in the spin-allowed and spin-forbidden states. Gaussian accepts `tadf=(FC=CalcFC, state=1)` independently of `fluor`.|:white_check_mark:|||
 |freq| Compute the variable related to the vibrational analysis of a molecule. `freq=IR.dat,Raman.dat` compares the calculated IR and Raman spectra with two-column `position intensity` reference files. For Gaussian and ORCA, an optional third NMR file (`freq=IR.dat,Raman.dat,NMR.dat`) also enables NMR and compares all three spectra. Before comparison, peaks within 1.0 cm-1 (IR/Raman) or 0.01 ppm (NMR) are merged; intensities are summed and positions are averaged.|:white_check_mark:|:white_check_mark:|:white_check_mark:|
 |pka| Compute the energy gap (in Eh) between deprotonated (A-) and protonated (AH) species. The hydrogen atom whose Mulliken charge is the biggest in the system is selected as a protic hydrogen.|:white_check_mark:|||
@@ -810,6 +810,20 @@ In low/medium/high, if only a structure with geometry/stereo warnings is availab
 a console warning; the warning is also recorded in the returned summary.
 For advanced settings, set `job.conformer_config = "conformer.yaml"`;
 see [defaults.yaml](qcforever/conformer_search/defaults.yaml).
+
+### Nonadiabatic coupling in Gaussian
+
+`nac` runs a separate TD-DFT single point for the first excited state at the
+supplied geometry. With `opt nac` it uses the optimized ground-state geometry.
+With `fluor=2 nac` it uses the optimized fluorescence geometry and root 2.
+In Gaussian, `fluor=(FC=CalcAll, state=2, nac)` also requests NAC at the
+optimized fluorescence geometry and applies `CalcAll` during the optimization.
+
+The job writes `<structure>_nac.com` and `<structure>_nac.log`. It copies the
+source checkpoint with `%Oldchk` and reads the geometry and orbital guess with
+`Geom=AllCheck Guess=Read`. A supplied `.chk`, `.fchk` or `.fch` can seed `nac`
+directly. For XYZ or SDF input, QCforever first runs an SCF calculation to
+create the source checkpoint. The `NAC` result contains `[max, rms]`.
 
 ### Excited-state permanent dipoles in Gaussian
 
