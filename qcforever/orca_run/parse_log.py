@@ -79,6 +79,27 @@ class parse_log:
             raise ValueError('Missing final Cartesian coordinates')
         return atoms, np.array(xyz)
 
+    def nac(self, expected_atoms=None):
+        """Read the final Cartesian NAC vector in atom order and inverse Bohr."""
+        block = self._block('CARTESIAN NON-ADIABATIC COUPLINGS')
+        row_pattern = re.compile(rf'\s*(\d+)\s+([A-Z][a-z]?)\s*:\s*({NUMBER})\s+({NUMBER})\s+({NUMBER})\s*')
+        atoms, vector = [], []
+        for line in block.splitlines():
+            match = row_pattern.fullmatch(line)
+            if match:
+                if int(match[1]) != len(atoms) + 1:
+                    raise ValueError(f'{self.filename}: unexpected atom index in the NAC vector')
+                atoms.append(match[2])
+                vector.append([number(value) for value in match.groups()[2:]])
+            elif vector:
+                break
+        if expected_atoms is None:
+            expected_atoms, _ = self.coordinates()
+        if not atoms or atoms != list(expected_atoms):
+            raise ValueError(f'{self.filename}: NAC vector does not match the atom order/composition')
+        return {'NAC': [self._value('MAX NAC', block), self._value('RMS NACs', block)],
+                'NAC_vector': vector, 'NAC_info': {'atoms': atoms, 'unit': 'bohr^-1'}}
+
     def _orbital_channels(self):
         block = self._block('ORBITAL ENERGIES')
         channels, rows = [], []

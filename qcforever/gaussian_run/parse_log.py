@@ -8,6 +8,7 @@ import numpy as np
 from qcforever.util.quadrupole import COMPONENTS, tensor_from_components
 
 _MOMENT_NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[DdEe][+-]?\d+)?"
+_NAC_SUMMARY = re.compile(rf"Cartesian Nonad\. Coup\.\s*:\s*Max\s+({_MOMENT_NUMBER})\s+RMS\s+({_MOMENT_NUMBER})")
 
 
 def _moment_float(value):
@@ -678,16 +679,44 @@ class parse_log:
 
     @staticmethod
     def Extract_NAC(lines):
-        pattern = re.compile(rf"Cartesian Nonad\. Coup\.\s*:\s*Max\s+({_MOMENT_NUMBER})\s+RMS\s+({_MOMENT_NUMBER})")
-
-        max_val = None
-        rms_val = None
+        summary = (None, None)
         for line in lines:
-            match = pattern.search(line)
+            match = _NAC_SUMMARY.search(line)
             if match:
-                max_val, rms_val = map(_moment_float, match.groups())
+                summary = tuple(map(_moment_float, match.groups()))
+        return summary
 
-        return max_val, rms_val
+    @staticmethod
+    def Extract_NAC_vector(lines):
+        """Read the atom-ordered Cartesian table immediately before the final NAC summary."""
+        summary = next((i for i in range(len(lines) - 1, -1, -1) if _NAC_SUMMARY.search(lines[i])), None)
+        if summary is None:
+            raise ValueError('NAC values were not found in the Gaussian output.')
+
+        heading = re.compile(r'\s*Center\s+Atomic\s+Nonadiabatic Coup\.\s*\(Bohr\^-1\)\s*', re.I)
+        start = next((i for i in range(summary - 1, -1, -1) if heading.fullmatch(lines[i])), None)
+        if start is None or summary - start < 5:
+            raise ValueError('The Gaussian Cartesian NAC vector table is missing or incomplete.')
+        separator = re.compile(r'\s*-+\s*')
+        if not all(separator.fullmatch(lines[i]) for i in (start + 2, summary - 1)):
+            raise ValueError('The Gaussian Cartesian NAC vector table is incomplete.')
+
+        row_pattern = re.compile(rf'\s*(\d+)\s+\d+\s+({_MOMENT_NUMBER})\s+({_MOMENT_NUMBER})\s+({_MOMENT_NUMBER})\s*')
+        vector = []
+        for index, line in enumerate(lines[start + 3:summary - 1], 1):
+            match = row_pattern.fullmatch(line)
+            if match is None or int(match[1]) != index:
+                raise ValueError('Invalid atom row in the Gaussian Cartesian NAC vector table.')
+            vector.append(list(map(_moment_float, match.groups()[1:])))
+
+        for line in reversed(lines[:start]):
+            if match := re.match(r'\s*NAtoms\s*=\s*(\d+)', line):
+                if len(vector) != int(match[1]):
+                    raise ValueError('The Gaussian Cartesian NAC vector does not match the atom count.')
+                break
+        if not np.isfinite(vector).all():
+            raise ValueError('Nonfinite Gaussian Cartesian NAC vector.')
+        return vector
 
     def classify_task(self, lines, charge, spinmulti):
         count = 0

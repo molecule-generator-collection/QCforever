@@ -70,7 +70,7 @@ def parse_excited_dipole(token):
 
 
 def parse_excited_optimization(token, backend='gaussian'):
-    """Read per-state optimization controls and Gaussian fluorescence's NAC flag."""
+    """Read per-state optimization controls and the optional fluorescence NAC flag."""
     key, separator, argument = token.partition('=')
     key = key.strip().lower()
     if key not in ('fluor', 'tadf'):
@@ -86,8 +86,8 @@ def parse_excited_optimization(token, backend='gaussian'):
                 if field in values:
                     raise ValueError(f'Duplicate {key} field: {field}')
                 if field == 'nac':
-                    if equal or key != 'fluor' or backend != 'gaussian':
-                        raise ValueError('Use bare nac in Gaussian fluor=(...)')
+                    if equal or key != 'fluor' or backend not in ('gaussian', 'orca'):
+                        raise ValueError('Use bare nac in fluor=(...) with Gaussian or ORCA')
                     values['nac'] = True
                 elif equal and value and field in ('fc', 'state'):
                     values[field] = value

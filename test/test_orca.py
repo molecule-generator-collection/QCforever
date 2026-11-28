@@ -35,13 +35,22 @@ def launcher(monkeypatch):
     calls = []
 
     def launch(name, *_):
-        calls.append((name, Path(f'{name}.inp').read_text()))
+        route = Path(f'{name}.inp').read_text()
+        calls.append((name, route))
         fixture = 'cation.txt' if name.endswith(('_VIP', '_AIP', '_VEA', '_AEA')) else 'water.txt'
         text = (FIXTURES / fixture).read_text()
         if name.endswith(('_TD', '_TDopt', '_Emission')):
             text += '\n' + (FIXTURES / 'tddft.txt').read_text()
         if name.endswith(('_AIP', '_AEA')):
             text += '\nTHE OPTIMIZATION HAS CONVERGED\n'
+        if 'NACME true' in route:
+            text += ('\nCARTESIAN NON-ADIABATIC COUPLINGS\n'
+                     '         <GS|d/dx|ES>\n'
+                     '      with built-in ETFs\n'
+                     ' 1 O :  -3.0D-1   0.0   0.0\n'
+                     ' 2 H :   0.2      0.0   0.0\n'
+                     ' 3 H :   0.1      0.0   0.0\n'
+                     '\nRMS NACs ... 0.1247219129\nMAX NAC ... 0.3\n')
         Path(f'{name}.log').write_text(text)
         Path(f'{name}.gbw').write_text('checkpoint')
         Path(f'{name}.tmp').write_text('temporary')
@@ -107,7 +116,7 @@ def test_invalid_memory_is_rejected(value):
 
 
 @pytest.mark.parametrize('options', ['KTLC-BLYP-Pred', 'optconf=pm6',
-    'optconf=(conf_relax=pm6)', 'stable=anything', 'opt=bad', 'energy=anything', 'uv=', 'nac'])
+    'optconf=(conf_relax=pm6)', 'stable=anything', 'opt=bad', 'energy=anything', 'uv=', 'nac=2'])
 def test_unsupported_requests_do_not_launch(job, launcher, options):
     if options.startswith('KTLC'):
         job.functional = options
@@ -159,6 +168,74 @@ def test_complete_workflow_uses_optimized_geometry_and_keeps_electronic_state(jo
     assert not Path('water/water.tmp').exists()
     with Path('water/water.pkl').open('rb') as stream:
         assert pickle.load(stream) == result
+
+
+@pytest.mark.parametrize('options, source, root', [
+    ('nac', 'water', 1),
+    ('opt nac', 'water', 1),
+    ('fluor nac', 'water_TDopt', 1),
+    ('fluor=(state=2, nac)', 'water_TDopt', 2),
+    ('nac fluor=(state=2, nac)', 'water_TDopt', 2),
+])
+def test_nac_uses_source_geometry_and_orbitals(job, launcher, options, source, root):
+    job.value = options
+    result = job.run_orca()
+    assert result['log'] == 'normal', result
+    assert result['NAC'] == [0.3, 0.1247219129]
+    assert result['NAC_vector'] == [[-.3, 0., 0.], [.2, 0., 0.], [.1, 0., 0.]]
+    assert result['NAC_info'] == {'unit': 'bohr^-1', 'atoms': ['O', 'H', 'H'], 'root': root}
+    (name, route), = [(name, route) for name, route in launcher if 'NACME true' in route]
+    assert name == source + '_nac'
+    assert f'%moinp "{source}.gbw"' in route
+    assert f'IRoot {root}' in route and 'ETF true' in route and 'TDA false' in route
+    assert ' Opt' not in route
+    if options == 'nac':
+        assert 'H 0.920000000000' in route
+    else:
+        assert '-0.052317' in route
+
+
+def test_nac_uses_root_tracked_during_fluorescence_optimization(job, launcher, monkeypatch):
+    job.value = 'fluor=(state=2, nac)'
+    launch = Exe_Orca.exe_Orca
+
+    def follow_root(name, *args):
+        status = launch(name, *args)
+        if name.endswith('_TDopt'):
+            log = Path(f'{name}.log')
+            log.write_text(log.read_text() + '\nThe IROOT now is:             ... 2\n'
+                           'The IROOT now is:             ... 1\n')
+        return status
+
+    monkeypatch.setattr(Exe_Orca, 'exe_Orca', follow_root)
+    result = job.run_orca()
+    assert result['log'] == 'normal', result
+    assert result['fluor_state']['root'] == result['NAC_info']['root'] == 1
+    inputs = dict(launcher)
+    assert 'IRoot 2' in inputs['water_TDopt']
+    assert 'IRoot 1' in inputs['water_TDopt_nac']
+
+
+def test_incomplete_nac_is_retried(job, launcher, monkeypatch):
+    job.value = 'nac'
+    launch = Exe_Orca.exe_Orca
+
+    def incomplete(name, *args):
+        status = launch(name, *args)
+        if name.endswith('_nac'):
+            log = Path(f'{name}.log')
+            log.write_text(log.read_text().replace(' 3 H :   0.1      0.0   0.0\n', ''))
+        return status
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Exe_Orca, 'exe_Orca', incomplete)
+        failed = job.run_orca()
+    assert failed['log'] == 'error' and failed['jobname'] == 'water_nac'
+    assert failed['reuse_report']['failed'] == 1
+    recovered = job.run_orca()
+    assert recovered['log'] == 'normal', recovered
+    assert recovered['reuse_report']['reused'] == 1
+    assert [name for name, _ in launcher] == ['water', 'water_nac', 'water_nac']
 
 
 def test_conformer_search_uses_xtb_and_preserves_charge_and_spin(job, launcher, monkeypatch):

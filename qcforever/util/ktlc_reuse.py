@@ -45,6 +45,9 @@ def unchanged_result(session):
     if (result.get('log') != 'normal' or saved.get('request_key') != session.request_key
             or not valid_selection(session.backend, result.get('functional_parameter_optimization'))):
         return None
+    if session.backend == 'gaussian' and 'NAC' in result and 'NAC_vector' not in result:
+        # Re-extract NAC properties from the saved stage when the old pickle has only the summary.
+        return None
     steps = [dict(step, action='reused', reason='matching completed KTLC request in the result pickle')
              for step in result['reuse_report']['steps']]
     result['reuse_report'] = dict(policy='reuse', backend=session.backend,

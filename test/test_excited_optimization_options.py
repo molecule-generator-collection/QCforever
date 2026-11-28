@@ -7,10 +7,39 @@ import pytest
 
 from qcforever.conformer_search.settings import calculation_tokens, parse_conformer_options
 from qcforever.util.calculation_options import parse_excited_optimization, excited_options
-from qcforever.util import check_resource
+from qcforever.util import calculation_cache, check_resource
 from qcforever.gaussian_run import GaussianRunPack, Exe_Gaussian, chk2fchk
+from qcforever.gaussian_run.parse_log import parse_log
 from qcforever.gamess_run import GamessRunPack
 from qcforever.orca_run import OrcaRunPack
+
+
+NAC_LOG = """ NAtoms=    3 NActive=    3
+ -------------------------------------------------------------------
+ Center     Atomic                Nonadiabatic Coup. (Bohr^-1)
+ Number     Number              X              Y              Z
+ -------------------------------------------------------------------
+      1        8          -3.000000000D-01  0.000000000    0.100000000
+      2        1           0.100000000     0.000000000    0.000000000
+      3        1           0.200000000     0.000000000   -0.100000000
+ -------------------------------------------------------------------
+ Cartesian Nonad. Coup.:  Max     0.300000000 RMS     0.133333333
+"""
+
+
+def test_gaussian_nac_vector_comes_from_last_table():
+    previous = NAC_LOG.replace('-3.000000000D-01', '3.000000000D-01')
+    assert parse_log.Extract_NAC_vector((previous + NAC_LOG).splitlines()) == [
+        [-.3, 0., .1], [.1, 0., 0.], [.2, 0., -.1],
+    ]
+
+
+def test_gaussian_nac_cache_requires_a_complete_vector():
+    route = '#rb3lyp/sto-3g TD(NStates=5,Singlet,root=1,NAC)'
+    log = NAC_LOG + ' Normal termination of Gaussian 16\n'
+    assert calculation_cache.successful('gaussian', route, log)
+    incomplete = log.replace('      3        1           0.200000000     0.000000000   -0.100000000\n', '')
+    assert not calculation_cache.successful('gaussian', route, incomplete)
 
 
 @pytest.mark.parametrize('token,state,fc', [
@@ -26,8 +55,9 @@ def test_excited_group_parser(token,state,fc):
     assert parse_excited_optimization(token)=={'state':state,'fc':fc}
 
 
-def test_gaussian_fluor_group_parses_nac_flag():
-    assert parse_excited_optimization('fluor=(FC=calcall, state=2, NAC)') == {
+@pytest.mark.parametrize('backend', ['gaussian', 'orca'])
+def test_fluor_group_parses_nac_flag(backend):
+    assert parse_excited_optimization('fluor=(FC=calcall, state=2, NAC)', backend) == {
         'state': 2, 'fc': 'CalcAll', 'nac': True,
     }
 
@@ -37,9 +67,8 @@ def test_gaussian_fluor_group_parses_nac_flag():
     ('fluor=(nac=true)', 'gaussian'),
     ('tadf=(nac)', 'gaussian'),
     ('fluor=(nac)', 'gamess'),
-    ('fluor=(nac)', 'orca'),
 ])
-def test_nac_flag_requires_gaussian_fluor_group(token, backend):
+def test_nac_flag_requires_valid_fluor_group(token, backend):
     with pytest.raises(ValueError, match='nac'):
         parse_excited_optimization(token, backend)
 
@@ -83,15 +112,18 @@ def gaussian_workflow(tmp_path,monkeypatch):
     Path('water.xyz').write_text('3\n0 1\nO 0 0 0\nH 0 0 .96\nH .92 0 -.24\n')
     calls=[]
     def launch(name,*args):
-        calls.append((name,Path(name+'.com').read_text()))
-        Path(name+'.log').write_text('Normal termination of Gaussian 16\n')
+        route = Path(name+'.com').read_text()
+        calls.append((name,route))
+        log = NAC_LOG if ',NAC)' in route else ''
+        Path(name+'.log').write_text(log + 'Normal termination of Gaussian 16\n')
         Path(name+'.chk').write_text(name)
         return 'normal'
     monkeypatch.setattr(Exe_Gaussian,'exe_Gaussian',launch)
     monkeypatch.setattr(chk2fchk,'Get_chklist',lambda *args, **kwargs:None)
+    extract_values = GaussianRunPack.GaussianDFTRun.Extract_values
     def extract(self,name,options,*args):
         if 'nac' in options:
-            return {'NAC': [.4, .1]}
+            return extract_values(self, name, options, *args)
         if 'fluor' in options:
             return {'MinEtarget':-74.0,'fluor':[[400],[.1]]}
         if 'tadf' in options:
@@ -186,7 +218,7 @@ def gaussian_dipole(tmp_path, monkeypatch):
         if 'Opt=' in route:
             log += ' Optimization completed.\n'
         if ',NAC)' in route:
-            log += ' Cartesian Nonad. Coup.: Max 0.4 RMS 0.1\n'
+            log += NAC_LOG
         if 'Density=Current' in route and name not in invalid_density:
             root = int(re.search(r'root=(\d+)', route)[1])
             log += (f' Excited State   {root}: Singlet-A\n'
@@ -216,9 +248,10 @@ def gaussian_dipole(tmp_path, monkeypatch):
     monkeypatch.setattr(chk2fchk, 'Get_chklist', format_checkpoints)
     monkeypatch.setattr(GaussianRunPack.gaussian_run.fchk2chk, 'convert', from_fchk)
     monkeypatch.setattr(GaussianRunPack.gaussian_run.fchk2chk, 'Get_fchk', restore_checkpoint)
+    extract_values = GaussianRunPack.GaussianDFTRun.Extract_values
     def extract(self, name, options, *args):
         if 'nac' in options:
-            return {'NAC': [.4, .1]}
+            return extract_values(self, name, options, *args)
         return {'state_index': [[1, 2], []], 'fluor': [[400], [.1]]}
 
     monkeypatch.setattr(GaussianRunPack.GaussianDFTRun, 'Extract_values', extract)
@@ -237,7 +270,8 @@ def test_nac_alone_reads_supplied_formatted_checkpoint(gaussian_dipole):
     original = 'Charge     I   2\nMultiplicity      I   1\n'
     checkpoint.write_text(original)
     result = run('nac', filename=checkpoint)
-    assert result['log'] == 'normal' and result['NAC'] == [.4, .1]
+    assert result['log'] == 'normal' and result['NAC'] == [.3, .133333333]
+    assert result['NAC_vector'] == [[-.3, 0., .1], [.1, 0., 0.], [.2, 0., -.1]]
     (name, route), = calls
     assert name == 'Molecule_State1_1_2_nac'
     assert '%Oldchk=Molecule_State1_1_2.chk' in route

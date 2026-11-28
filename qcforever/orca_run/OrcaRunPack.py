@@ -105,8 +105,9 @@ class OrcaDFTRun:
                               self.value)
         search_value = re.sub(r'(?i)(?<!\S)optconf(?=\s|$)', 'optconf=xtb', search_value)
         options, references = {}, {}
+        fluor_nac = False
         supported = {'energy', 'opt', 'homolumo', 'dipole', 'cden', 'vip', 'vea',
-                     'aip', 'aea', 'uv', 'fluor', 'freq', 'polar', 'nmr', 'optconf', 'stable'}
+                     'aip', 'aea', 'uv', 'fluor', 'nac', 'freq', 'polar', 'nmr', 'optconf', 'stable'}
         for token in calculation_tokens(search_value):
             key, separator, argument = token.partition('=')
             key = key.lower()
@@ -128,6 +129,7 @@ class OrcaDFTRun:
                 spec = parse_excited_optimization(token, 'orca')
                 options[key] = spec['state']
                 options['fluor_fc'] = spec['fc']
+                fluor_nac = spec.get('nac', False)
             elif key == 'cden':
                 options[key] = True
                 if cden_fukui(token):
@@ -145,6 +147,8 @@ class OrcaDFTRun:
                 if separator:
                     raise ValueError(f'{key} does not accept an argument')
                 options[key] = True
+        if fluor_nac:
+            options['nac'] = True
         if not options:
             raise ValueError('Specify at least one ORCA calculation option')
         if 'stable' in options:
@@ -202,10 +206,12 @@ class OrcaDFTRun:
         return atoms, xyz, charge, mult
 
     def make_input(self, jobname, atoms, xyz, charge, multiplicity, *, optimize=None,
-                   td=False, root=None, freq=False, polar=False, nmr=False,
+                   td=False, root=None, nac=False, freq=False, polar=False, nmr=False,
                    dipole=False, orbitals=False, moread=None, fc='', range_mu=None, mode_scan=False):
         if fc and not optimize:
             raise ValueError('FC requires an optimization')
+        if nac and (not td or root is None or optimize):
+            raise ValueError('ORCA NAC requires a TD-DFT single point with an excited-state root')
         functional = _token(self.functional, 'functional')
         ktlc_base = _KTLC_FUNCTIONALS.get(functional.upper())
         if ktlc_base:
@@ -275,7 +281,11 @@ class OrcaDFTRun:
             nroots = max(_integer(self.nstates, 'nstates', 1), root or 1)
             lines.extend(['%tddft', f' NRoots {nroots}', ' TDA false'])
             if root is not None:
-                lines.extend([f' IRoot {root}', ' FollowIRoot true'])
+                lines.append(f' IRoot {root}')
+                if not nac:
+                    lines.append(' FollowIRoot true')
+            if nac:
+                lines.extend([' NACME true', ' ETF true'])
             lines.append('end')
         if dipole or polar or freq:
             lines.extend(['%elprop', ' Origin CenterOfMass', ' Dipole true'])
@@ -541,7 +551,7 @@ class OrcaDFTRun:
             guess = self._fchk_orbitals.orca_gbw(self.executable, jobname+'_fchk_guess') if self._fchk_orbitals else None
             ground = self._calculate(jobname, atoms, xyz, charge, mult, moread=guess,
                                       require_moread=self._fchk_orbitals is not None,
-                                      require_gbw='stable' in options,
+                                      require_gbw='stable' in options or ('nac' in options and 'fluor' not in options),
                                       optimize=options.get('opt'), fc=options.get('opt_fc', ''))
             ground_gbw = f'{jobname}.gbw'
             if 'opt' in options:
@@ -643,10 +653,11 @@ class OrcaDFTRun:
                 excited_name = jobname + '_TDopt'
                 excited = self._calculate(excited_name, atoms, xyz, charge, mult,
                                           td=True, root=root, optimize='normal',
-                                          fc=options.get('fluor_fc', ''), moread=ground_gbw)
+                                          fc=options.get('fluor_fc', ''), moread=ground_gbw,
+                                          require_gbw='nac' in options)
                 ex_atoms, ex_xyz = excited.coordinates()
                 self._write_xyz(excited_name, ex_atoms, ex_xyz, charge, mult)
-                followed = re.findall(r'The IROOT now is\s*:\s*(\d+)', excited.text, re.I)
+                followed = re.findall(r'The IROOT now is\s*:\s*(?:\.{3}\s*)?(\d+)', excited.text, re.I)
                 root = int(followed[-1]) if followed else root
                 emission = self._calculate(jobname + '_Emission', ex_atoms, ex_xyz, charge, mult,
                                            td=True, moread=f'{excited_name}.gbw')
@@ -657,6 +668,17 @@ class OrcaDFTRun:
                 output['fluor'] = [[v for _, v, _ in transitions], [v for _, _, v in transitions]]
                 output['fluor_state'] = {'root': root, 'wavelength_nm': selected[1],
                                           'oscillator_strength': selected[2]}
+            if 'nac' in options:
+                if 'fluor' in options:
+                    source, nac_atoms, nac_xyz, nac_root = excited_name, ex_atoms, ex_xyz, root
+                else:
+                    source, nac_atoms, nac_xyz, nac_root = jobname, atoms, xyz, 1
+                nac_log = self._calculate(source + '_nac', nac_atoms, nac_xyz, charge, mult,
+                                          td=True, root=nac_root, nac=True,
+                                          moread=source + '.gbw', require_moread=True)
+                nac_result = nac_log.nac(nac_atoms)
+                nac_result['NAC_info']['root'] = nac_root
+                output.update(nac_result)
             if 'freq' in options or stable_vibration is not None:
                 if stable_vibration is None:
                     vibration = self._calculate(jobname + '_freq', atoms, xyz, charge, mult, freq=True)

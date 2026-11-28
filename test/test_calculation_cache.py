@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from qcforever.util import calculation_cache as cache
+from qcforever.util import ktlc_reuse
 from qcforever.gaussian_run import Exe_Gaussian, GaussianRunPack
 from qcforever.gamess_run import Exe_Gamess, GamessRunPack
 from qcforever.orca_run import OrcaRunPack, Exe_Orca
@@ -54,6 +55,26 @@ def complete(backend, name='mol'):
         return ''
     Path(name + '.log').write_text(ORCA_LOG.read_text())
     return 'normal'
+
+
+def test_gaussian_ktlc_only_reuses_nac_result_with_vector(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    folder = tmp_path / 'mol'
+    folder.mkdir()
+    session = cache.CalculationCache('gaussian', ktlc_job='mol')
+    session.request_key = 'same-request'
+    result = {
+        'log': 'normal', 'NAC': [.2, .1],
+        'functional_parameter_optimization': {'state': 'converged', 'selected_mu': .3,
+                                              'error_ev': .005, 'valid_evaluations': 1},
+        'ktlc_reuse': {'request_key': session.request_key}, 'reuse_report': {'steps': []},
+    }
+    saved = folder / 'mol.pkl'
+    saved.write_bytes(pickle.dumps(result))
+    assert ktlc_reuse.unchanged_result(session) is None
+    result['NAC_vector'] = [[.2, 0., 0.], [-.2, 0., 0.]]
+    saved.write_bytes(pickle.dumps(result))
+    assert ktlc_reuse.unchanged_result(session)['NAC_vector'] == result['NAC_vector']
 
 
 @pytest.mark.parametrize('backend', ['gaussian', 'gamess', 'orca'])

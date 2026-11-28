@@ -139,6 +139,10 @@ class GaussianDFTRun:
                 output['NAC_error'] = 'NAC values were not found in the Gaussian output.'
             else:
                 output['NAC'] = [nac_max, nac_rms]
+                try:
+                    output['NAC_vector'] = parse_log.Extract_NAC_vector(parse_log.lines)
+                except ValueError as error:
+                    output['NAC_error'] = str(error)
             if len(option_dict) == 1:
                 return output
         job_index, Links_split = parse_log.Check_task()
@@ -856,9 +860,9 @@ class GaussianDFTRun:
             if status != 'normal':
                 raise ValueError(f'Gaussian calculation ended with {status}')
             result = self.Extract_values(name, {'nac': True}, [], [])
-            if 'NAC' not in result:
-                raise ValueError(result.get('NAC_error', 'NAC values were not found in the Gaussian output.'))
-            output['NAC'] = result['NAC']
+            output.update(result)
+            if 'NAC_vector' not in result:
+                raise ValueError(result.get('NAC_error', 'The Gaussian Cartesian NAC vector is missing.'))
             output[f'log_{index}'] = 'normal'
         except job_timeout.QCforeverTimeoutError:
             raise

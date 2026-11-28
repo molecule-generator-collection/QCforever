@@ -134,7 +134,9 @@ def successful(backend, text, log):
                 parsed.polar()
             if re.search(r'\bNMR\b', text, re.I):
                 parsed.shielding()
-            if re.search(r'%tddft\b', text, re.I):
+            if re.search(r'\bNACME\s+true\b', text, re.I):
+                parsed.nac()
+            elif re.search(r'%tddft\b', text, re.I):
                 parsed.transitions()
         except (ValueError, IndexError):
             return False
@@ -146,7 +148,9 @@ def successful(backend, text, log):
             return False
         if re.search(r'\bTD\s*=?\s*\([^)]*\bNAC\b', text, re.I):
             from qcforever.gaussian_run.parse_log import parse_log
-            if None in parse_log.Extract_NAC(log.splitlines()):
+            try:
+                parse_log.Extract_NAC_vector(log.splitlines())
+            except ValueError:
                 return False
         density = re.search(r'\bDensity\s*=\s*(Current|SCF)\b', text, re.I)
         if density:
